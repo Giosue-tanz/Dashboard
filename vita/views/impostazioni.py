@@ -6,15 +6,19 @@ import os
 import shutil
 from datetime import datetime
 
-from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDoubleSpinBox, QFileDialog,
-                               QFormLayout, QHBoxLayout, QHeaderView, QLabel,
-                               QLineEdit, QMessageBox, QPushButton, QScrollArea,
-                               QSpinBox, QTabWidget, QTableWidget,
-                               QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtCore import QObject, Qt, QTime, Signal
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
+                               QFileDialog, QFormLayout, QHBoxLayout, QHeaderView,
+                               QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
+                               QPushButton, QScrollArea, QSpinBox, QTabWidget,
+                               QTableWidget, QTableWidgetItem, QTimeEdit,
+                               QVBoxLayout, QWidget)
 
-from ..componenti import CampoDurata, Scheda, etichetta, riga, separatore, stile_tabella
+from ..componenti import (CampoDurata, DisposizioneFluida, Interruttore,
+                          Scheda, etichetta, riga, separatore,
+                          stile_tabella)
 from ..db import DATA_DIR
+from .. import blocco, salvataggio
 from ..fonti import PERCORSO_FINANCE, finance_presente
 from ..punteggi import PREDEFINITI
 from ..tema import ACCENTI, SCALE
@@ -39,7 +43,9 @@ class VistaImpostazioni(VistaBase):
         self.schede.addTab(self._aspetto(), "Aspetto")
         self.schede.addTab(self._obiettivi(), "Obiettivi")
         self.schede.addTab(self._scorrevole(self._finanza()), "Finanza")
-        self.schede.addTab(self._dati(), "Dati e backup")
+        self.schede.addTab(self._scorrevole(self._tess()), "Tess")
+        self.schede.addTab(self._sicurezza(), "Sicurezza")
+        self.schede.addTab(self._scorrevole(self._dati()), "Dati e backup")
 
     @staticmethod
     def _scorrevole(pagina: QWidget) -> QScrollArea:
@@ -330,6 +336,232 @@ class VistaImpostazioni(VistaBase):
         self.aggiorna()
 
     # ----------------------------------------------------------------- dati
+    # ------------------------------------------------------------ Tess
+    def _tess(self) -> QWidget:
+        """Come deve comportarsi Tess, e che cosa le si lascia vedere."""
+        from ..tess import AREE_CONTESTO, LUNGHEZZE, TONI, aree_scelte
+
+        pagina = QWidget()
+        lay = QVBoxLayout(pagina)
+        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setSpacing(14)
+
+        scheda = Scheda("Come parla")
+        modulo = QFormLayout()
+        modulo.setHorizontalSpacing(14)
+        modulo.setVerticalSpacing(10)
+        self.tess_nome = QLineEdit(self.db.leggi("tess_nome", "Tess"))
+        self.tess_nome.setPlaceholderText("Tess")
+        self.tess_tono = QComboBox()
+        self.tess_tono.addItems(list(TONI))
+        self.tess_tono.setCurrentText(self.db.leggi("tess_tono", "asciutta"))
+        self.tess_lunghezza = QComboBox()
+        self.tess_lunghezza.addItems(list(LUNGHEZZE))
+        self.tess_lunghezza.setCurrentText(self.db.leggi("tess_lunghezza", "normali"))
+        for campo in (self.tess_nome, self.tess_tono, self.tess_lunghezza):
+            campo.setMinimumHeight(38)
+            campo.setMaximumWidth(320)      # i campi corti non si allargano
+        modulo.addRow("Nome", self.tess_nome)
+        modulo.addRow("Tono", self.tess_tono)
+        modulo.addRow("Risposte", self.tess_lunghezza)
+        scheda.aggiungi_layout(modulo)
+        lay.addWidget(scheda)
+
+        scheda = Scheda("Istruzioni tue")
+        self.tess_istruzioni = QPlainTextEdit(self.db.leggi("tess_istruzioni", ""))
+        self.tess_istruzioni.setObjectName("CampoDiario")
+        self.tess_istruzioni.setPlaceholderText(
+            "Per esempio: «dammi sempre un consiglio pratico alla fine», "
+            "«non parlarmi di soldi se non te lo chiedo», «scrivimi in inglese»…")
+        self.tess_istruzioni.setMinimumHeight(96)
+        scheda.aggiungi(self.tess_istruzioni)
+        nota = etichetta("Queste valgono più di tutte le altre: Tess le riceve "
+                         "a ogni domanda, prima dei tuoi dati.", "NotaScheda")
+        nota.setWordWrap(True)
+        scheda.aggiungi(nota)
+        lay.addWidget(scheda)
+
+        scheda = Scheda("Che cosa può vedere")
+        self.tess_aree: dict[str, QCheckBox] = {}
+        scelte = aree_scelte(self.db)
+        nomi = {"salute": "Salute", "punteggi": "Punteggi", "accademica": "Università",
+                "carriera": "Lavoro e progetti", "abitudini": "Abitudini",
+                "finanza": "Finanza", "scadenze": "Scadenze"}
+        caselle = DisposizioneFluida(spaziatura=14)
+        for chiave in AREE_CONTESTO:
+            casella = QCheckBox(nomi.get(chiave, chiave))
+            casella.setChecked(chiave in scelte)
+            self.tess_aree[chiave] = casella
+            caselle.addWidget(casella)
+        scheda.aggiungi_layout(caselle)
+        nota = etichetta(
+            "Il riassunto che Tess riceve contiene solo numeri: medie, "
+            "conteggi, scadenze. Il testo del diario non esce mai di qui, "
+            "qualunque casella sia accesa. L'interruttore «dati» nella sua "
+            "pagina spegne tutto il riassunto in un colpo.", "NotaScheda")
+        nota.setWordWrap(True)
+        scheda.aggiungi(nota)
+        lay.addWidget(scheda)
+
+        scheda = Scheda("Come la sentirà")
+        self.tess_anteprima = etichetta("", "NotaScheda")
+        self.tess_anteprima.setWordWrap(True)
+        self.tess_anteprima.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        scheda.aggiungi(self.tess_anteprima)
+        b_salva = QPushButton("Salva")
+        b_salva.setObjectName("Primario")
+        b_salva.clicked.connect(self._salva_tess)
+        b_pulisci = QPushButton("Torna com'era")
+        b_pulisci.clicked.connect(self._azzera_tess)
+        scheda.aggiungi_layout(riga(b_salva, b_pulisci, None))
+        lay.addWidget(scheda)
+        self._anteprima_tess()
+        for campo in (self.tess_tono, self.tess_lunghezza):
+            campo.currentTextChanged.connect(lambda _=None: self._anteprima_tess(True))
+        self.tess_nome.textChanged.connect(lambda _=None: self._anteprima_tess(True))
+        self.tess_istruzioni.textChanged.connect(
+            lambda: self._anteprima_tess(True))
+
+        lay.addStretch(1)
+        return pagina
+
+    def _anteprima_tess(self, provvisoria: bool = False) -> None:
+        """Mostra le istruzioni che Tess riceverà, anche prima di salvarle."""
+        from ..tess import LUNGHEZZE, TONI, istruzioni
+        if not provvisoria:
+            self.tess_anteprima.setText(istruzioni(self.db))
+            return
+        nome = self.tess_nome.text().strip() or "Tess"
+        pezzi = [f"Ti chiami {nome} e stai rispondendo dentro la Dashboard di "
+                 "Giosuè.",
+                 "Hai sott'occhio i suoi dati: parla di quelli, con i numeri "
+                 "giusti, senza ripeterglieli tutti.",
+                 TONI[self.tess_tono.currentText()],
+                 LUNGHEZZE[self.tess_lunghezza.currentText()],
+                 "Se un dato non c'è, dillo invece di inventarlo."]
+        sue = self.tess_istruzioni.toPlainText().strip()
+        if sue:
+            pezzi.append("Istruzioni sue, che valgono sopra le altre: " + sue)
+        self.tess_anteprima.setText(" ".join(pezzi))
+
+    def _salva_tess(self) -> None:
+        self.db.imposta("tess_nome", self.tess_nome.text().strip() or "Tess")
+        self.db.imposta("tess_tono", self.tess_tono.currentText())
+        self.db.imposta("tess_lunghezza", self.tess_lunghezza.currentText())
+        self.db.imposta("tess_istruzioni",
+                        self.tess_istruzioni.toPlainText().strip())
+        self.db.imposta("tess_aree", ",".join(
+            c for c, casella in self.tess_aree.items() if casella.isChecked()))
+        self._anteprima_tess()
+
+    def _azzera_tess(self) -> None:
+        for chiave in ("tess_nome", "tess_tono", "tess_lunghezza",
+                       "tess_istruzioni", "tess_aree"):
+            self.db.esegui("DELETE FROM impostazioni WHERE chiave=?", (chiave,))
+        self.tess_nome.setText("Tess")
+        self.tess_tono.setCurrentText("asciutta")
+        self.tess_lunghezza.setCurrentText("normali")
+        self.tess_istruzioni.setPlainText("")
+        for casella in self.tess_aree.values():
+            casella.setChecked(True)
+        self._anteprima_tess()
+
+    # ------------------------------------------------------- sicurezza
+    def _sicurezza(self) -> QWidget:
+        pagina = QWidget()
+        lay = QVBoxLayout(pagina)
+        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setSpacing(14)
+
+        scheda = Scheda("Password d'ingresso")
+        self.et_blocco = etichetta("", "NotaScheda")
+        self.et_blocco.setWordWrap(True)
+        scheda.aggiungi(self.et_blocco)
+        modulo = QFormLayout()
+        modulo.setHorizontalSpacing(14)
+        modulo.setVerticalSpacing(10)
+        self.pw_attuale = QLineEdit()
+        self.pw_nuova = QLineEdit()
+        self.pw_ripeti = QLineEdit()
+        for campo, invito in ((self.pw_attuale, "serve per cambiarla o toglierla"),
+                              (self.pw_nuova, "almeno quattro caratteri"),
+                              (self.pw_ripeti, "la stessa, per sicurezza")):
+            campo.setEchoMode(QLineEdit.Password)
+            campo.setPlaceholderText(invito)
+            campo.setMinimumHeight(38)
+            campo.setMaximumWidth(320)
+        # l'etichetta la tengo per nome: va nascosta insieme al campo
+        self.et_pw_attuale = QLabel("Password di adesso")
+        modulo.addRow(self.et_pw_attuale, self.pw_attuale)
+        modulo.addRow("Nuova password", self.pw_nuova)
+        modulo.addRow("Ripetila", self.pw_ripeti)
+        scheda.aggiungi_layout(modulo)
+        self.b_blocco = QPushButton("Attiva la password")
+        self.b_blocco.setObjectName("Primario")
+        self.b_blocco.clicked.connect(self._salva_password)
+        self.b_sblocco = QPushButton("Togli la password")
+        self.b_sblocco.clicked.connect(self._togli_password)
+        scheda.aggiungi_layout(riga(self.b_blocco, self.b_sblocco, None))
+        lay.addWidget(scheda)
+
+        scheda = Scheda("Che cosa protegge davvero")
+        nota = etichetta(
+            "È una porta, non una cassaforte: impedisce di aprire la "
+            "Dashboard, ma l'archivio resta un file leggibile da altri "
+            "programmi (`~/.local/share/Vita/vita.db`). Contro chi si siede al "
+            "tuo posto va benissimo; contro chi si porta via il portatile "
+            "serve cifrare il disco, che è mestiere del sistema.\n"
+            "La password non viene salvata: se ne conserva solo l'impronta "
+            "(PBKDF2, 240.000 giri, con sale). Se la dimentichi si toglie da "
+            "terminale, la riga è scritta in cima a vita/blocco.py.",
+            "NotaScheda")
+        nota.setWordWrap(True)
+        scheda.aggiungi(nota)
+        lay.addWidget(scheda)
+        lay.addStretch(1)
+        self._stato_blocco()
+        return pagina
+
+    def _stato_blocco(self) -> None:
+        acceso = blocco.attivo(self.db)
+        self.et_blocco.setText(
+            "La password è attiva: all'avvio la Dashboard la chiede."
+            if acceso else
+            "Nessuna password: la Dashboard si apre subito.")
+        self.pw_attuale.setVisible(acceso)
+        self.et_pw_attuale.setVisible(acceso)
+        self.b_blocco.setText("Cambia la password" if acceso
+                              else "Attiva la password")
+        self.b_sblocco.setVisible(acceso)
+        for campo in (self.pw_attuale, self.pw_nuova, self.pw_ripeti):
+            campo.clear()
+
+    def _salva_password(self) -> None:
+        if blocco.attivo(self.db) and not blocco.verifica(self.db,
+                                                          self.pw_attuale.text()):
+            QMessageBox.warning(self, "Password", "La password di adesso non è quella.")
+            return
+        nuova = self.pw_nuova.text()
+        if len(nuova) < 4:
+            QMessageBox.warning(self, "Password",
+                                "Scegline una di almeno quattro caratteri.")
+            return
+        if nuova != self.pw_ripeti.text():
+            QMessageBox.warning(self, "Password", "Le due password non coincidono.")
+            return
+        blocco.imposta(self.db, nuova)
+        self._stato_blocco()
+        QMessageBox.information(
+            self, "Password",
+            "Fatta. Dalla prossima apertura la Dashboard te la chiederà.")
+
+    def _togli_password(self) -> None:
+        if not blocco.verifica(self.db, self.pw_attuale.text()):
+            QMessageBox.warning(self, "Password", "La password di adesso non è quella.")
+            return
+        blocco.imposta(self.db, "")
+        self._stato_blocco()
+
     def _dati(self) -> QWidget:
         pagina = QWidget()
         lay = QVBoxLayout(pagina)
@@ -360,6 +592,45 @@ class VistaImpostazioni(VistaBase):
         scheda.aggiungi(self.et_backup)
         lay.addWidget(scheda)
 
+        scheda = Scheda("Salvataggio automatico")
+        self.cartella_salvataggio = QLineEdit(
+            self.db.leggi("cartella_salvataggio", ""))
+        self.cartella_salvataggio.setPlaceholderText(
+            "la chiavetta o il disco esterno — per esempio /run/media/giosue/VITA")
+        self.cartella_salvataggio.setMinimumHeight(38)
+        b_scegli = QPushButton("Scegli…")
+        b_scegli.clicked.connect(self._scegli_cartella_salvataggio)
+        scheda.aggiungi_layout(riga(self.cartella_salvataggio, b_scegli))
+
+        self.ora_salvataggio = QTimeEdit()
+        self.ora_salvataggio.setDisplayFormat("HH:mm")
+        self.ora_salvataggio.setButtonSymbols(QTimeEdit.NoButtons)
+        self.ora_salvataggio.setMinimumHeight(38)
+        self.ora_salvataggio.setFixedWidth(78)
+        ora = self.db.leggi("ora_salvataggio", salvataggio.ORA_PREDEFINITA)
+        self.ora_salvataggio.setTime(QTime.fromString(ora, "HH:mm"))
+        self.ora_salvataggio.timeChanged.connect(self._ora_salvataggio)
+        self.auto_salvataggio = Interruttore(self.c, salvataggio.acceso())
+        self.auto_salvataggio.cambiato.connect(self._commuta_salvataggio)
+        b_adesso = QPushButton("Salva adesso")
+        b_adesso.setObjectName("Primario")
+        b_adesso.clicked.connect(self._salva_adesso)
+        scheda.aggiungi_layout(riga(
+            etichetta("Ogni sera alle", "TitoloRiga"), self.ora_salvataggio,
+            self.auto_salvataggio, None, b_adesso))
+        self.et_auto = etichetta("", "NotaScheda")
+        self.et_auto.setWordWrap(True)
+        scheda.aggiungi(self.et_auto)
+        nota = etichetta(
+            "Copia l'archivio della Dashboard e quello di Finance. Se la "
+            "chiavetta non è infilata non succede niente di male: lo scrive "
+            "qui sotto e riprova la sera dopo. Restano le ultime quattordici "
+            "copie più la prima di ogni mese.", "NotaScheda")
+        nota.setWordWrap(True)
+        scheda.aggiungi(nota)
+        lay.addWidget(scheda)
+        self._stato_salvataggio()
+
         scheda = Scheda("Importazione da Samsung Health")
         b_importa = QPushButton("Importa un'esportazione…")
         b_importa.setObjectName("Primario")
@@ -370,9 +641,10 @@ class VistaImpostazioni(VistaBase):
             "personali». Porta sul PC la cartella (o lo zip) e scegli qui: "
             "Dashboard legge passi, sonno con le fasi, battito, peso, acqua e "
             "allenamenti.\n"
-            "Il Galaxy Fit2 non consegna lo storico al PC: via Bluetooth si può "
-            "leggere solo il battito mentre il braccialetto sta misurando "
-            "(strumenti/battito_bluetooth.py).", "NotaScheda")
+            "Il Galaxy Fit2 resta la via lunga: il braccialetto parla col PC "
+            "(batteria, ora, battito in diretta) ma lo storico non lo consegna, "
+            "perché il telefono lo svuota prima. L'esportazione qui sopra è "
+            "l'unico modo completo.", "NotaScheda")
         nota.setWordWrap(True)
         scheda.aggiungi(nota)
         lay.addWidget(scheda)
@@ -388,6 +660,65 @@ class VistaImpostazioni(VistaBase):
         lay.addWidget(scheda)
         lay.addStretch(1)
         return pagina
+
+    def _scegli_cartella_salvataggio(self) -> None:
+        cartella = QFileDialog.getExistingDirectory(
+            self, "Dove salvare ogni sera",
+            self.cartella_salvataggio.text() or "/run/media")
+        if cartella:
+            self.cartella_salvataggio.setText(cartella)
+            self.db.imposta("cartella_salvataggio", cartella)
+            self._stato_salvataggio()
+
+    def _ora_salvataggio(self) -> None:
+        ora = self.ora_salvataggio.time().toString("HH:mm")
+        self.db.imposta("ora_salvataggio", ora)
+        if salvataggio.acceso():          # già acceso: si riscrive col nuovo orario
+            salvataggio.installa(ora)
+        self._stato_salvataggio()
+
+    def _commuta_salvataggio(self, acceso: bool) -> None:
+        if acceso:
+            if not self.cartella_salvataggio.text().strip():
+                self.auto_salvataggio.imposta(False)
+                QMessageBox.information(
+                    self, "Salvataggio",
+                    "Prima scegli la cartella: la chiavetta o il disco dove "
+                    "finiranno le copie.")
+                return
+            self.db.imposta("cartella_salvataggio",
+                            self.cartella_salvataggio.text().strip())
+            salvataggio.installa(self.ora_salvataggio.time().toString("HH:mm"))
+        else:
+            salvataggio.disinstalla()
+        self._stato_salvataggio()
+
+    def _salva_adesso(self) -> None:
+        cartella = self.cartella_salvataggio.text().strip()
+        self.db.imposta("cartella_salvataggio", cartella)
+        riuscito, racconto = salvataggio.salva(cartella, self.db, parlato=False)
+        self.db.imposta("ultimo_salvataggio_esito",
+                        ("fatto · " if riuscito else "") + racconto)
+        if riuscito:
+            self.db.imposta("ultimo_salvataggio",
+                            datetime.now().isoformat(timespec="minutes"))
+        self._stato_salvataggio()
+
+    def _stato_salvataggio(self) -> None:
+        ultimo = self.db.leggi("ultimo_salvataggio", "")
+        esito = self.db.leggi("ultimo_salvataggio_esito", "")
+        pezzi = []
+        if salvataggio.acceso():
+            prossimo = salvataggio.prossimo_giro()
+            pezzi.append(f"acceso · prossimo giro {prossimo}" if prossimo
+                         else "acceso")
+        if ultimo:
+            quando = datetime.fromisoformat(ultimo).strftime("%d/%m alle %H:%M")
+            pezzi.append(f"ultimo salvataggio {quando}")
+        if esito:
+            pezzi.append(esito)
+        self.et_auto.setText("  ·  ".join(pezzi) or "non è ancora stato fatto nessun "
+                             "salvataggio automatico")
 
     def _importa_salute(self) -> None:
         from ..dialoghi import DialogoImporta
@@ -487,9 +818,13 @@ class VistaImpostazioni(VistaBase):
 
         dimensione = os.path.getsize(self.db.percorso) / 1024 if os.path.exists(
             self.db.percorso) else 0
+        tolte = len(getattr(self.db, "impostazioni_tolte", []))
+        pulizia = (f"  ·  {tolte} non servivano più e sono state tolte all'avvio"
+                   if tolte else "")
         self.et_archivio.setText(
             f"Archivio: {self.db.percorso}  ({numero(dimensione, 0)} kB)\n"
             f"Backup automatici: {self.db.cartella_backup()}\n"
+            f"Impostazioni memorizzate: {self.db.quante_impostazioni()}{pulizia}\n"
             "I dati stanno fuori dalla cartella del codice: aggiornare l'app non "
             "li tocca mai.")
         conteggi = self.db.conteggi()

@@ -14,9 +14,11 @@ os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.*=false")
 from PySide6.QtCore import QLocale, Qt
 from PySide6.QtWidgets import QApplication
 
+from vita import blocco
 from vita.db import Database
 from vita.finestra import FinestraPrincipale
 from vita.icone_nav import logo_app
+from vita.tema import ACCENTO_PREDEFINITO, SCALE, colori, foglio_stile
 
 
 def main() -> int:
@@ -30,7 +32,17 @@ def main() -> int:
     app.setDesktopFileName("dashboard")
 
     db = Database()
-    app.setWindowIcon(logo_app(db.leggi("tema", "scuro")))
+    tema = db.leggi("tema", "scuro")
+    app.setWindowIcon(logo_app(tema))
+
+    # se c'è una password, si entra solo da lì: la finestra non nasce nemmeno
+    if blocco.attivo(db):
+        c = colori(tema, db.leggi("accento", ACCENTO_PREDEFINITO))
+        app.setStyleSheet(foglio_stile(
+            c, SCALE.get(db.leggi("scala", "normale"), 1.0)))
+        if not blocco.chiedi(db, c, tema):
+            return 0
+
     finestra = FinestraPrincipale(db)
     finestra.show()
     return app.exec()

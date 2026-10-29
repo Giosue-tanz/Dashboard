@@ -234,11 +234,33 @@ class Risposta(QThread):
 
 
 # --------------------------------------------------------------- il contesto
-def contesto(db, fonte) -> str:
+# A quale area appartiene ogni blocco del riassunto: serve per lasciarne
+# fuori quelli che non vuoi far vedere a Tess (Impostazioni → Tess).
+AREE_CONTESTO = {
+    "salute": ("OGGI", "SALUTE"),
+    "punteggi": ("PUNTEGGI",),
+    "accademica": ("ACCADEMICA", "ESAMI"),
+    "carriera": ("PROGETTI", "LAVORO"),
+    "abitudini": ("ABITUDINI",),
+    "finanza": ("FINANZA",),
+    "scadenze": ("IN ARRIVO",),
+}
+
+
+def aree_scelte(db) -> set[str]:
+    """Le aree che Tess può vedere: di suo le vede tutte."""
+    salvate = db.leggi("tess_aree", "")
+    if not salvate:
+        return set(AREE_CONTESTO)
+    return {a for a in salvate.split(",") if a in AREE_CONTESTO}
+
+
+def contesto(db, fonte, aree: set[str] | None = None) -> str:
     """Il riassunto della Dashboard che Tess riceve insieme alla domanda.
 
     Solo numeri già presenti nell'archivio: nessun testo del diario, che resta
     cosa tua. Serve perché Tess risponda sui tuoi dati senza fartene l'elenco.
+    Con `aree` si tiene dentro solo una parte del riassunto.
     """
     oggi = date.today().isoformat()
     righe = [f"Dati della Dashboard di Giosuè, aggiornati a {data_lunga(oggi)}.",
@@ -355,8 +377,31 @@ def contesto(db, fonte) -> str:
     if prossime:
         righe.append("IN ARRIVO: " + ", ".join(
             f"{s['cosa']} il {s['data']}" for s in prossime))
+
+    aree = set(AREE_CONTESTO) if aree is None else aree
+    fuori = tuple(parola for area, parole in AREE_CONTESTO.items()
+                  if area not in aree for parola in parole)
+    if fuori:
+        righe = [r for r in righe if not r.startswith(fuori)]
     return "\n".join(righe)
 
+
+# Come deve comportarsi Tess: si sceglie da Impostazioni → Tess.
+TONI = {
+    "asciutta": "Parla asciutto: nessun giro di parole, nessun complimento.",
+    "incoraggiante": "Sii calda e incoraggiante: nota i progressi e dillo, "
+                     "senza però addolcire i numeri.",
+    "diretta": "Sii diretta anche quando la risposta non piace: se un dato va "
+               "male, dillo chiaro e di' cosa cambieresti.",
+    "ironica": "Puoi essere ironica e leggera, ma i numeri restano seri.",
+    "professionale": "Tono professionale e ordinato, come un referto breve.",
+}
+LUNGHEZZE = {
+    "brevi": "Rispondi in due o tre righe.",
+    "normali": "Risposte brevi, al punto.",
+    "lunghe": "Puoi allargarti quando serve, restando ordinata.",
+}
+TONO_PREDEFINITO, LUNGHEZZA_PREDEFINITA = "asciutta", "normali"
 
 ISTRUZIONI = (
     "Sei Tess e stai rispondendo dentro la Dashboard di Giosuè. "
@@ -364,6 +409,25 @@ ISTRUZIONI = (
     "ripeterglieli tutti. Risposte brevi, al punto, come al solito. "
     "Se un dato non c'è, dillo invece di inventarlo."
 )
+
+
+def istruzioni(db) -> str:
+    """Le istruzioni di Tess, messe insieme da come l'hai impostata."""
+    nome = (db.leggi("tess_nome", "") or "Tess").strip()
+    pezzi = [
+        f"Ti chiami {nome} e stai rispondendo dentro la Dashboard di Giosuè.",
+        "Hai sott'occhio i suoi dati: parla di quelli, con i numeri giusti, "
+        "senza ripeterglieli tutti.",
+        TONI.get(db.leggi("tess_tono", TONO_PREDEFINITO), TONI[TONO_PREDEFINITO]),
+        LUNGHEZZE.get(db.leggi("tess_lunghezza", LUNGHEZZA_PREDEFINITA),
+                      LUNGHEZZE[LUNGHEZZA_PREDEFINITA]),
+        "Se un dato non c'è, dillo invece di inventarlo.",
+    ]
+    sue = db.leggi("tess_istruzioni", "").strip()
+    if sue:
+        # quello che scrive lui conta più di tutto il resto
+        pezzi.append("Istruzioni sue, che valgono sopra le altre: " + sue)
+    return " ".join(pezzi)
 
 
 # ------------------------------------------------------------------ il widget
@@ -819,11 +883,12 @@ class RiquadroTess(QWidget):
         if nuova:
             self.aggiorna_elenco()
 
-        sistema = [{"role": "system", "content": ISTRUZIONI}]
+        sistema = [{"role": "system", "content": istruzioni(self.db)}]
         if self.b_dati.acceso():
             try:
                 sistema.append({"role": "system",
-                                "content": contesto(self.db, self.fonte)})
+                                "content": contesto(self.db, self.fonte,
+                                                    aree_scelte(self.db))})
             except Exception:
                 pass
         self._inizia_risposta()

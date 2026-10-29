@@ -20,9 +20,11 @@ per decidere lo stile.
 
 **Niente tinta unica: ogni sezione ha il suo colore.** Rosso per Emozioni, blu
 per Carriera, viola per Accademica, turchese per Salute, verde per Finanza,
-ambra per Abitudini, rosa per Tess, ardesia per Impostazioni. Il colore si
-accende sotto il mouse e riempie la pastiglia quando la pagina è aperta; gli
-anelli dei punteggi in fondo alla barra usano la stessa tavolozza
+ambra per Abitudini, rosa per Tess, ardesia per Impostazioni. **Le icone
+della barra stanno sempre nella loro tinta** — anche a barra chiusa, dove
+restano loro sole a dire dove si va — la scritta si colora sotto il mouse e la
+pastiglia si riempie quando la pagina è aperta (lì l'icona passa in negativo);
+gli anelli dei punteggi in fondo alla barra usano la stessa tavolozza
 (`AREE` in `vita/tema.py`).
 
 **Le icone si muovono quando le scegli.** Mezzo secondo, una volta sola: il
@@ -80,6 +82,15 @@ Tre cose, perché sono il punto:
 * **Il riassunto dei dati si può spegnere.** L'interruttore «dati» nella barra
   della chat decide se mandare i numeri a Tess. Il testo del diario non viene
   mandato mai: nel riassunto ci sono solo medie, conteggi e scadenze.
+* **Tess si fa su misura** in *Impostazioni → Tess*: il nome che vuoi darle, il
+  tono (asciutta, incoraggiante, diretta, ironica, professionale), quanto
+  lunghe le risposte, e soprattutto le **istruzioni tue** — una casella di
+  testo libero che vale più di tutto il resto («dammi sempre una cosa concreta
+  da fare domani», «non parlarmi di soldi se non te lo chiedo», «scrivimi in
+  inglese»). Sette caselle decidono poi **che cosa può vedere**: salute,
+  punteggi, università, lavoro, abitudini, finanza, scadenze — spenta una, quel
+  pezzo di riassunto non le arriva proprio. In fondo alla pagina c'è
+  l'anteprima di quello che Tess riceverà, parola per parola.
 
 Se Tess sta altrove, il percorso si cambia con l'impostazione `percorso_tess`
 nell'archivio; di suo cerca `~/Scrivania/WORK/AI-Locale` e ne legge
@@ -105,6 +116,45 @@ computer: appena installata, l'app parte vuota, con le sole emozioni,
 categorie e abitudini di partenza da cui poi fai le tue. Per ritrovare i dati
 su un PC nuovo si copia quel file a mano, oppure si usa il backup di
 **Impostazioni → Dati e backup**.
+
+## Il salvataggio automatico
+
+L'archivio sta su un solo computer, e un computer si rompe. In *Impostazioni →
+Dati e backup* c'è **Salvataggio automatico**: si sceglie la chiavetta (o il
+disco esterno), si accende l'interruttore e ogni sera all'ora scelta le copie
+ci finiscono da sole.
+
+* copia **Dashboard e Finance** insieme, con l'API di backup di SQLite — non un
+  `cp`: la copia è coerente anche se l'app è aperta e ci sta scrivendo;
+* **la chiavetta staccata non è un guasto**: lo scrive e riprova la sera dopo;
+* se il computer era spento all'ora giusta, il giro **si recupera** appena si
+  riaccende (`Persistent=true`);
+* restano le **ultime quattordici copie** più la **prima di ogni mese**: un anno
+  di storia in pochi megabyte.
+
+Sotto c'è un timer di systemd dell'utente — niente root, niente demoni. Si
+comanda anche da terminale:
+
+```bash
+python3 strumenti/salvataggio.py --cartella /run/media/giosue/VITA --installa
+python3 strumenti/salvataggio.py --stato
+```
+
+## La password
+
+In *Impostazioni → Sicurezza* si può mettere una password d'ingresso: senza,
+la Dashboard non si apre nemmeno. Dopo qualche tentativo sbagliato aspetta,
+così a tentare a caso non si arriva.
+
+**È una porta, non una cassaforte**, e val la pena dirlo chiaro: l'archivio
+resta un file SQLite leggibile da altri programmi. Serve contro l'occhiata di
+chi passa, non contro chi si porta via il portatile — per quello si cifra il
+disco. La password non viene salvata: se ne conserva solo l'impronta (PBKDF2,
+240.000 giri, con sale). Se la dimentichi:
+
+```bash
+sqlite3 ~/.local/share/Vita/vita.db "DELETE FROM impostazioni WHERE chiave LIKE 'blocco_%';"
+```
 
 ## Avvio
 
@@ -341,7 +391,12 @@ Come nel cruscotto di Finance, ma in tutte le pagine:
   ripristina la disposizione.
 
 Ogni pagina si ricorda la propria disposizione, i periodi scelti e lo stato
-della barra laterale.
+della barra laterale. Quando i riquadri di una pagina cambiano, la disposizione
+vecchia non serve più: all'avvio quelle righe se ne vanno da sole
+dall'archivio, insieme ai periodi di riquadri spariti e ai valori non più
+previsti. **Impostazioni → Dati e backup → Archivio** dice quante impostazioni
+sono memorizzate e quante ne ha tolte l'ultima pulizia; si toccano solo quelle
+che l'app scrive da sé (`layout_…`, `periodo_…`), mai le tue scelte.
 
 ## Il marchio
 
