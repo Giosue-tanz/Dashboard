@@ -1,0 +1,596 @@
+"""Palette e foglio di stile Qt: tema chiaro/scuro e colore principale scelto.
+
+Stesso linguaggio visivo dell'app Finance: stessi fondi, stessi bordi, stesse
+misure. Qui si aggiungono solo le tinte delle cinque aree.
+"""
+from __future__ import annotations
+
+SCURO = {
+    "fondo": "#0a0a0c",
+    "pannello": "#17181d",
+    "pannello2": "#1f2027",
+    "tocco": "#272930",          # fondo al passaggio del mouse
+    "bordo": "#272930",
+    "testo": "#f3f4f7",
+    "testo2": "#9aa0ac",
+    "accento": "#16c47f",
+    "entrata": "#16c47f",
+    "uscita": "#ff5a5a",
+    "attenzione": "#f0b429",
+    "griglia": "#272930",
+}
+
+CHIARO = {
+    "fondo": "#f1f2f6",
+    "pannello": "#ffffff",
+    "pannello2": "#f4f5f9",
+    "tocco": "#e9ebf2",
+    "bordo": "#e6e8ef",
+    "testo": "#15171c",
+    "testo2": "#6b7280",
+    "accento": "#0f9d63",
+    "entrata": "#0f9d63",
+    "uscita": "#d9453f",
+    "attenzione": "#b07d08",
+    "griglia": "#e6e8ef",
+}
+
+# Colore principale selezionabile dalle impostazioni: una tinta per tema.
+ACCENTI: dict[str, dict[str, str]] = {
+    "verde":     {"scuro": "#16c47f", "chiaro": "#0f9d63"},
+    "blu":       {"scuro": "#3d7bfd", "chiaro": "#2f5fd4"},
+    "turchese":  {"scuro": "#2bc4e0", "chiaro": "#0e93ab"},
+    "viola":     {"scuro": "#a46bff", "chiaro": "#7b3fe4"},
+    "magenta":   {"scuro": "#ff8fc7", "chiaro": "#c02b84"},
+    "arancio":   {"scuro": "#ff9f45", "chiaro": "#c2690a"},
+    "rosso":     {"scuro": "#ff5a5a", "chiaro": "#cf3b3b"},
+    "ambra":     {"scuro": "#f0b429", "chiaro": "#9c7308"},
+    "grafite":   {"scuro": "#9aa6bf", "chiaro": "#5a6782"},
+}
+ACCENTO_PREDEFINITO = "verde"
+
+# Tinta fissa di ogni sezione: non dipende dall'accento scelto. Come in One
+# UI ogni voce ha il suo colore invece di un unico accento che tinge tutto,
+# così la barra si legge a colpo d'occhio anche senza leggere le scritte.
+AREE = {
+    "emozioni":     "#ff4d6d",   # rosso: il cuore
+    "carriera":     "#3d7bfd",   # blu: il lavoro
+    "accademica":   "#8b5cf6",   # viola: lo studio
+    "salute":       "#19c2e0",   # turchese: il corpo
+    "finanza":      "#22c55e",   # verde: i soldi
+    "abitudini":    "#ffa62b",   # ambra: i giorni di fila
+    "tess":         "#f472b6",   # rosa: l'AI
+    "impostazioni": "#94a3b8",   # ardesia: gli attrezzi
+    "cruscotto":    "#16c47f",   # il verde di casa
+}
+
+
+def colore_area(chiave: str, chiaro: bool = False) -> str:
+    """La tinta di una sezione, scurita quel tanto che serve sul tema chiaro."""
+    base = AREE.get(chiave, AREE["cruscotto"])
+    return scurisci(base, 0.86) if chiaro else base
+
+
+def su_colore(colore: str) -> str:
+    """Il colore del testo che ci va sopra: bianco, o scuro se la tinta è chiara."""
+    return "#0a1014" if luminosita(colore) > 0.58 else "#ffffff"
+
+
+def colori(tema: str = "scuro", accento: str = ACCENTO_PREDEFINITO) -> dict:
+    """Palette completa del tema richiesto con il colore principale scelto."""
+    base = dict(SCURO if tema == "scuro" else CHIARO)
+    tinta = ACCENTI.get(accento, ACCENTI[ACCENTO_PREDEFINITO])
+    base["accento"] = tinta["scuro" if tema == "scuro" else "chiaro"]
+    # su una tinta chiara il bianco non si legge: il testo diventa scuro
+    base["su_accento"] = "#0a1a12" if luminosita(base["accento"]) > 0.58 else "#ffffff"
+    return base
+
+
+def luminosita(colore: str) -> float:
+    """Quanto è chiara una tinta, da 0 (nero) a 1 (bianco)."""
+    colore = colore.lstrip("#")
+    r, v, b = (int(colore[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    return 0.2126 * r + 0.7152 * v + 0.0722 * b
+
+
+PALETTE_GRAFICI = [
+    "#3d7bfd", "#16c47f", "#ff9f45", "#a46bff", "#2bc4e0",
+    "#ff5a5a", "#f0b429", "#ff8fc7", "#7c8cff", "#34d4a8",
+    "#b388eb", "#9aa0ac",
+]
+
+
+SCALE = {"compatta": 0.9, "normale": 1.0, "grande": 1.15, "molto grande": 1.3}
+
+
+def frecce_spin(cartella: str, colore: str) -> tuple[str, str]:
+    """Crea (una volta sola) le due freccine usate da spinbox e tendine.
+
+    Qt non disegna frecce affidabili quando i pulsanti sono ridefiniti dal
+    foglio di stile: qui vengono generate come immagini e richiamate con url().
+    """
+    import os
+
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QColor, QPainter, QPainterPath, QPixmap
+
+    os.makedirs(cartella, exist_ok=True)
+    chiave = colore.lstrip("#")
+    percorsi = (os.path.join(cartella, f"su-{chiave}.png"),
+                os.path.join(cartella, f"giu-{chiave}.png"))
+    if all(os.path.exists(p) for p in percorsi):
+        return percorsi
+
+    for percorso, verso in zip(percorsi, (-1, 1)):
+        pixmap = QPixmap(11, 7)
+        pixmap.fill(Qt.transparent)
+        p = QPainter(pixmap)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        path = QPainterPath()
+        if verso < 0:
+            path.moveTo(QPointF(1.0, 5.4)); path.lineTo(QPointF(5.5, 1.3))
+            path.lineTo(QPointF(10.0, 5.4))
+        else:
+            path.moveTo(QPointF(1.0, 1.6)); path.lineTo(QPointF(5.5, 5.7))
+            path.lineTo(QPointF(10.0, 1.6))
+        path.closeSubpath()
+        p.fillPath(path, QColor(colore))
+        p.end()
+        pixmap.save(percorso)
+    return percorsi
+
+
+def scurisci(colore: str, fattore: float = 0.7) -> str:
+    """Versione più scura di una tinta: serve ai testi colorati su fondo chiaro."""
+    colore = colore.lstrip("#")
+    r, v, b = (int(int(colore[i:i + 2], 16) * fattore) for i in (0, 2, 4))
+    return f"#{r:02x}{v:02x}{b:02x}"
+
+
+def trasparente(colore: str, opacita: float) -> str:
+    """Converte #rrggbb in rgba(): in Qt l'esadecimale a 8 cifre è #AARRGGBB,
+    quindi scriverlo a mano porta a colori sbagliati."""
+    colore = colore.lstrip("#")
+    r, v, b = (int(colore[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r}, {v}, {b}, {opacita:.2f})"
+
+
+def foglio_stile(c: dict, scala: float = 1.0,
+                 frecce: tuple[str, str] | None = None) -> str:
+    """Foglio di stile dell'applicazione: angoli larghi, niente bordi duri.
+
+    Stessa idea di One UI: le superfici si distinguono per tinta, non per
+    cornice; i pulsanti sono pastiglie; i numeri contano più delle linee.
+    """
+
+    def p(px: float) -> str:
+        """Dimensione in pixel adattata alla scala del testo."""
+        return f"{px * scala:.1f}px"
+
+    chiaro = luminosita(c["fondo"]) > 0.5
+    # una regola per ogni voce della barra: il suo colore al passaggio del
+    # mouse, la pastiglia piena del suo colore quando la pagina è aperta
+    voci_colorate = "".join(f"""
+    QPushButton#Navigazione[area="{chiave}"]:hover {{
+        background: {trasparente(colore_area(chiave, chiaro), 0.16)};
+        color: {colore_area(chiave, chiaro)};
+    }}
+    QPushButton#Navigazione[area="{chiave}"]:checked,
+    QPushButton#Navigazione[area="{chiave}"]:checked:hover {{
+        background: {colore_area(chiave, chiaro)};
+        color: {su_colore(colore_area(chiave, chiaro))};
+    }}""" for chiave in AREE)
+    selezione = trasparente(c["accento"], 0.30)
+    velo = trasparente("#ffffff", 0.22)
+    tocco = c.get("tocco", c["pannello2"])
+    su_accento = c.get("su_accento", "#ffffff")
+    # in chiaro le schede bianche hanno bisogno di un filo di contorno,
+    # in scuro basta la differenza di tinta
+    bordo_scheda = f"1px solid {c['bordo']}" if chiaro else "1px solid transparent"
+    su, giu = frecce if frecce else ("", "")
+    frecce_qss = f"""
+    QSpinBox::up-arrow, QDoubleSpinBox::up-arrow, QDateEdit::up-arrow {{
+        image: url({su}); width: 11px; height: 7px;
+    }}
+    QSpinBox::down-arrow, QDoubleSpinBox::down-arrow, QDateEdit::down-arrow,
+    QComboBox::down-arrow {{ image: url({giu}); width: 11px; height: 7px; }}
+    """ if frecce else ""
+
+    return f"""
+    * {{
+        font-family: "Inter", "SamsungOne", "Noto Sans", "Segoe UI",
+                     "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+        font-size: {p(13)};
+    }}
+    QWidget {{ color: {c['testo']}; }}
+    QMainWindow, QDialog {{ background: {c['fondo']}; }}
+    QLabel, QCheckBox, QRadioButton {{ background: transparent; }}
+
+    /* ------------------------------------------------------- barra laterale */
+    #Barra {{ background: {c['pannello']}; border: none; }}
+    #Titolo {{ font-size: {p(25)}; font-weight: 750; color: {c['testo']}; }}
+    #Sottotitolo {{ color: {c['testo2']}; font-size: {p(12)}; }}
+    #Logo {{ font-size: {p(19)}; font-weight: 800; color: {c['accento']}; }}
+
+    QPushButton#Navigazione {{
+        background: transparent; border: none; border-radius: 17px;
+        padding: 11px 14px; text-align: left; color: {c['testo2']};
+        font-size: {p(13.5)};
+    }}
+    QPushButton#Navigazione:hover {{ background: {tocco}; color: {c['testo']}; }}
+    QPushButton#Navigazione[compatta="si"] {{
+        text-align: center; padding: 0; font-size: {p(20)}; border-radius: 16px;
+    }}
+    QPushButton#Navigazione[compatta="si"]:hover {{ background: {tocco}; }}
+    QPushButton#Navigazione:checked {{
+        background: {c['accento']}; color: {su_accento}; font-weight: 650;
+    }}
+    {voci_colorate}
+    QPushButton#BottoneMenu {{
+        background: transparent; border: none; border-radius: 16px;
+        color: {c['testo2']}; font-size: {p(15)};
+    }}
+    QPushButton#BottoneMenu:hover {{ background: {tocco}; color: {c['testo']}; }}
+
+    /* ------------------------------------------------------------- schede */
+    QFrame#Scheda {{
+        background: {c['pannello']}; border: {bordo_scheda}; border-radius: 22px;
+    }}
+    QWidget#Grafico, QWidget#ContenutoSezione, QScrollArea#ContenutoSezione,
+    QScrollArea#ContenutoSezione > QWidget {{ background: transparent; }}
+    QFrame#Separatore {{ background: {c['bordo']}; max-height: 1px; border: none; }}
+
+    QLabel#EtichettaScheda {{ color: {c['testo2']}; font-size: {p(10.5)};
+                              font-weight: 700; letter-spacing: 1px; }}
+    QLabel#ValoreScheda {{ font-size: {p(26)}; font-weight: 780; }}
+    QLabel#NotaScheda {{ color: {c['testo2']}; font-size: {p(11.5)}; }}
+    QLabel#TitoloRiga {{ font-size: {p(13)}; font-weight: 650; }}
+    QLabel#ValoreRiga {{ font-size: {p(14)}; font-weight: 780; }}
+    QLabel#Sezione {{ font-size: {p(15)}; font-weight: 700; padding: 2px 0; }}
+
+    /* ---------------------------------------------------------- pastiglie */
+    QPushButton {{
+        background: {c['pannello2']}; color: {c['testo']}; border: none;
+        border-radius: 17px; padding: 9px 18px; font-size: {p(13)};
+    }}
+    QPushButton:hover {{ background: {tocco}; }}
+    QPushButton:pressed {{ background: {c['bordo']}; }}
+    QPushButton:disabled {{ color: {c['testo2']}; background: {c['pannello2']}; }}
+    QPushButton#Primario {{
+        background: {c['accento']}; color: {su_accento}; border: none;
+        font-weight: 700; border-radius: 17px; padding: 9px 20px;
+    }}
+    QPushButton#Primario:hover {{ background: {c['accento']}; border: 1px solid {velo}; }}
+    QPushButton#Primario:pressed {{ background: {scurisci(c['accento'], 0.88)}; }}
+    QPushButton#Pericolo {{ background: {c['uscita']}; color: #ffffff; border: none; }}
+
+    /* ------------------------------------------------------------- campi */
+    QLineEdit, QComboBox, QDateEdit, QTimeEdit, QDoubleSpinBox, QSpinBox,
+    QTextEdit, QPlainTextEdit {{
+        background: {c['pannello2']}; border: 1px solid transparent;
+        border-radius: 14px; padding: 9px 12px;
+        selection-background-color: {c['accento']}; selection-color: {su_accento};
+    }}
+    QLineEdit:hover, QComboBox:hover, QDateEdit:hover, QTimeEdit:hover,
+    QDoubleSpinBox:hover, QSpinBox:hover {{ background: {tocco}; }}
+    QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QTimeEdit:focus,
+    QDoubleSpinBox:focus, QSpinBox:focus, QTextEdit:focus,
+    QPlainTextEdit:focus {{ border: 1px solid {c['accento']}; background: {c['pannello2']}; }}
+    QComboBox::drop-down {{ border: none; width: 24px; }}
+    QSpinBox::up-button, QDoubleSpinBox::up-button,
+    QSpinBox::down-button, QDoubleSpinBox::down-button {{
+        background: transparent; border: none; width: 18px;
+        subcontrol-origin: border;
+    }}
+    QSpinBox::up-button, QDoubleSpinBox::up-button {{ subcontrol-position: top right; }}
+    QSpinBox::down-button, QDoubleSpinBox::down-button {{ subcontrol-position: bottom right; }}
+    QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+    QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+        background: {c['bordo']}; border-radius: 7px;
+    }}
+    QDateEdit::drop-down, QTimeEdit::drop-down {{ border: none; width: 24px; }}
+    QComboBox QAbstractItemView {{
+        background: {c['pannello']}; border: 1px solid {c['bordo']}; border-radius: 14px;
+        padding: 6px; selection-background-color: {c['accento']};
+        selection-color: {su_accento}; outline: none;
+    }}
+
+    /* ------------------------------------------------------------ tabelle */
+    QTableWidget, QTableView {{
+        background: {c['pannello2']}; border: none; border-radius: 18px;
+        gridline-color: transparent; outline: none;
+        selection-background-color: {selezione}; selection-color: {c['testo']};
+    }}
+    QTableWidget::item, QTableView::item {{
+        padding: 7px 9px; border: none; border-bottom: 1px solid {c['griglia']};
+    }}
+    QTableWidget::item:selected, QTableView::item:selected {{
+        background: {selezione}; color: {c['testo']};
+    }}
+    QHeaderView {{ background: transparent; border: none; }}
+    QHeaderView::section {{
+        background: transparent; color: {c['testo2']}; border: none;
+        padding: 9px 9px; font-weight: 700; font-size: {p(10.5)};
+        letter-spacing: 0.6px;
+    }}
+    QHeaderView::section:hover {{ color: {c['testo']}; }}
+    QHeaderView::up-arrow, QHeaderView::down-arrow {{ width: 9px; height: 9px; }}
+    QTableCornerButton::section {{ background: transparent; border: none; }}
+
+    QProgressBar {{
+        background: {c['pannello2']}; border: none; border-radius: 6px;
+        height: 12px; text-align: center; color: transparent;
+    }}
+    QProgressBar::chunk {{ background: {c['accento']}; border-radius: 6px; }}
+
+    /* --------------------------------------------------------- punteggi */
+    QLabel#NomePunteggio {{
+        color: {c['testo2']}; font-size: {p(10)}; font-weight: 750;
+        letter-spacing: 1.1px;
+    }}
+    QLabel#ValorePunteggio {{ font-size: {p(19)}; font-weight: 780; }}
+    QWidget#Punteggio {{ background: transparent; border-radius: 16px; }}
+    QWidget#Punteggio:hover {{ background: {tocco}; }}
+    QWidget#PiedeBarra {{ background: {c['pannello2']}; border-radius: 20px; }}
+    QLabel#SaldoBarra {{ font-size: {p(20)}; font-weight: 750; }}
+
+    /* --------------------------------------------------- azioni in testata */
+    QPushButton#AzioneTestata {{
+        background: {c['pannello']}; border: {bordo_scheda}; border-radius: 17px;
+        padding: 9px 18px; color: {c['testo2']}; font-size: {p(12.5)};
+    }}
+    QPushButton#AzioneTestata:hover {{ background: {tocco}; color: {c['testo']}; }}
+    QPushButton#AzioneTestata:pressed {{ background: {c['bordo']}; }}
+    /* comando della testata senza cornice: solo la scritta e l'interruttore */
+    QWidget#ComandoTestata {{ background: transparent; border: none; }}
+    QWidget#ComandoTestata QLabel {{ color: {c['testo2']}; font-size: {p(13)};
+                                     font-weight: 600; }}
+
+    QPushButton#AzioneTestata::menu-indicator {{
+        subcontrol-origin: padding; subcontrol-position: center right;
+        right: 9px; width: 10px;
+    }}
+
+    /* ------------------------------------------------- moduli d'inserimento */
+    QFrame#SchedaModulo {{
+        background: {c['pannello']}; border: {bordo_scheda}; border-radius: 20px;
+    }}
+    QFrame#SchedaModulo QLabel {{ background: transparent; }}
+    /* dentro i moduli i campi sono pastiglie piene, e quello su cui stai
+       scrivendo si cinge di un anello spesso: è il modo di One UI */
+    QFrame#SchedaModulo QLineEdit, QFrame#SchedaModulo QSpinBox,
+    QFrame#SchedaModulo QDoubleSpinBox, QFrame#SchedaModulo QComboBox,
+    QFrame#SchedaModulo QDateEdit, QFrame#SchedaModulo QTimeEdit {{
+        border-radius: 16px; padding: 10px 14px; background: {c['pannello2']};
+    }}
+    QFrame#SchedaModulo QLineEdit:focus, QFrame#SchedaModulo QSpinBox:focus,
+    QFrame#SchedaModulo QDoubleSpinBox:focus, QFrame#SchedaModulo QComboBox:focus,
+    QFrame#SchedaModulo QDateEdit:focus, QFrame#SchedaModulo QTimeEdit:focus {{
+        border: 2px solid {c['accento']}; padding: 9px 13px;
+    }}
+    /* dentro i moduli niente frecce da spinbox: si scrive il numero (rotella
+       e tasti su/giù continuano a funzionare) */
+    QFrame#SchedaModulo QSpinBox::up-button,
+    QFrame#SchedaModulo QSpinBox::down-button,
+    QFrame#SchedaModulo QDoubleSpinBox::up-button,
+    QFrame#SchedaModulo QDoubleSpinBox::down-button {{
+        width: 0; height: 0; border: none; background: transparent;
+    }}
+    QFrame#SchedaModulo QSpinBox::up-arrow,
+    QFrame#SchedaModulo QSpinBox::down-arrow,
+    QFrame#SchedaModulo QDoubleSpinBox::up-arrow,
+    QFrame#SchedaModulo QDoubleSpinBox::down-arrow {{
+        image: none; width: 0; height: 0;
+    }}
+    /* la pastiglia dei comandi in fondo alle finestre d'inserimento:
+       pulsanti piatti dentro un'unica pastiglia, divisi da un filo */
+    QWidget#PiedePillola {{
+        background: {c['pannello']}; border: {bordo_scheda}; border-radius: 24px;
+    }}
+    QWidget#PiedePillola QPushButton {{
+        background: transparent; border: none; border-radius: 20px;
+        padding: 11px 26px; color: {c['testo2']}; font-size: {p(13.5)};
+        font-weight: 600;
+    }}
+    QWidget#PiedePillola QPushButton:hover {{ background: {tocco}; color: {c['testo']}; }}
+    QWidget#PiedePillola QPushButton#ComandoForte {{
+        color: {c['accento']}; font-weight: 750;
+    }}
+    QWidget#PiedePillola QPushButton#ComandoForte:hover {{
+        background: {trasparente(c['accento'], 0.14)}; color: {c['accento']};
+    }}
+    QFrame#FiloPiede {{ background: {c['bordo']}; border: none; max-width: 1px; }}
+
+    /* la data in cima a «Inserimento dati»: una pastiglia, come il «Today» */
+    QDateEdit#ChipData {{
+        background: {c['pannello2']}; border: none; border-radius: 19px;
+        padding: 8px 16px; font-size: {p(14)}; font-weight: 650;
+        color: {c['testo']};
+    }}
+    QDateEdit#ChipData::drop-down {{ width: 0; border: none; }}
+    QDateEdit#ChipData::down-arrow {{ image: none; width: 0; height: 0; }}
+    QLabel#NotaSonno {{ font-size: {p(13)}; font-weight: 650; }}
+
+    QPushButton#FrecciaGiorno {{
+        background: {c['pannello2']}; border: none; border-radius: 17px;
+        padding: 0; font-size: {p(15)}; color: {c['testo2']};
+    }}
+    QPushButton#FrecciaGiorno:hover {{ background: {tocco}; color: {c['testo']}; }}
+
+    /* la chat di Tess */
+    QLabel#BollaTu {{
+        background: {c['accento']}; color: {su_accento};
+        border-radius: 17px; padding: 10px 14px; font-size: {p(13)};
+    }}
+    QLabel#BollaTess {{
+        background: {c['pannello2']}; color: {c['testo']};
+        border-radius: 17px; padding: 10px 14px; font-size: {p(13)};
+    }}
+    QListWidget#ElencoChat {{
+        background: transparent; border: none; outline: none;
+    }}
+    QListWidget#ElencoChat::item {{
+        background: {c['pannello2']}; border-radius: 14px;
+        padding: 9px 12px; margin-bottom: 6px; color: {c['testo2']};
+    }}
+    QListWidget#ElencoChat::item:hover {{ background: {tocco}; color: {c['testo']}; }}
+    QListWidget#ElencoChat::item:selected {{
+        background: {trasparente(c['accento'], 0.18)}; color: {c['testo']};
+    }}
+    /* la casella che compare quando rinomini una conversazione */
+    QListWidget#ElencoChat QLineEdit {{
+        background: {c['pannello']}; border: 1px solid {c['accento']};
+        border-radius: 12px; padding: 4px 10px; color: {c['testo']};
+        font-size: {p(12.5)}; selection-background-color: {c['accento']};
+        selection-color: {su_accento};
+    }}
+    /* le linguette che chiudono e riaprono l'elenco */
+    QPushButton#Linguetta {{
+        background: {c['pannello2']}; border: none; border-radius: 14px;
+        padding: 0; color: {c['testo2']}; font-size: {p(14)}; font-weight: 700;
+    }}
+    QPushButton#Linguetta:hover {{ background: {tocco}; color: {c['testo']}; }}
+    QPushButton#LinguettaLato {{
+        background: {c['pannello2']}; border: none; border-radius: 11px;
+        padding: 0; color: {c['testo2']}; font-size: {p(14)}; font-weight: 700;
+    }}
+    QPushButton#LinguettaLato:hover {{ background: {tocco}; color: {c['testo']}; }}
+
+    QLineEdit#CampoTess {{
+        background: {c['pannello2']}; border: 1px solid transparent;
+        border-radius: 19px; padding: 9px 16px; font-size: {p(13)};
+    }}
+    QLineEdit#CampoTess:focus {{ border: 1px solid {c['accento']}; }}
+
+    QPlainTextEdit#CampoDiario {{
+        background: {c['pannello2']}; border: 1px solid transparent;
+        border-radius: 16px; padding: 12px 14px; font-size: {p(13)};
+        line-height: 150%;
+    }}
+    QPlainTextEdit#CampoDiario:focus {{ border: 1px solid {c['accento']}; }}
+
+    /* ------------------------------------------------ intestazioni di sezione */
+    QLabel#Periodo {{
+        color: {c['testo2']}; font-size: {p(11.5)};
+        padding: 2px 10px; border-radius: 10px;
+    }}
+    QLabel#Periodo:hover {{ background: {tocco}; color: {c['accento']}; }}
+    QLabel#AzioniSezione {{
+        color: {c['testo2']}; font-size: {p(14)}; font-weight: 700;
+        padding: 0 7px; border-radius: 9px;
+    }}
+    QLabel#AzioniSezione:hover {{ background: {tocco}; color: {c['testo']}; }}
+    QFrame#IndicatoreRilascio {{
+        background: {c['accento']}; border: none; border-radius: 3px;
+    }}
+
+    QSplitter::handle {{ background: transparent; }}
+    QSplitter::handle:hover {{ background: {selezione}; border-radius: 4px; }}
+    QSplitter::handle:pressed {{ background: {c['accento']}; }}
+
+    QScrollBar:vertical {{ background: transparent; width: 10px; margin: 4px 2px; }}
+    QScrollBar::handle:vertical {{ background: {c['bordo']}; border-radius: 5px;
+                                   min-height: 34px; }}
+    QScrollBar::handle:vertical:hover {{ background: {c['testo2']}; }}
+    QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px 4px; }}
+    QScrollBar::handle:horizontal {{ background: {c['bordo']}; border-radius: 5px;
+                                     min-width: 34px; }}
+    QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
+
+    QTabWidget::pane {{ border: none; background: {c['pannello']};
+                        border-radius: 20px; top: -1px; }}
+    QTabBar::tab {{
+        background: transparent; color: {c['testo2']}; padding: 10px 18px;
+        border-radius: 15px; margin-right: 4px;
+    }}
+    QTabBar::tab:selected {{ background: {c['pannello']}; color: {c['testo']};
+                             font-weight: 650; }}
+
+    {frecce_qss}
+
+    QToolTip {{
+        background: {c['pannello2']}; color: {c['testo']};
+        border: 1px solid {c['bordo']}; padding: 8px 10px; border-radius: 12px;
+    }}
+    QCheckBox::indicator {{
+        width: 18px; height: 18px; border-radius: 6px;
+        border: 1px solid {c['bordo']}; background: {c['pannello2']};
+    }}
+    QCheckBox::indicator:hover {{ border-color: {c['accento']}; }}
+    QCheckBox::indicator:checked {{ background: {c['accento']};
+                                    border-color: {c['accento']}; }}
+
+    /* ------------------------------------------------------- etichette varie */
+    QLabel#Pillola {{
+        background: {c['pannello2']}; border: none; border-radius: 15px;
+        padding: 8px 14px; color: {c['testo2']};
+    }}
+    QPushButton#Segmento {{
+        background: {c['pannello2']}; border: none; border-radius: 16px;
+        padding: 8px 18px; color: {c['testo2']};
+    }}
+    QPushButton#Segmento:hover {{ background: {tocco}; }}
+    QPushButton#Segmento:checked {{
+        background: {c['accento']}; color: {su_accento}; font-weight: 650;
+    }}
+    QPushButton#Suggerita {{
+        background: {c['pannello2']}; border: 1px dashed {c['bordo']};
+        border-radius: 15px; padding: 6px 14px; color: {c['testo2']};
+        font-size: {p(11.5)};
+    }}
+    QPushButton#Suggerita:hover {{
+        border-color: {c['accento']}; color: {c['accento']}; border-style: solid;
+    }}
+    QPushButton#IconaCategoria {{
+        background: {c['pannello2']}; border: none;
+        border-radius: 15px; font-size: {p(19)};
+    }}
+    QPushButton#IconaCategoria:hover {{ background: {tocco}; }}
+    QPushButton#CampioneColore {{ border-radius: 14px; }}
+    QToolButton#CampioneIcone {{
+        background: {c['pannello2']}; border: 2px solid transparent;
+        border-radius: 16px; padding: 10px 12px 7px 12px; color: {c['testo2']};
+        font-size: {p(11.5)};
+    }}
+    QToolButton#CampioneIcone:hover {{ background: {tocco}; }}
+    QToolButton#CampioneIcone:checked {{
+        border-color: {c['accento']}; color: {c['accento']}; font-weight: 700;
+    }}
+    QPushButton#Campione {{ border-radius: 15px; padding: 10px 16px;
+                            font-size: {p(12.5)}; }}
+
+    QWidget#TestataBarra {{ background: transparent; }}
+    QPushButton#LogoApp {{
+        background: transparent; border: none; border-radius: 14px; padding: 0;
+    }}
+    QPushButton#LogoApp:hover {{ background: {tocco}; }}
+
+    /* --------------------------------------------------- compositore voce */
+    QFrame#Compositore {{
+        background: {c['pannello2']}; border: none; border-radius: 18px;
+    }}
+    QFrame#Compositore QLineEdit#CampoCompositore {{
+        background: transparent; border: none; border-radius: 0;
+        padding: 0 4px; font-size: {p(14)};
+    }}
+    QFrame#DivisoreCompositore {{ background: {c['testo2']}; border: none; }}
+    QPushButton#IconaCompositore {{
+        background: {c['pannello']}; border: none;
+        border-radius: 14px; font-size: {p(18)}; padding: 0;
+    }}
+    QPushButton#IconaCompositore:hover {{ background: {tocco}; }}
+    QPushButton#ColoreCompositore {{ border: none; border-radius: 14px; }}
+    QPushButton#AggiungiAccanto {{
+        background: {c['pannello2']}; border: none;
+        border-radius: 14px; font-size: {p(15)}; font-weight: 700;
+        color: {c['testo2']}; padding: 0;
+    }}
+    QPushButton#AggiungiAccanto:hover {{ background: {tocco}; color: {c['accento']}; }}
+
+    QLabel#Buono {{ color: {c['entrata']}; font-weight: 650; }}
+    QMenu {{ background: {c['pannello']}; border: 1px solid {c['bordo']};
+             border-radius: 16px; padding: 8px; }}
+    QMenu::item {{ padding: 9px 20px; border-radius: 12px; }}
+    QMenu::item:selected {{ background: {c['accento']}; color: {su_accento}; }}
+    QMenu::separator {{ height: 1px; background: {c['bordo']}; margin: 6px 10px; }}
+    """

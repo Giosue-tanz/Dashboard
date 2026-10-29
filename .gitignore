@@ -1,0 +1,21 @@
+# Dati personali: non devono MAI finire nel repository.
+# L'archivio vero vive in ~/.local/share/Vita/, fuori da qui.
+dati/
+*.db
+*.db.migrato
+*.sqlite
+*.sqlite3
+vita-backup-*
+banda/
+
+# File generati
+cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Sistema
+.DS_Store
+*~
