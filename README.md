@@ -87,7 +87,10 @@ nell'archivio; di suo cerca `~/Scrivania/WORK/AI-Locale` e ne legge
 
 ## Installazione
 
+Su un PC nuovo bastano tre righe:
+
 ```bash
+git clone git@github.com:Giosue-tanz/Dashboard.git Vita
 cd Vita
 ./installa.sh
 ```
@@ -95,6 +98,13 @@ cd Vita
 `installa.sh` crea la voce nel menu applicazioni e l'icona sul Desktop puntando
 alla cartella in cui si trova il progetto. Requisiti: Python 3 e PySide6
 (`sudo pacman -S pyside6` su Arch, `sudo apt install python3-pyside6` su Debian).
+
+**Il repository contiene solo l'applicazione.** L'archivio — tutto quello che
+scrivi — vive in `~/.local/share/Vita/vita.db` e non esce mai da questo
+computer: appena installata, l'app parte vuota, con le sole emozioni,
+categorie e abitudini di partenza da cui poi fai le tue. Per ritrovare i dati
+su un PC nuovo si copia quel file a mano, oppure si usa il backup di
+**Impostazioni → Dati e backup**.
 
 ## Avvio
 
