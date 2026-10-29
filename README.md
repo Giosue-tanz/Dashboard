@@ -82,12 +82,16 @@ Tre cose, perché sono il punto:
 * **Il riassunto dei dati si può spegnere.** L'interruttore «dati» nella barra
   della chat decide se mandare i numeri a Tess. Il testo del diario non viene
   mandato mai: nel riassunto ci sono solo medie, conteggi e scadenze.
+* **I dati li tiene sott'occhio, non li recita.** Nelle istruzioni c'è scritto
+  di tenerseli lì e di tirarli in ballo quando glieli chiedi o quando c'entrano
+  con il discorso — nei momenti opportuni, non a ogni risposta.
 * **Tess si fa su misura** in *Impostazioni → Tess*: il nome che vuoi darle, il
   tono (asciutta, incoraggiante, diretta, ironica, professionale), quanto
   lunghe le risposte, e soprattutto le **istruzioni tue** — una casella di
   testo libero che vale più di tutto il resto («dammi sempre una cosa concreta
   da fare domani», «non parlarmi di soldi se non te lo chiedo», «scrivimi in
-  inglese»). Sette caselle decidono poi **che cosa può vedere**: salute,
+  inglese»). L'interruttore **«solo le mie istruzioni»**, in cima alla sezione,
+  lascia fuori tono e lunghezza: comanda soltanto quello che hai scritto tu. Sette caselle decidono poi **che cosa può vedere**: salute,
   punteggi, università, lavoro, abitudini, finanza, scadenze — spenta una, quel
   pezzo di riassunto non le arriva proprio. In fondo alla pagina c'è
   l'anteprima di quello che Tess riceverà, parola per parola.

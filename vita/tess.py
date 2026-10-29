@@ -411,19 +411,36 @@ ISTRUZIONI = (
 )
 
 
+# Come sta coi dati: li ha sott'occhio, ma non li recita. Questa riga è la
+# sola che non si tocca: senza, un modello piccolo comincia ogni risposta con
+# l'elenco dei numeri del giorno.
+RIGA_DATI = (
+    "Hai i suoi dati sott'occhio: tienili lì, non elencarli. Tirali in ballo "
+    "quando te li chiede o quando c'entrano davvero con quello di cui state "
+    "parlando, e solo nei momenti opportuni."
+)
+RIGA_ONESTA = "Se un dato non c'è, dillo invece di inventarlo."
+
+
+def solo_istruzioni_tue(db) -> bool:
+    """L'interruttore «solo le mie»: tono e lunghezza non vengono mandati."""
+    return db.leggi("tess_solo_mie", "0") == "1"
+
+
 def istruzioni(db) -> str:
     """Le istruzioni di Tess, messe insieme da come l'hai impostata."""
     nome = (db.leggi("tess_nome", "") or "Tess").strip()
-    pezzi = [
-        f"Ti chiami {nome} e stai rispondendo dentro la Dashboard di Giosuè.",
-        "Hai sott'occhio i suoi dati: parla di quelli, con i numeri giusti, "
-        "senza ripeterglieli tutti.",
-        TONI.get(db.leggi("tess_tono", TONO_PREDEFINITO), TONI[TONO_PREDEFINITO]),
-        LUNGHEZZE.get(db.leggi("tess_lunghezza", LUNGHEZZA_PREDEFINITA),
-                      LUNGHEZZE[LUNGHEZZA_PREDEFINITA]),
-        "Se un dato non c'è, dillo invece di inventarlo.",
-    ]
     sue = db.leggi("tess_istruzioni", "").strip()
+    pezzi = [f"Ti chiami {nome} e stai rispondendo dentro la Dashboard di "
+             "Giosuè.", RIGA_DATI]
+    # con l'interruttore acceso comandano solo le sue istruzioni: lo stile
+    # pronto (tono e lunghezza) resta fuori
+    if not (solo_istruzioni_tue(db) and sue):
+        pezzi.append(TONI.get(db.leggi("tess_tono", TONO_PREDEFINITO),
+                              TONI[TONO_PREDEFINITO]))
+        pezzi.append(LUNGHEZZE.get(db.leggi("tess_lunghezza", LUNGHEZZA_PREDEFINITA),
+                                   LUNGHEZZE[LUNGHEZZA_PREDEFINITA]))
+    pezzi.append(RIGA_ONESTA)
     if sue:
         # quello che scrive lui conta più di tutto il resto
         pezzi.append("Istruzioni sue, che valgono sopra le altre: " + sue)

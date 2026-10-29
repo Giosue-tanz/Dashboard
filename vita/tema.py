@@ -256,6 +256,14 @@ def foglio_stile(c: dict, scala: float = 1.0,
     QPushButton:hover {{ background: {tocco}; }}
     QPushButton:pressed {{ background: {c['bordo']}; }}
     QPushButton:disabled {{ color: {c['testo2']}; background: {c['pannello2']}; }}
+    /* un campo spento si vede che è spento: scritta smorta, fondo piatto */
+    QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled,
+    QDoubleSpinBox:disabled, QDateEdit:disabled, QTimeEdit:disabled,
+    QPlainTextEdit:disabled, QTextEdit:disabled {{
+        color: {trasparente(c['testo2'], 0.55)};
+        background: {trasparente(c['pannello2'], 0.45)};
+    }}
+    QLabel:disabled, QCheckBox:disabled {{ color: {trasparente(c['testo2'], 0.55)}; }}
     QPushButton#Primario {{
         background: {c['accento']}; color: {su_accento}; border: none;
         font-weight: 700; border-radius: 17px; padding: 9px 20px;

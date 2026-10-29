@@ -346,7 +346,24 @@ class VistaImpostazioni(VistaBase):
         lay.setContentsMargins(16, 16, 16, 16)
         lay.setSpacing(14)
 
-        scheda = Scheda("Come parla")
+        scheda = Scheda()
+        # il titolo me lo faccio io: accanto ci va l'interruttore
+        testa = QHBoxLayout()
+        testa.setSpacing(10)
+        titolo = etichetta("Come parla", "Sezione")
+        self.tess_solo_mie = Interruttore(
+            self.c, self.db.leggi("tess_solo_mie", "0") == "1")
+        self.tess_solo_mie.setToolTip(
+            "Acceso, a Tess arrivano solo le tue istruzioni: il tono e la "
+            "lunghezza qui sotto restano fuori.")
+        et_solo = etichetta("solo le mie istruzioni", "NotaScheda")
+        et_solo.setToolTip(self.tess_solo_mie.toolTip())
+        self.tess_solo_mie.cambiato.connect(self._commuta_solo_mie)
+        testa.addWidget(titolo)
+        testa.addStretch(1)
+        testa.addWidget(et_solo)
+        testa.addWidget(self.tess_solo_mie)
+        scheda.aggiungi_layout(testa)
         modulo = QFormLayout()
         modulo.setHorizontalSpacing(14)
         modulo.setVerticalSpacing(10)
@@ -361,10 +378,17 @@ class VistaImpostazioni(VistaBase):
         for campo in (self.tess_nome, self.tess_tono, self.tess_lunghezza):
             campo.setMinimumHeight(38)
             campo.setMaximumWidth(320)      # i campi corti non si allargano
+        self.et_tono = QLabel("Tono")
+        self.et_risposte = QLabel("Risposte")
         modulo.addRow("Nome", self.tess_nome)
-        modulo.addRow("Tono", self.tess_tono)
-        modulo.addRow("Risposte", self.tess_lunghezza)
+        modulo.addRow(self.et_tono, self.tess_tono)
+        modulo.addRow(self.et_risposte, self.tess_lunghezza)
         scheda.aggiungi_layout(modulo)
+        self.et_stile_spento = etichetta(
+            "Tono e lunghezza non vengono mandati: comandano le tue istruzioni.",
+            "NotaScheda")
+        self.et_stile_spento.setWordWrap(True)
+        scheda.aggiungi(self.et_stile_spento)
         lay.addWidget(scheda)
 
         scheda = Scheda("Istruzioni tue")
@@ -415,6 +439,7 @@ class VistaImpostazioni(VistaBase):
         b_pulisci.clicked.connect(self._azzera_tess)
         scheda.aggiungi_layout(riga(b_salva, b_pulisci, None))
         lay.addWidget(scheda)
+        self._stato_stile()
         self._anteprima_tess()
         for campo in (self.tess_tono, self.tess_lunghezza):
             campo.currentTextChanged.connect(lambda _=None: self._anteprima_tess(True))
@@ -425,21 +450,34 @@ class VistaImpostazioni(VistaBase):
         lay.addStretch(1)
         return pagina
 
+    def _commuta_solo_mie(self, acceso: bool) -> None:
+        self.db.imposta("tess_solo_mie", "1" if acceso else "0")
+        self._stato_stile()
+        self._anteprima_tess(True)
+
+    def _stato_stile(self) -> None:
+        """Con «solo le mie» acceso, tono e lunghezza si spengono a vista."""
+        acceso = self.tess_solo_mie.acceso()
+        for campo in (self.tess_tono, self.tess_lunghezza,
+                      self.et_tono, self.et_risposte):
+            campo.setEnabled(not acceso)
+        self.et_stile_spento.setVisible(acceso)
+
     def _anteprima_tess(self, provvisoria: bool = False) -> None:
         """Mostra le istruzioni che Tess riceverà, anche prima di salvarle."""
-        from ..tess import LUNGHEZZE, TONI, istruzioni
+        from ..tess import (LUNGHEZZE, RIGA_DATI, RIGA_ONESTA, TONI,
+                            istruzioni)
         if not provvisoria:
             self.tess_anteprima.setText(istruzioni(self.db))
             return
         nome = self.tess_nome.text().strip() or "Tess"
-        pezzi = [f"Ti chiami {nome} e stai rispondendo dentro la Dashboard di "
-                 "Giosuè.",
-                 "Hai sott'occhio i suoi dati: parla di quelli, con i numeri "
-                 "giusti, senza ripeterglieli tutti.",
-                 TONI[self.tess_tono.currentText()],
-                 LUNGHEZZE[self.tess_lunghezza.currentText()],
-                 "Se un dato non c'è, dillo invece di inventarlo."]
         sue = self.tess_istruzioni.toPlainText().strip()
+        pezzi = [f"Ti chiami {nome} e stai rispondendo dentro la Dashboard di "
+                 "Giosuè.", RIGA_DATI]
+        if not (self.tess_solo_mie.acceso() and sue):
+            pezzi.append(TONI[self.tess_tono.currentText()])
+            pezzi.append(LUNGHEZZE[self.tess_lunghezza.currentText()])
+        pezzi.append(RIGA_ONESTA)
         if sue:
             pezzi.append("Istruzioni sue, che valgono sopra le altre: " + sue)
         self.tess_anteprima.setText(" ".join(pezzi))
@@ -450,18 +488,22 @@ class VistaImpostazioni(VistaBase):
         self.db.imposta("tess_lunghezza", self.tess_lunghezza.currentText())
         self.db.imposta("tess_istruzioni",
                         self.tess_istruzioni.toPlainText().strip())
+        self.db.imposta("tess_solo_mie",
+                        "1" if self.tess_solo_mie.acceso() else "0")
         self.db.imposta("tess_aree", ",".join(
             c for c, casella in self.tess_aree.items() if casella.isChecked()))
         self._anteprima_tess()
 
     def _azzera_tess(self) -> None:
         for chiave in ("tess_nome", "tess_tono", "tess_lunghezza",
-                       "tess_istruzioni", "tess_aree"):
+                       "tess_istruzioni", "tess_aree", "tess_solo_mie"):
             self.db.esegui("DELETE FROM impostazioni WHERE chiave=?", (chiave,))
         self.tess_nome.setText("Tess")
         self.tess_tono.setCurrentText("asciutta")
         self.tess_lunghezza.setCurrentText("normali")
         self.tess_istruzioni.setPlainText("")
+        self.tess_solo_mie.imposta(False)
+        self._stato_stile()
         for casella in self.tess_aree.values():
             casella.setChecked(True)
         self._anteprima_tess()

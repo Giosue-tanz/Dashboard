@@ -8,14 +8,15 @@ from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import QMimeData, QPoint, QRect, Qt, Signal
-from PySide6.QtGui import QDrag, QFont, QPainter, QPixmap
+from PySide6.QtCore import QEvent, QMimeData, QPoint, QRect, Qt, Signal
+from PySide6.QtGui import QDrag, QFont, QFontMetrics, QPainter, QPixmap
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QSizePolicy, QSplitter,
                                QVBoxLayout, QWidget)
 
 MIME = "application/x-vita-sezione"
 BORDO_RIGA = 18          # zona in cui il rilascio crea una riga nuova
 LARGHEZZA_MINIMA = 150
+LARGHEZZA_LIBERA = 16777215   # il massimo di Qt: «nessun limite»
 ALTEZZA_MINIMA = 108
 
 
@@ -30,10 +31,14 @@ class Intestazione(QWidget):
     periodo_richiesto = Signal(QPoint)
     menu_richiesto = Signal(QPoint)
 
+    ALTEZZA_MINIMA = 24
+
     def __init__(self, titolo: str, stile: str = "Sezione", parent=None):
         super().__init__(parent)
         self.setCursor(Qt.OpenHandCursor)
-        self.setFixedHeight(24)
+        self.setFixedHeight(self.ALTEZZA_MINIMA)
+        self._titolo_pieno = titolo
+        self._periodo_pieno = ""
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(10)
@@ -55,11 +60,89 @@ class Intestazione(QWidget):
         lay.addStretch(1)
         lay.addWidget(self.azioni)
         self._premuto: QPoint | None = None
+        self._adatta_altezza()
 
     # -------------------------------------------------------------- aspetto
+    def _adatta_altezza(self) -> None:
+        """L'altezza segue il carattere, non un numero fisso.
+
+        Con il testo molto grande una barra alta 24 px tagliava le code delle
+        lettere: la «g» di «Oggi», di «Progetti», di «Prossimi impegni».
+        """
+        for etichetta in (self.titolo, self.periodo, self.azioni):
+            etichetta.ensurePolished()
+        alto = max(e.sizeHint().height()
+                   for e in (self.titolo, self.periodo, self.azioni))
+        self.setFixedHeight(max(self.ALTEZZA_MINIMA, alto + 2))
+
+    def _accorcia(self) -> None:
+        """Se la sezione è stretta, prima si accorcia il periodo, poi il titolo.
+
+        Il titolo ha la precedenza: meglio perdere «· 2 voci» che la parola
+        che dice di che riquadro si tratta. Le misure si chiedono
+        all'etichetta, non al carattere: il grassetto del foglio di stile
+        occupa più di quanto dica la metrica, e il titolo finirebbe tagliato.
+        """
+        spazio = max(0, self.width() - 28)        # il posto dei «⋯»
+        for etichetta in (self.titolo, self.periodo):
+            etichetta.setMinimumWidth(0)
+            etichetta.setMaximumWidth(LARGHEZZA_LIBERA)
+
+        largo_titolo = self._misura(self.titolo, self._titolo_pieno)
+        if largo_titolo > spazio:
+            # non ci sta nemmeno il titolo: si accorcia lui, coi puntini
+            testo = self.titolo.fontMetrics().elidedText(
+                self._titolo_pieno, Qt.ElideRight, spazio)
+            while len(testo) > 2 and self._misura(self.titolo, testo) > spazio:
+                testo = testo[:-2] + "…"
+            self.titolo.setFixedWidth(spazio)
+            self.titolo.setToolTip(self._titolo_pieno)
+            self.periodo.setVisible(False)
+            return
+        self.titolo.setToolTip("")
+        # larghezza fissa: così il periodo non gli ruba spazio dal layout
+        self.titolo.setFixedWidth(largo_titolo)
+
+        if not self._periodo_pieno:
+            self.periodo.setVisible(False)
+            return
+        resto = spazio - largo_titolo - 12
+        # sotto una certa misura il periodo diventa illeggibile: via del tutto
+        if resto < 44:
+            self.periodo.setVisible(False)
+            return
+        self.periodo.setVisible(True)
+        testo = self.periodo.fontMetrics().elidedText(
+            self._periodo_pieno, Qt.ElideRight, resto)
+        while len(testo) > 2 and self._misura(self.periodo, testo) > resto:
+            testo = testo[:-2] + "…"
+        self.periodo.setFixedWidth(min(resto, self.periodo.sizeHint().width()))
+        self.periodo.setToolTip(self._periodo_pieno)
+
+    def _misura(self, etichetta: QLabel, testo: str) -> int:
+        """Scrive il testo e torna quanto spazio chiede davvero."""
+        etichetta.setText(testo)
+        return etichetta.sizeHint().width()
+
+    def imposta_titolo(self, testo: str) -> None:
+        self._titolo_pieno = testo
+        self._accorcia()
+
     def imposta_periodo(self, testo: str) -> None:
-        self.periodo.setText(testo)
-        self.periodo.setVisible(bool(testo))
+        self._periodo_pieno = testo
+        self._accorcia()
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._accorcia()
+
+    def changeEvent(self, ev):
+        super().changeEvent(ev)
+        # il foglio di stile cambia (tema, dimensione del testo): rimisuro
+        if ev.type() in (QEvent.StyleChange, QEvent.FontChange,
+                         QEvent.ApplicationFontChange):
+            self._adatta_altezza()
+            self._accorcia()
 
     def enterEvent(self, ev):
         self.azioni.setVisible(True)
