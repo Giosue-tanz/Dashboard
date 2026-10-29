@@ -126,6 +126,10 @@ class FinestraPrincipale(QMainWindow):
         self.fonte = fonte_finanza(db)
         self.c = colori(db.leggi("tema", "scuro"),
                         db.leggi("accento", ACCENTO_PREDEFINITO))
+        # stato delle icone animate della barra, una voce per pulsante:
+        # «fase» è il fotogramma del disegno (1 = icona ferma)
+        self._fase_icona: dict[int, float] = {}
+        self._animazioni_icona: dict[int, QVariantAnimation] = {}
         self.setWindowTitle("Dashboard")
         self.resize(1360, 880)
         self.setMinimumSize(1060, 700)
@@ -331,6 +335,7 @@ class FinestraPrincipale(QMainWindow):
             self.viste.append(vista)
             self.pila.addWidget(vista)
         lay.addWidget(self.pila, 1)
+        self._ripulisci_impostazioni()
         return contenitore
 
     def _scorciatoie(self) -> None:
@@ -341,6 +346,19 @@ class FinestraPrincipale(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Q"), self, self.close)
         for i in range(len(VISTE)):
             QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self, lambda idx=i: self.vai(idx))
+
+    def _ripulisci_impostazioni(self) -> None:
+        """Le disposizioni di versioni passate, e i periodi di riquadri che non
+        esistono più, resterebbero nell'archivio per sempre: qui se ne vanno.
+
+        Lo sanno le viste stesse quali impostazioni usano, così la pulizia non
+        va aggiornata a mano ogni volta che cambia un riquadro.
+        """
+        usate: dict = {}
+        for vista in self.viste:
+            if hasattr(vista, "impostazioni_usate"):
+                usate.update(vista.impostazioni_usate())
+        self.db.impostazioni_tolte = self.db.ripulisci_impostazioni(usate)
 
     # -------------------------------------------------------------- azioni
     def vai(self, indice: int) -> None:
@@ -506,19 +524,27 @@ class FinestraPrincipale(QMainWindow):
         for indice in self.pulsanti:
             self._icona_voce(indice)
 
-    def _icona_voce(self, indice: int, fase: float = 1.0) -> None:
-        """Rifà l'icona di una voce: grigia a riposo, colorata sotto il mouse,
-        in negativo sulla pastiglia piena. Con `fase` sotto 1 è un fotogramma."""
+    def _icona_voce(self, indice: int, fase: float | None = None) -> None:
+        """Rifà l'icona di una voce: sempre nella tinta della sua sezione, in
+        negativo quando la pastiglia è piena.
+
+        `fase` è il fotogramma del disegno (1 = icona ferma); se non la si
+        passa vale quella a cui è arrivata l'animazione in corso.
+        """
         b = self.pulsanti.get(indice)
         if b is None:
             return
+        if fase is None:
+            fase = self._fase_icona.get(indice, 1.0)
+        else:
+            self._fase_icona[indice] = fase
         chiave = VISTE[indice][0]
         tinta = colore_area(chiave, luminosita(self.c["fondo"]) > 0.5)
-        b.setIcon(icona(chiave, self.c["testo2"], su_colore(tinta), tinta, fase))
+        b.setIcon(icona(chiave, tinta, su_colore(tinta), tinta, fase))
 
     # ------------------------------------------------------ icone animate
     def eventFilter(self, oggetto, evento):
-        """Il mouse che entra su una voce le fa fare la sua animazione."""
+        """Il mouse che entra su una voce le fa fare il suo gesto."""
         if evento.type() == QEvent.Enter:
             for indice, b in getattr(self, "pulsanti", {}).items():
                 if b is oggetto:
@@ -526,25 +552,33 @@ class FinestraPrincipale(QMainWindow):
                     break
         return super().eventFilter(oggetto, evento)
 
+    def _anima(self, deposito: dict, indice: int, da: float, a: float,
+               durata: int, passo) -> None:
+        """Una sola animazione per voce e per genere, riusata ogni volta: la
+        nuova corsa sostituisce quella in atto invece di accavallarsi."""
+        anim = deposito.get(indice)
+        if anim is None:
+            anim = QVariantAnimation(self)
+            anim.setEasingCurve(QEasingCurve.OutCubic)
+            anim.valueChanged.connect(lambda v, i=indice: passo(i, float(v)))
+            anim.finished.connect(
+                lambda i=indice, an=anim: passo(i, float(an.endValue())))
+            deposito[indice] = anim
+        anim.stop()
+        anim.setDuration(durata)
+        anim.setStartValue(da)
+        anim.setEndValue(a)
+        anim.start()
+
     def anima_icona(self, indice: int) -> None:
         """Mezzo secondo di vita: il cuore batte, la spunta si scrive."""
         if not self.isVisible() or indice not in self.pulsanti:
             return
-        animazioni = getattr(self, "_animazioni_icona", None)
-        if animazioni is None:
-            animazioni = self._animazioni_icona = {}
-        vecchia = animazioni.get(indice)
+        vecchia = self._animazioni_icona.get(indice)
         if vecchia is not None and vecchia.state() == QVariantAnimation.Running:
             return                      # già in corso: non si accavalla
-        anim = QVariantAnimation(self)
-        anim.setDuration(620)
-        anim.setStartValue(0.0)
-        anim.setEndValue(1.0)
-        anim.valueChanged.connect(
-            lambda v, i=indice: self._icona_voce(i, float(v)))
-        anim.finished.connect(lambda i=indice: self._icona_voce(i, 1.0))
-        animazioni[indice] = anim
-        anim.start()
+        self._anima(self._animazioni_icona, indice, 0.0, 1.0, 620,
+                    self._icona_voce)
 
     def applica_tema(self, nome: str) -> None:
         self.c = colori(nome, self.db.leggi("accento", ACCENTO_PREDEFINITO))

@@ -220,10 +220,27 @@ class VistaSezioni(VistaBase):
         menu.exec(punto)
 
     # --------------------------------------------------------- disposizione
+    @classmethod
+    def chiave_layout(cls) -> str:
+        if cls.versione_layout > 1:
+            return f"layout_{cls.chiave_vista}_v{cls.versione_layout}"
+        return f"layout_{cls.chiave_vista}"
+
+    @classmethod
+    def impostazioni_usate(cls) -> dict[str, set[str] | None]:
+        """Le impostazioni che questa vista legge davvero, con i valori che
+        accetta (`None` = qualsiasi).
+
+        Serve a ripulire l'archivio: alzando `versione_layout`, o togliendo un
+        riquadro, le vecchie righe resterebbero lì per sempre.
+        """
+        usate: dict[str, set[str] | None] = {cls.chiave_layout(): None}
+        for sezione, (voci, _) in cls.PERIODI_SEZIONE.items():
+            usate[f"periodo_{cls.chiave_vista}_{sezione}"] = set(voci)
+        return usate
+
     def _chiave_layout(self) -> str:
-        if self.versione_layout > 1:
-            return f"layout_{self.chiave_vista}_v{self.versione_layout}"
-        return f"layout_{self.chiave_vista}"
+        return self.chiave_layout()
 
     def _ripristina(self) -> None:
         stato = self.db.leggi(self._chiave_layout(), "")

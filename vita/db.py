@@ -270,6 +270,8 @@ class Database:
     def __init__(self, percorso: str = DB_PATH):
         os.makedirs(os.path.dirname(percorso), exist_ok=True)
         self.percorso = percorso
+        # chiavi tolte dall'ultima pulizia: le mostra la pagina Impostazioni
+        self.impostazioni_tolte: list[str] = []
         self.conn = sqlite3.connect(percorso)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
@@ -360,6 +362,36 @@ class Database:
             "INSERT INTO impostazioni(chiave,valore) VALUES(?,?) "
             "ON CONFLICT(chiave) DO UPDATE SET valore=excluded.valore",
             (chiave, str(valore)))
+
+    def quante_impostazioni(self) -> int:
+        return int(self.valore("SELECT COUNT(*) FROM impostazioni"))
+
+    # prefissi delle impostazioni che l'applicazione gestisce da sé: sono le
+    # uniche che la pulizia può toccare
+    PREFISSI_PULIBILI = ("layout_", "periodo_")
+
+    def ripulisci_impostazioni(self, usate: dict) -> list[str]:
+        """Toglie le impostazioni che non servono più.
+
+        Sono quelle che l'app scrive da sé — disposizione dei riquadri e
+        periodo scelto — rimaste orfane: una versione vecchia della
+        disposizione, un riquadro che non esiste più, un periodo con un valore
+        che non è più fra quelli previsti. Tutto il resto non si tocca.
+        """
+        tolte = []
+        for r in self.query("SELECT chiave, valore FROM impostazioni"):
+            chiave = r["chiave"]
+            if not chiave.startswith(self.PREFISSI_PULIBILI):
+                continue
+            if chiave not in usate:
+                tolte.append(chiave)
+                continue
+            ammessi = usate[chiave]
+            if ammessi is not None and r["valore"] not in ammessi:
+                tolte.append(chiave)
+        for chiave in tolte:
+            self.esegui("DELETE FROM impostazioni WHERE chiave=?", (chiave,))
+        return tolte
 
     # --------------------------------------------------------------- emozioni
     def voci(self, dal: str = "", al: str = "", testo: str = "",
