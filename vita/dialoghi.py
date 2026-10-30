@@ -919,6 +919,7 @@ class DialogoVoce(QDialog):
         titolo = QLabel("Com'è andata")
         titolo.setObjectName("Sezione")
         sotto = QLabel("Come stai, cosa senti, com'è andata.")
+        sotto.setWordWrap(True)      # col testo grande, su una riga non ci sta
         sotto.setObjectName("NotaScheda")
         testi = QVBoxLayout()
         testi.setContentsMargins(0, 0, 0, 0); testi.setSpacing(2)

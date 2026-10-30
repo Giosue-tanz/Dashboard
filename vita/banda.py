@@ -1,33 +1,39 @@
 """Il braccialetto collegato alla Dashboard.
 
 Parla con BlueZ attraverso D-Bus — nessuna libreria Bluetooth in più: su Arch
-`python-dbus` c'è già, e il resto lo fa il sistema. Tutto il traffico sta in un
-filo suo con un ciclo GLib; verso l'app escono solo segnali Qt, così
-l'interfaccia non si blocca mai.
+`python-dbus` c'è già, e il resto lo fa il sistema.
+
+**Niente fili separati, e c'è un motivo.** Su Linux Qt usa il ciclo di GLib per
+i suoi eventi: il contesto principale di GLib è già suo. Un secondo ciclo GLib
+dentro un thread nostro non riesce a prenderselo e resta fermo ad aspettare —
+le notifiche arrivano lo stesso (le smista Qt) ma tutto il resto si impunta, e
+un filo che non finisce fa abortire l'applicazione in uscita.
+
+Quindi si fa il contrario: le notifiche di BlueZ entrano dritte nel ciclo di
+Qt, e ogni chiamata che potrebbe far aspettare — collegarsi, iscriversi,
+scrivere — parte **asincrona**, con la risposta che torna quando torna. Così
+l'interfaccia non si ferma mai e alla chiusura non c'è niente da aspettare.
 
 Cosa sa fare oggi:
 
 * **trovarlo e collegarsi** al braccialetto già accoppiato col PC;
 * **stringergli la mano** col protocollo SAP (vedi `vita/sap.py`), dopo di che
   il braccialetto ci parla come parlerebbe al telefono;
-* **batteria**, e l'ora che segna il braccialetto;
-* **battito in diretta**, dal servizio standard: arriva mentre il
-  braccialetto misura;
-* **chiedere lo storico** di passi, sonno e battito. Il braccialetto risponde
-  «non ho niente» quando il telefono gliel'ha già svuotato: i lotti che manda
-  vengono messi da parte grezzi in `~/.local/share/Vita/banda/` finché non li
-  sappiamo leggere tutti.
+* **batteria** e ora che segna il braccialetto;
+* **battito in diretta**, dal servizio standard, mentre lo sta misurando;
+* **chiedere lo storico** di passi e sonno: per ora risponde «non ho niente»,
+  perché il telefono lo svuota prima. I lotti, se arrivano, si mettono da
+  parte grezzi in `~/.local/share/Vita/banda/`.
 
-Niente di tutto questo tocca il firmware: il servizio di aggiornamento (quello
-di Dialog) non lo sfioriamo nemmeno.
+Il servizio di aggiornamento del firmware (Dialog, `0xfef5`) non lo tocchiamo
+nemmeno di striscio.
 """
 from __future__ import annotations
 
 import os
-import time
 from datetime import datetime
 
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from . import sap
 from .db import DATA_DIR
@@ -37,11 +43,12 @@ CARTELLA_LOTTI = os.path.join(DATA_DIR, "banda")
 try:                              # su un PC senza stack Bluetooth l'app vive lo stesso
     import dbus
     import dbus.mainloop.glib
-    from gi.repository import GLib
+    # prima di qualunque connessione: così i segnali di BlueZ finiscono nel
+    # ciclo di GLib, che su Linux è quello che Qt fa già girare
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     DISPONIBILE = True
 except ImportError:               # pragma: no cover - dipende dal sistema
     dbus = None
-    GLib = None
     DISPONIBILE = False
 
 BLUEZ = "org.bluez"
@@ -51,15 +58,18 @@ SERVIZIO_GATT = "org.bluez.GattService1"
 PROPRIETA = "org.freedesktop.DBus.Properties"
 
 
+def _bus():
+    return dbus.SystemBus()
+
+
 def cerca_braccialetto(nome: str = "fit") -> tuple[str, str] | None:
     """Il primo dispositivo accoppiato col nome giusto: (indirizzo, nome)."""
     if not DISPONIBILE:
         return None
     try:
-        bus = dbus.SystemBus()
-        gestore = dbus.Interface(bus.get_object(BLUEZ, "/"),
+        gestore = dbus.Interface(_bus().get_object(BLUEZ, "/"),
                                  "org.freedesktop.DBus.ObjectManager")
-        for percorso, interfacce in gestore.GetManagedObjects().items():
+        for _percorso, interfacce in gestore.GetManagedObjects().items():
             dati = interfacce.get(DISPOSITIVO)
             if not dati:
                 continue
@@ -71,33 +81,38 @@ def cerca_braccialetto(nome: str = "fit") -> tuple[str, str] | None:
     return None
 
 
-class Filo(QThread):
-    """Il filo che tiene il Bluetooth: ciclo GLib dentro, segnali Qt fuori."""
+class Braccialetto(QObject):
+    """Il braccialetto, visto dall'applicazione.
+
+    Si accende e si spegne a comando; da acceso manda un segnale Qt per ogni
+    cosa che il braccialetto racconta.
+    """
 
     stato = Signal(str, str)              # codice, frase da mostrare
     battito = Signal(int)
-    batteria = Signal(int, int)           # livello, carica
+    batteria = Signal(int, int)           # livello 0-100, carica
     orologio = Signal(str)                # l'ora che segna il braccialetto
-    lotto = Signal(int, bytes)            # dati di salute, ancora grezzi
     sincronia = Signal(int, str)          # lotti ricevuti, esito
+    lotto = Signal(int, bytes)            # dati di salute, ancora grezzi
 
-    def __init__(self, indirizzo: str, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.indirizzo = indirizzo
-        self.percorso = "/org/bluez/hci0/dev_" + indirizzo.replace(":", "_")
-        self.ciclo = None
-        self.bus = None
-        self._scrittura = None
-        self._pronta = False
+        self.indirizzo = ""
+        self.nome = ""
+        self.percorso = ""
+        self.acceso = False
+        self.pronta = False
+        self._scrittura = ""
+        self._notifica = ""
+        self._cuore = ""
         self._capienza = 500
         self._lotti = 0
         self._sequenza = 1
-        self._in_attesa = False
-        self._ferma = False
+        self._ascolto = None
 
-    # ------------------------------------------------------------- utilità
+    # --------------------------------------------------------- D-Bus comodo
     def _oggetto(self, percorso: str, interfaccia: str):
-        return dbus.Interface(self.bus.get_object(BLUEZ, percorso), interfaccia)
+        return dbus.Interface(_bus().get_object(BLUEZ, percorso), interfaccia)
 
     def _prop(self, percorso: str, interfaccia: str, nome: str):
         try:
@@ -105,8 +120,13 @@ class Filo(QThread):
         except Exception:
             return None
 
+    @staticmethod
+    def _zitto(*_a, **_k) -> None:
+        """La risposta non ci serve: sta qui solo per non doverla aspettare."""
+
     def _caratteristiche(self) -> dict:
-        gestore = dbus.Interface(self.bus.get_object(BLUEZ, "/"),
+        """Le caratteristiche del braccialetto, per (servizio, caratteristica)."""
+        gestore = dbus.Interface(_bus().get_object(BLUEZ, "/"),
                                  "org.freedesktop.DBus.ObjectManager")
         oggetti = gestore.GetManagedObjects()
         servizi = {str(p): str(i[SERVIZIO_GATT]["UUID"])
@@ -121,101 +141,117 @@ class Filo(QThread):
             trovate[(servizi.get(padre, ""), str(car["UUID"]))] = str(percorso)
         return trovate
 
-    # ------------------------------------------------------------ il filo
-    def run(self) -> None:
-        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-        self.bus = dbus.SystemBus()
-        self.stato.emit("collego", "Mi collego al braccialetto…")
-        if not self._collega():
+    # ------------------------------------------------------------- accendi
+    def accendi(self) -> bool:
+        """Si collega al braccialetto. Torna False se non c'è niente da fare."""
+        if self.acceso:
+            return True
+        if not DISPONIBILE:
+            self.stato.emit("assente", "Qui non c'è il Bluetooth di sistema.")
+            return False
+        trovato = cerca_braccialetto()
+        if not trovato:
             self.stato.emit("assente",
-                            "Non risponde. È al polso? Il telefono potrebbe "
-                            "tenerlo occupato: spegnigli il Bluetooth un attimo.")
-            return
+                            "Nessun braccialetto accoppiato con questo PC. "
+                            "Accoppialo dalle impostazioni Bluetooth e riprova.")
+            return False
+        self.indirizzo, self.nome = trovato
+        self.percorso = "/org/bluez/hci0/dev_" + self.indirizzo.replace(":", "_")
+        self.acceso = True
+        self._lotti = 0
+        if self._prop(self.percorso, DISPOSITIVO, "ServicesResolved"):
+            self._pronto_a_parlare()
+            return True
+        self.stato.emit("collego", "Mi collego al braccialetto…")
+        try:
+            # asincrona: collegarsi può prendere qualche secondo, e la pagina
+            # non deve restare ferma ad aspettare
+            self._oggetto(self.percorso, DISPOSITIVO).Connect(
+                reply_handler=self._collegato, error_handler=self._non_collegato)
+        except Exception as errore:
+            self._non_collegato(errore)
+            return False
+        QTimer.singleShot(20000, self._controlla_collegamento)
+        return True
 
+    def _collegato(self) -> None:
+        if self.acceso:
+            self._pronto_a_parlare()
+
+    def _non_collegato(self, _errore=None) -> None:
+        self.acceso = False
+        self.stato.emit("assente",
+                        "Non risponde. È al polso ed è sveglio? Il telefono "
+                        "potrebbe tenerlo occupato: spegnigli il Bluetooth un "
+                        "attimo.")
+
+    def _controlla_collegamento(self) -> None:
+        if self.acceso and not self.pronta and not self._prop(
+                self.percorso, DISPOSITIVO, "ServicesResolved"):
+            self._non_collegato()
+
+    def _pronto_a_parlare(self) -> None:
+        """Collegato: ci si iscrive alle notifiche e si aspetta il saluto."""
         caratteristiche = self._caratteristiche()
-        notifica = caratteristiche.get((sap.SERVIZIO_SAP, sap.CAR_NOTIFICA))
-        self._scrittura = caratteristiche.get((sap.SERVIZIO_SAP, sap.CAR_SCRITTURA))
-        cuore = caratteristiche.get((sap.SERVIZIO_BATTITO, sap.CAR_BATTITO))
-        if not notifica or not self._scrittura:
+        self._notifica = caratteristiche.get((sap.SERVIZIO_SAP, sap.CAR_NOTIFICA), "")
+        self._scrittura = caratteristiche.get((sap.SERVIZIO_SAP,
+                                               sap.CAR_SCRITTURA), "")
+        self._cuore = caratteristiche.get((sap.SERVIZIO_BATTITO,
+                                           sap.CAR_BATTITO), "")
+        if not self._notifica or not self._scrittura:
+            self.acceso = False
             self.stato.emit("sconosciuto",
                             "Questo braccialetto non parla il protocollo che "
                             "conosco.")
             return
-
-        self.bus.add_signal_receiver(
-            self._arrivato, dbus_interface=PROPRIETA,
-            signal_name="PropertiesChanged", path_keyword="percorso")
-        self._percorso_notifica = notifica
-        self._percorso_cuore = cuore or ""
-        for percorso in (notifica, cuore):
-            if not percorso:
-                continue
-            try:
-                self._oggetto(percorso, CARATTERISTICA).StartNotify()
-            except Exception:
-                pass
+        if self._ascolto is None:
+            self._ascolto = _bus().add_signal_receiver(
+                self._arrivato, dbus_interface=PROPRIETA,
+                signal_name="PropertiesChanged", path_keyword="percorso")
+        for percorso in (self._notifica, self._cuore):
+            if percorso:
+                try:
+                    self._oggetto(percorso, CARATTERISTICA).StartNotify(
+                        reply_handler=self._zitto, error_handler=self._zitto)
+                except Exception:
+                    pass
         self.stato.emit("saluto", "Collegato. Aspetto che si presenti…")
+        # il saluto arriva solo quando la sessione nasce: se il braccialetto
+        # ci parlava già non lo rimanda, e allora si riprende da dov'era
+        QTimer.singleShot(9000, self._sessione_gia_aperta)
 
-        self.ciclo = GLib.MainLoop()
-        GLib.timeout_add_seconds(1, self._controlla_fine)
-        self.ciclo.run()
-        self._chiudi(notifica, cuore)
+    def _sessione_gia_aperta(self) -> None:
+        if self.acceso and not self.pronta:
+            self.pronta = True
+            self.stato.emit("pronta", "Braccialetto pronto.")
+            self.chiedi_batteria()
 
-    def _controlla_fine(self) -> bool:
-        if self._ferma and self.ciclo is not None:
-            self.ciclo.quit()
-            return False
-        return True
-
-    def _collega(self) -> bool:
-        if not self._prop(self.percorso, DISPOSITIVO, "Connected"):
-            try:
-                self._oggetto(self.percorso, DISPOSITIVO).Connect()
-            except Exception:
-                pass
-        for _ in range(40):
-            if self._prop(self.percorso, DISPOSITIVO, "ServicesResolved"):
-                return True
-            time.sleep(0.5)
-        return bool(self._prop(self.percorso, DISPOSITIVO, "Connected"))
-
-    def _chiudi(self, notifica: str, cuore: str) -> None:
-        for percorso in (notifica, cuore):
-            if not percorso:
-                continue
-            try:
-                self._oggetto(percorso, CARATTERISTICA).StopNotify()
-            except Exception:
-                pass
-        self.stato.emit("spento", "Braccialetto lasciato libero.")
-
-    # --------------------------------------------------------- ricezione
+    # ------------------------------------------------------------ ricezione
     def _arrivato(self, _interfaccia, cambiamenti, _rimosse, percorso=None) -> None:
-        if "Value" not in cambiamenti:
+        if not self.acceso or "Value" not in cambiamenti:
             return
         percorso = str(percorso)
         dati = bytes(cambiamenti["Value"])
-        if percorso == getattr(self, "_percorso_cuore", ""):
+        if percorso == self._cuore:
             valore = sap.battito(dati)
             if valore:
                 self.battito.emit(valore)
             return
-        if percorso != getattr(self, "_percorso_notifica", ""):
+        if percorso != self._notifica:
             return
         if sap.e_saluto(dati):
             self._stringi_mano(dati)
             return
         trama = sap.spacchetta(dati)
-        if trama is None or not trama.intera:
-            return
-        self._messaggio(trama)
+        if trama is not None and trama.intera:
+            self._messaggio(trama)
 
     def _stringi_mano(self, saluto: bytes) -> None:
         self._capienza = sap.capienza_dichiarata(saluto)
         if self._scrivi(sap.risposta_al_saluto(saluto)):
-            self._pronta = True
+            self.pronta = True
             self.stato.emit("pronta", "Braccialetto pronto.")
-            GLib.timeout_add_seconds(2, self._chiedi_batteria)
+            QTimer.singleShot(2000, self.chiedi_batteria)
 
     def _messaggio(self, trama) -> None:
         if trama.servizio == sap.SERVIZI["impostazioni"]:
@@ -237,7 +273,6 @@ class Filo(QThread):
                                       capienza=self._capienza))
         elif numero == 0x43:                      # risposta alla richiesta
             vuoto = messaggio[4:8] == bytes([0x04, 0x02, 0x01, 0x01])
-            # l'ora del braccialetto viaggia in coda, se c'è
             if len(messaggio) >= 4:
                 try:
                     quando = sap.da_samsung(int.from_bytes(messaggio[-4:], "little"))
@@ -245,11 +280,10 @@ class Filo(QThread):
                         self.orologio.emit(quando.astimezone().strftime("%d/%m %H:%M"))
                 except Exception:
                     pass
-            self._in_attesa = False
             self.sincronia.emit(
                 self._lotti,
-                "niente di nuovo: il telefono l'ha già svuotato" if vuoto and not
-                self._lotti else "fatto")
+                "il telefono l'ha già svuotato" if vuoto and not self._lotti
+                else "fatto")
 
     def _conserva(self, messaggio: bytes) -> None:
         """Mette da parte il lotto grezzo: serve a capire il resto del formato."""
@@ -261,100 +295,61 @@ class Filo(QThread):
         except OSError:
             pass
 
-    # ----------------------------------------------------------- comandi
+    # -------------------------------------------------------------- comandi
     def _scrivi(self, dati: bytes) -> bool:
         if not self._scrittura:
             return False
         try:
             self._oggetto(self._scrittura, CARATTERISTICA).WriteValue(
-                [dbus.Byte(b) for b in dati], {"type": dbus.String("command")})
+                [dbus.Byte(b) for b in dati], {"type": dbus.String("command")},
+                reply_handler=self._zitto, error_handler=self._zitto)
             return True
         except Exception:
             return False
 
-    def _chiedi_batteria(self) -> bool:
-        self._scrivi(sap.inquadra(sap.SERVIZI["impostazioni"],
-                                  sap.RICHIESTA_BATTERIA, capienza=self._capienza))
-        return False
+    def chiedi_batteria(self) -> None:
+        if self.pronta:
+            self._scrivi(sap.inquadra(sap.SERVIZI["impostazioni"],
+                                      sap.RICHIESTA_BATTERIA,
+                                      capienza=self._capienza))
 
-    def _chiedi_salute(self, cursore: int = 0) -> bool:
+    def sincronizza(self, cursore: int = 0) -> None:
         """Chiede lo storico. Cursore a zero vuol dire «dammi tutto»."""
-        if not self._pronta:
+        if not self.pronta:
             self.sincronia.emit(0, "il braccialetto non si è ancora presentato")
-            return False
-        self._in_attesa = True
+            return
         self._sequenza = (self._sequenza % 0xFFFF) + 1
         messaggio = sap.richiesta_salute(self._sequenza)
         if cursore:
             messaggio = messaggio[:-6] + cursore.to_bytes(4, "little") + messaggio[-2:]
         self._scrivi(sap.inquadra(sap.SERVIZI["salute"], messaggio,
                                   capienza=self._capienza))
-        return False
-
-    # chiamabili da fuori: entrano nel ciclo GLib senza rompere nulla
-    def batteria_ora(self) -> None:
-        if GLib:
-            GLib.idle_add(self._chiedi_batteria)
-
-    def sincronizza(self, cursore: int = 0) -> None:
-        if GLib:
-            GLib.idle_add(lambda: self._chiedi_salute(cursore))
-
-    def ferma(self) -> None:
-        self._ferma = True
-
-
-class Braccialetto(QObject):
-    """La faccia pulita del braccialetto: quello che l'app usa davvero."""
-
-    stato = Signal(str, str)
-    battito = Signal(int)
-    batteria = Signal(int, int)
-    orologio = Signal(str)
-    sincronia = Signal(int, str)
-    lotto = Signal(int, bytes)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.filo: Filo | None = None
-        self.indirizzo = ""
-        self.nome = ""
-
-    @property
-    def acceso(self) -> bool:
-        return self.filo is not None and self.filo.isRunning()
-
-    def accendi(self) -> bool:
-        if self.acceso:
-            return True
-        if not DISPONIBILE:
-            self.stato.emit("assente", "Qui non c'è il Bluetooth di sistema.")
-            return False
-        trovato = cerca_braccialetto()
-        if not trovato:
-            self.stato.emit("assente",
-                            "Nessun braccialetto accoppiato con questo PC. "
-                            "Accoppialo dalle impostazioni Bluetooth e riprova.")
-            return False
-        self.indirizzo, self.nome = trovato
-        self.filo = Filo(self.indirizzo, self)
-        for segnale in ("stato", "battito", "batteria", "orologio", "sincronia",
-                        "lotto"):
-            getattr(self.filo, segnale).connect(getattr(self, segnale))
-        self.filo.start()
-        return True
 
     def spegni(self) -> None:
-        if self.filo is None:
+        """Smette di ascoltare e lascia il braccialetto al telefono."""
+        if not self.acceso:
             return
-        self.filo.ferma()
-        self.filo.wait(4000)
-        self.filo = None
-
-    def chiedi_batteria(self) -> None:
-        if self.acceso:
-            self.filo.batteria_ora()
-
-    def sincronizza(self, cursore: int = 0) -> None:
-        if self.acceso:
-            self.filo.sincronizza(cursore)
+        self.acceso = False
+        self.pronta = False
+        for percorso in (self._notifica, self._cuore):
+            if not percorso:
+                continue
+            try:
+                self._oggetto(percorso, CARATTERISTICA).StopNotify(
+                    reply_handler=self._zitto, error_handler=self._zitto)
+            except Exception:
+                pass
+        if self._ascolto is not None:
+            try:
+                _bus().remove_signal_receiver(
+                    self._arrivato, dbus_interface=PROPRIETA,
+                    signal_name="PropertiesChanged")
+            except Exception:
+                pass
+            self._ascolto = None
+        try:
+            self._oggetto(self.percorso, DISPOSITIVO).Disconnect(
+                reply_handler=self._zitto, error_handler=self._zitto)
+        except Exception:
+            pass
+        self.stato.emit("spento", "Braccialetto lasciato libero.")

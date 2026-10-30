@@ -100,6 +100,24 @@ Se Tess sta altrove, il percorso si cambia con l'impostazione `percorso_tess`
 nell'archivio; di suo cerca `~/Scrivania/WORK/AI-Locale` e ne legge
 `config/env` per sapere indirizzo del motore e nome del modello.
 
+## Il testo grande non taglia niente
+
+La dimensione del testo si cambia in **Impostazioni → Aspetto** e arriva fino
+a `molto grande` (1,3×). Perché a quella misura non resti niente tagliato, chi
+ha un'altezza fissa se la ricalcola dal carattere invece di tenersi un numero:
+l'intestazione dei riquadri (le code delle «g» di «Oggi», «Progetti»,
+«Prossimi impegni»), le righe lineari di Accademica e Abitudini, i numeri
+grandi. I titoli lunghi si accorciano coi puntini — e si accorcia prima la
+riga di spiegazione, che conta meno del titolo.
+
+A controllare che sia vero c'è un programma, che apre tutte le pagine e tutte
+le finestre a ognuna delle quattro dimensioni e cerca le scritte che non
+ci stanno:
+
+```bash
+python3 strumenti/prova_viste.py
+```
+
 ## Installazione
 
 Su un PC nuovo bastano tre righe:

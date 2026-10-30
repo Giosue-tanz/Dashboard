@@ -12,7 +12,9 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QHeaderView, QLabel,
                                QMenu, QPushButton, QTableWidget, QTableWidgetItem,
                                QWidget)
 
-from ..componenti import RigaMisura, abilita_deselezione, etichetta, stile_tabella
+from ..braccialetto import RiquadroBraccialetto
+from ..componenti import (EtichettaAlta, RigaMisura, abilita_deselezione,
+                          etichetta, stile_tabella)
 from ..andamento import FinestraAndamento
 from ..dialoghi import (DialogoAllenamento, DialogoGiorno,
                         DialogoImporta)
@@ -30,7 +32,7 @@ class VistaSalute(VistaSezioni):
     nome_nuovo = "+  Allenamento"
 
     chiave_vista = "salute"
-    versione_layout = 3
+    versione_layout = 4
 
     SEZIONI = {
         "oggi": "Oggi",
@@ -41,10 +43,12 @@ class VistaSalute(VistaSezioni):
         "indicatori": "Indicatori",
         "allenamenti": "Allenamenti",
         "peso": "Peso",
+        "braccialetto": "Braccialetto",
     }
     DISPOSIZIONE = [["oggi", "corpo", "costanza"], ["passi", "sonno"],
-                    ["indicatori", "allenamenti", "peso"]]
-    ALTEZZE_PREDEFINITE = (0.38, 0.29, 0.33)
+                    ["indicatori", "allenamenti", "peso", "braccialetto"]]
+    ALTEZZE_PREDEFINITE = (0.36, 0.28, 0.36)
+    LARGHEZZE_PREDEFINITE = ((), (), (0.26, 0.28, 0.24, 0.22))
     PERIODI_SEZIONE = {
         "passi": ({"7": "7 giorni", "14": "14 giorni", "30": "30 giorni",
                    "90": "90 giorni", "180": "6 mesi"}, "14"),
@@ -104,7 +108,7 @@ class VistaSalute(VistaSezioni):
 
         # ------------------------------------------ composizione corporea
         contenuto, lay = self.colonna(8)
-        self.et_peso = QLabel("—")
+        self.et_peso = EtichettaAlta("—")
         self.et_peso.setObjectName("ValoreScheda")
         self.et_peso_nota = etichetta("", "NotaScheda")
         lay.addWidget(self.et_peso)
@@ -154,7 +158,7 @@ class VistaSalute(VistaSezioni):
 
         # ------------------------------------------------------------ sonno
         contenuto, lay = self.colonna(8)
-        self.et_sonno = QLabel("—")
+        self.et_sonno = EtichettaAlta("—")
         self.et_sonno.setObjectName("ValoreScheda")
         self.et_sonno_nota = etichetta("", "NotaScheda")
         # totale e nota sulla stessa riga: una riga in meno da far stare dentro
@@ -211,6 +215,7 @@ class VistaSalute(VistaSezioni):
         self.g_peso.formato = lambda v: numero(v, 1)
         self._apribile(self.g_peso, "peso")
         self.aggiungi("peso", self.g_peso)
+        self._crea_braccialetto()
 
         self.grafici = [self.g_passi, self.g_sonno, self.g_peso, self.anello,
                         self.fasi, self.barra_corpo, self.mappa]
@@ -547,6 +552,12 @@ class VistaSalute(VistaSezioni):
             f"{quanti} giorni · {len(valori)} con dati · "
             f"media {numero(media(valori), 0)} · obiettivo raggiunto {raggiunti} volte"
             if valori else f"{quanti} giorni · nessun dato")
+
+    def _crea_braccialetto(self) -> None:
+        """Il riquadro del braccialetto: non si collega finché non glielo dici."""
+        self.riquadro_banda = RiquadroBraccialetto(self.db, self.c)
+        self.riquadro_banda.dati_cambiati.connect(self.dati_cambiati)
+        self.aggiungi("braccialetto", self.riquadro_banda)
 
     def _adatta_sonno(self, larghezza: int, altezza: int) -> None:
         """In poco spazio il riquadro si sfoltisce invece di tagliarsi.

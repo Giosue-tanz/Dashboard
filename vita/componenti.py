@@ -46,6 +46,30 @@ class Scheda(QFrame):
         self.layout_v.addLayout(layout)
 
 
+class EtichettaAlta(QLabel):
+    """Etichetta che non si lascia schiacciare sotto la propria riga.
+
+    I numeri grandi («74,1 kg», «7h») stanno in riquadri che possono farsi
+    bassi: senza un minimo legato al carattere, con il testo molto grande la
+    cifra veniva tagliata a metà. Il minimo si rifà da sé quando cambia il
+    foglio di stile, cioè quando si cambia tema o dimensione del testo.
+    """
+
+    def _adatta(self) -> None:
+        self.ensurePolished()
+        self.setMinimumHeight(self.sizeHint().height())
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        self._adatta()
+
+    def changeEvent(self, ev):
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.StyleChange, QEvent.FontChange,
+                         QEvent.ApplicationFontChange):
+            self._adatta()
+
+
 class DisposizioneFluida(QLayout):
     """Righe che vanno a capo da sole: serve alle etichette delle emozioni."""
 
@@ -280,7 +304,35 @@ class RigaMisura(QWidget):
         lay.addWidget(self.barra)
         # senza un minimo le righe si schiacciano l'una sull'altra quando il
         # riquadro è basso: meglio farle scorrere
-        self.setMinimumHeight(self.LATO + self.ALTEZZA_BARRA + 9)
+        self._adatta_altezza()
+
+    def _adatta_altezza(self) -> None:
+        """Il minimo segue il carattere, non un numero fisso.
+
+        Con il testo molto grande le due righe di testo chiedono più dei 30 px
+        del simbolo: tenendo il vecchio minimo, titolo e nota finivano
+        tagliate a metà lettera.
+        """
+        for et in (self.et_titolo, self.et_sotto, self.et_valore, self.et_nota):
+            et.ensurePolished()
+        sinistra = (self.et_titolo.sizeHint().height()
+                    + self.et_sotto.sizeHint().height() + 1)
+        destra = (self.et_valore.sizeHint().height()
+                  + self.et_nota.sizeHint().height() + 1)
+        alto = max(self.LATO, sinistra, destra)
+        self.setMinimumHeight(alto + self.ALTEZZA_BARRA + 9)
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        # una riga creata dopo l'avvio prende il foglio di stile solo qui:
+        # misurarla nel costruttore darebbe l'altezza del carattere sbagliato
+        self._adatta_altezza()
+
+    def changeEvent(self, ev):
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.StyleChange, QEvent.FontChange,
+                         QEvent.ApplicationFontChange):
+            self._adatta_altezza()
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)

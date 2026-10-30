@@ -568,10 +568,13 @@ def foglio_stile(c: dict, scala: float = 1.0,
                             font-size: {p(12.5)}; }}
 
     QWidget#TestataBarra {{ background: transparent; }}
-    QPushButton#LogoApp {{
+    /* Il marchio non ha mai un fondo suo: su un pannello di tinta diversa
+       sembrerebbe un francobollo incollato sopra. Nemmeno da «aperto»: che
+       si sia nel cruscotto lo dice il titolo della pagina. */
+    QPushButton#LogoApp, QPushButton#LogoApp:checked {{
         background: transparent; border: none; border-radius: 14px; padding: 0;
     }}
-    QPushButton#LogoApp:hover {{ background: {tocco}; }}
+    QPushButton#LogoApp:hover {{ background: {trasparente(c['testo'], 0.06)}; }}
 
     /* --------------------------------------------------- compositore voce */
     QFrame#Compositore {{

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import urllib.error
 import urllib.request
@@ -29,8 +30,8 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QListWidget,
 
 from . import punteggi as calcolo
 from .componenti import BarraAttesa, Interruttore
-from .utils import (data_it, data_lunga, durata, euro, media, numero,
-                    relativa, settimana_corrente, ultimi_giorni)
+from .utils import (GIORNI, MESI, data_it, data_lunga, durata, euro, media,
+                    numero, relativa, settimana_corrente, ultimi_giorni)
 
 BASE_PREDEFINITA = os.path.expanduser("~/Scrivania/WORK/AI-Locale")
 SERVIZIO = "ai-locale.service"
@@ -255,16 +256,214 @@ def aree_scelte(db) -> set[str]:
     return {a for a in salvate.split(",") if a in AREE_CONTESTO}
 
 
-def contesto(db, fonte, aree: set[str] | None = None) -> str:
+# Quanti giorni del passato Tess si porta dietro uno per uno: due settimane
+# coprono «ieri», «lunedì», «la settimana scorsa» senza allungare troppo il
+# riassunto.
+GIORNI_DETTAGLIATI = 14
+
+# Come si dice che un dato quel giorno non c'è. Un trattino il modello lo
+# salta e va a pescare il numero della riga vicina: una parola no.
+MANCA = "non registrato"
+
+
+def _etichetta_giorno(iso: str) -> str:
+    """«oggi, giovedì 29 ottobre 2026 (29/10)»: giorno della settimana e data
+    già fatti, e scritti in tutti e due i modi in cui li si nomina.
+
+    Scritta solo come 29/10/2026 il modello fatica ad agganciarla a «il 29
+    ottobre», e finisce per rispondere con la riga sbagliata.
+    """
+    d = date.fromisoformat(iso)
+    scarto = (date.today() - d).days
+    davanti = "oggi, " if scarto == 0 else ("ieri, " if scarto == 1 else "")
+    return f"{davanti}{data_lunga(iso)} ({data_it(iso)})"
+
+
+def giorno_per_giorno(db, aree: set[str], quanti: int = GIORNI_DETTAGLIATI,
+                      giorni: list[str] | None = None) -> list[str]:
+    """Una riga per giorno con i numeri di quel giorno, non le medie.
+
+    È la parte che evita le risposte inventate: senza, a «quanti passi ho fatto
+    martedì?» un modello piccolo risponde lo stesso, a caso. Con `giorni` si
+    chiede la riga di giornate precise invece degli ultimi tot.
+    """
+    giorni = giorni or ultimi_giorni(quanti)
+    dal, al = giorni[0], giorni[-1]
+    salute = db.giorni_salute(dal, al)
+    umori = {r["data"]: r for r in db.medie_giorno(dal, al)}
+    studio: dict[str, int] = {}
+    for r in db.studio(dal, al):
+        studio[r["data"]] = studio.get(r["data"], 0) + int(r["minuti"] or 0)
+    lavoro: dict[str, int] = {}
+    for r in db.lavoro(dal, al):
+        lavoro[r["data"]] = lavoro.get(r["data"], 0) + int(r["minuti"] or 0)
+    mosse: dict[str, list[str]] = {}
+    for r in db.allenamenti(dal, al):
+        mosse.setdefault(r["data"], []).append(
+            f"{r['tipo']} {durata(r['minuti'])}" if r["minuti"] else r["tipo"])
+    abitudini = db.abitudini()
+    segnate = db.registro(dal, al) if abitudini else set()
+
+    def valore(riga, campo, decimali=0, unita=""):
+        """Il numero formattato, o «» quando quel giorno non c'è."""
+        if riga is None or not riga[campo]:
+            return ""
+        return f"{numero(float(riga[campo]), decimali)}{unita}"
+
+    righe = []
+    for giorno in reversed(giorni):
+        s, u = salute.get(giorno), umori.get(giorno)
+        # i dati che ci sono davanti, quelli che mancano in coda per nome: una
+        # riga mezza vuota di «non registrato» fa pescare il campo sbagliato
+        presenti, mancanti = [], []
+        def metti(nome, scritto):
+            (presenti.append(f"{nome} {scritto}") if scritto
+             else mancanti.append(nome))
+        if "salute" in aree:
+            metti("passi", valore(s, "passi"))
+            metti("sonno", durata(s["sonno"]) if s and s["sonno"] else "")
+            metti("umore", valore(u, "umore", 1, "/10"))
+            metti("energia", valore(u, "energia", 1))
+            metti("stress", valore(u, "stress", 1))
+            metti("battito", valore(s, "battito", 0, " bpm"))
+            metti("peso", valore(s, "peso", 1, " kg"))
+            metti("allenamento", ", ".join(mosse.get(giorno, [])))
+        if "accademica" in aree:
+            metti("studio", durata(studio[giorno]) if studio.get(giorno) else "")
+        if "carriera" in aree:
+            metti("lavoro", durata(lavoro[giorno]) if lavoro.get(giorno) else "")
+        if "abitudini" in aree and abitudini:
+            quante = sum(1 for (g, _) in segnate if g == giorno)
+            metti("abitudini", f"{quante}/{len(abitudini)}" if quante else "")
+        if not presenti and not mancanti:
+            continue
+        testa = f"{_etichetta_giorno(giorno)}: "
+        if not presenti:
+            righe.append(testa + "nessun dato registrato")
+            continue
+        coda = f" — {MANCA} quel giorno: " + ", ".join(mancanti) if mancanti else ""
+        righe.append(testa + " · ".join(presenti) + coda)
+    return righe
+
+
+# Parole con cui si nomina un giorno nelle domande. Il giorno chiesto lo
+# trova il codice: un modello piccolo, lasciato a cercarselo nella tabella,
+# finisce per rispondere col numero della riga sbagliata.
+_RELATIVI = {
+    "oggi": 0, "stamattina": 0, "stasera": 0, "stanotte": 0,
+    "ieri": 1, "l'altro ieri": 2, "altro ieri": 2, "altroieri": 2,
+    "domani": -1, "dopodomani": -2,          # giorni che non esistono ancora
+}
+_MESI_NUMERO = {nome: i + 1 for i, nome in enumerate(MESI)}
+_MESI_NUMERO.update({nome[:3]: i + 1 for i, nome in enumerate(MESI)})
+_SETTIMANA = {}
+for _i, _nome in enumerate(GIORNI):
+    _SETTIMANA[_nome] = _i
+    _SETTIMANA[_nome.replace("ì", "i")] = _i
+
+
+def _nominato(testo: str, parola: str) -> bool:
+    return any(f" {parola}{coda}" in testo for coda in (" ", ",", "?", ".", ";", "!"))
+
+
+def date_chieste(domanda: str, oggi: date | None = None,
+                 quante: int = 3) -> list[date]:
+    """I giorni nominati in una domanda, dal più recente.
+
+    Riconosce «ieri», «martedì», «il 24 ottobre», «24/10», «2026-10-24».
+    Lista vuota quando la domanda non parla di giorni precisi.
+    """
+    oggi = oggi or date.today()
+    testo = " " + domanda.lower().strip() + " "
+    trovate: set[date] = set()
+
+    def aggiungi(anno, mese, giorno, anno_detto=True):
+        try:
+            quando = date(anno, mese, giorno)
+        except ValueError:
+            return
+        # senza anno si intende l'ultima volta che è capitata quella data
+        if not anno_detto and quando > oggi:
+            quando = quando.replace(year=anno - 1)
+        trovate.add(quando)
+
+    for m in re.finditer(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b", testo):
+        aggiungi(int(m[1]), int(m[2]), int(m[3]))
+    for m in re.finditer(r"\b(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?\b", testo):
+        anno = int(m[3]) if m[3] else oggi.year
+        aggiungi(anno + 2000 if anno < 100 else anno, int(m[2]), int(m[1]), bool(m[3]))
+    nomi = "|".join(_MESI_NUMERO)
+    for m in re.finditer(rf"\b(\d{{1,2}})\s+({nomi})[a-z]*\b(?:\s+(\d{{4}}))?",
+                         testo):
+        anno = int(m[3]) if m[3] else oggi.year
+        aggiungi(anno, _MESI_NUMERO[m[2]], int(m[1]), bool(m[3]))
+
+    # dalle più lunghe: «l'altro ieri» contiene «ieri»
+    for parola, indietro in sorted(_RELATIVI.items(), key=lambda kv: -len(kv[0])):
+        if _nominato(testo, parola):
+            trovate.add(oggi - timedelta(days=indietro))
+            break
+    for nome, indice in _SETTIMANA.items():
+        if _nominato(testo, nome):
+            # «di martedì» quando oggi è martedì vuol dire oggi
+            trovate.add(oggi - timedelta(days=(oggi.weekday() - indice) % 7))
+    return sorted(trovate, reverse=True)[:quante]
+
+
+def data_chiesta(domanda: str, oggi: date | None = None) -> date | None:
+    """Il giorno nominato in una domanda, o None."""
+    giorni = date_chieste(domanda, oggi, quante=1)
+    return giorni[0] if giorni else None
+
+
+def blocco_giorni_chiesti(db, aree: set[str], quando: list[date]) -> list[str]:
+    """Le righe dei giorni nominati nella domanda, e nient'altro.
+
+    Quando la domanda parla di un giorno, il resto della tabella sparisce: con
+    quattordici righe davanti un modello piccolo copia il numero della riga
+    sbagliata, con una sola legge quella giusta.
+    """
+    oggi = date.today()
+    passati = [q for q in quando if q <= oggi]
+    futuri = [q for q in quando if q > oggi]
+    righe = []
+    if passati:
+        dettaglio = giorno_per_giorno(db, aree,
+                                      giorni=sorted(q.isoformat() for q in passati))
+        if dettaglio:
+            righe.append(
+                "GIORNO CHIESTO nella domanda. Rispondi usando solo queste "
+                "righe: il numero che ti serve è qui dentro, non prenderlo da "
+                f"nessun'altra parte. «{MANCA}» vuol dire che quel giorno quel "
+                "dato non c'è: dillo, non è uno zero e non è il valore di un "
+                "altro giorno.")
+            righe.extend(dettaglio)
+    for q in futuri:
+        righe.append(f"GIORNO CHIESTO: {data_lunga(q.isoformat())} non è ancora "
+                     "arrivato, di quel giorno non esiste nessun dato.")
+    return righe
+
+
+def contesto(db, fonte, aree: set[str] | None = None,
+             domanda: str = "") -> str:
     """Il riassunto della Dashboard che Tess riceve insieme alla domanda.
 
     Solo numeri già presenti nell'archivio: nessun testo del diario, che resta
     cosa tua. Serve perché Tess risponda sui tuoi dati senza fartene l'elenco.
-    Con `aree` si tiene dentro solo una parte del riassunto.
+    Con `aree` si tiene dentro solo una parte del riassunto; con `domanda` si
+    mette in cima il giorno che la domanda nomina, già trovato.
     """
     oggi = date.today().isoformat()
-    righe = [f"Dati della Dashboard di Giosuè, aggiornati a {data_lunga(oggi)}.",
-             "Sono già in tuo possesso: usali, non chiederglieli.", ""]
+    aree = set(AREE_CONTESTO) if aree is None else aree
+    righe = [f"Dati veri della Dashboard di Giosuè. Oggi è {data_lunga(oggi)}.",
+             "Sono già in tuo possesso: usali, non chiederglieli. Riporta i "
+             "numeri come stanno scritti qui: non arrotondarli, non stimarli, "
+             "non inventarne altri.", ""]
+
+    chiesti = date_chieste(domanda) if domanda else []
+    blocco = blocco_giorni_chiesti(db, aree, chiesti) if chiesti else []
+    if blocco:
+        righe.extend(blocco + [""])
 
     # ------------------------------------------------------------- oggi
     medie = db.medie_periodo(oggi, oggi)
@@ -370,15 +569,32 @@ def contesto(db, fonte, aree: set[str] | None = None) -> str:
     except Exception:
         pass
 
+    # ---------------------------------------------------- giorno per giorno
+    dettaglio = [] if blocco else giorno_per_giorno(db, aree)
+    if dettaglio:
+        righe.append("")
+        righe.append(
+            f"GIORNO PER GIORNO: una riga per giorno, dal più recente, "
+            f"da {data_lunga(ultimi_giorni(GIORNI_DETTAGLIATI)[0])} a oggi. "
+            "Sono gli unici giorni che conosci uno per uno: di una data fuori "
+            "da questo elenco di' che non ce l'hai, non tirare a indovinare. "
+            "Cerca la riga che porta la data chiesta e leggi solo quella: "
+            "mai il numero di un altro giorno, nemmeno quello più vicino. "
+            f"Se il campo che ti chiede dice «{MANCA}», rispondi che per quel "
+            "giorno non è stato registrato — non è uno zero e non è il valore "
+            "di un altro giorno. Il giorno della settimana è già scritto: usa "
+            "quello, non ricavarlo.")
+        righe.extend(dettaglio)
+        righe.append("")
+
     # --------------------------------------------------------- scadenze
     prossime = db.query(
         "SELECT * FROM scadenze WHERE fatta=0 AND data >= ? ORDER BY data LIMIT 4",
         (oggi,))
     if prossime:
         righe.append("IN ARRIVO: " + ", ".join(
-            f"{s['cosa']} il {s['data']}" for s in prossime))
+            f"{s['titolo']} {data_lunga(s['data'])}" for s in prossime))
 
-    aree = set(AREE_CONTESTO) if aree is None else aree
     fuori = tuple(parola for area, parole in AREE_CONTESTO.items()
                   if area not in aree for parola in parole)
     if fuori:
@@ -419,7 +635,11 @@ RIGA_DATI = (
     "quando te li chiede o quando c'entrano davvero con quello di cui state "
     "parlando, e solo nei momenti opportuni."
 )
-RIGA_ONESTA = "Se un dato non c'è, dillo invece di inventarlo."
+RIGA_ONESTA = (
+    "Se un dato non c'è, dillo invece di inventarlo. Di un giorno preciso "
+    "rispondi solo se quel giorno è nei dati che hai sott'occhio: niente "
+    "stime, e il giorno della settimana prendilo da lì invece di ricavarlo."
+)
 
 
 def solo_istruzioni_tue(db) -> bool:
@@ -905,9 +1125,17 @@ class RiquadroTess(QWidget):
             try:
                 sistema.append({"role": "system",
                                 "content": contesto(self.db, self.fonte,
-                                                    aree_scelte(self.db))})
-            except Exception:
-                pass
+                                                    aree_scelte(self.db),
+                                                    domanda)})
+            except Exception as errore:
+                # senza riassunto Tess risponderebbe lo stesso, a caso: meglio
+                # che lo dica, e che si veda anche qui che è andato storto
+                sistema.append({"role": "system", "content":
+                                "Il riassunto dei dati non è disponibile: "
+                                "dillo chiaramente e non inventare numeri."})
+                self._scrivi("tess", "⚠ Non sono riuscita a leggere i tuoi "
+                                     f"dati ({type(errore).__name__}): "
+                                     "rispondo senza.")
         self._inizia_risposta()
         self.conversazione = Risposta(self.motore, sistema + self.messaggi, self)
         self.conversazione.pezzo.connect(self._aggiungi_pezzo)

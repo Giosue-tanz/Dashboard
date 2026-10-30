@@ -124,6 +124,7 @@ class FinestraPrincipale(QMainWindow):
         super().__init__()
         self.db = db
         self.fonte = fonte_finanza(db)
+        self.tema = db.leggi("tema", "scuro")
         self.c = colori(db.leggi("tema", "scuro"),
                         db.leggi("accento", ACCENTO_PREDEFINITO))
         # stato delle icone animate della barra, una voce per pulsante:
@@ -245,7 +246,7 @@ class FinestraPrincipale(QMainWindow):
         self.lay_piede.setContentsMargins(*((0, 4, 0, 4) if chiusa else (6, 6, 6, 6)))
         for widget in self.punteggi.values():
             widget.mostra_testi(not chiusa)
-        self._aggiorna_logo(self.db.leggi("tema", "scuro"))
+        self._aggiorna_logo(self.tema)
         self.b_logo.setToolTip("Apri il menu  (Ctrl+B)" if chiusa
                                else "Cruscotto  (Ctrl+1)")
         self.lay_testa.setContentsMargins(*((0, 0, 0, 0) if chiusa else (6, 0, 0, 0)))
@@ -501,18 +502,20 @@ class FinestraPrincipale(QMainWindow):
     def _aggiorna_logo(self, tema: str) -> None:
         """Il marchio segue il tema: chiaro su scuro, scuro su chiaro.
 
-        A barra aperta è la scritta soltanto; a barra chiusa il quadrato, che
-        nello spazio di un'icona si legge meglio.
+        È sempre la sola scritta, su fondo trasparente — anche a barra chiusa,
+        dove prima stava il quadrato dell'icona: quella piastrella ha il suo
+        nero cotto dentro e sul pannello si vedeva come un francobollo
+        attaccato sopra. Il quadrato resta dov'è giusto che sia: l'icona
+        dell'applicazione nella barra del sistema.
         """
         chiusa = getattr(self, "barra_chiusa", False)
+        percorso = os.path.join(
+            RISORSE, "marchio-chiaro.png" if tema == "scuro"
+            else "marchio-scuro.png")
         if chiusa:
-            percorso = percorso_logo(tema, 64)
-            self.b_logo.setIconSize(QSize(34, 34))
+            self.b_logo.setIconSize(QSize(42, 11))
             self.b_logo.setFixedSize(46, 42)
         else:
-            percorso = os.path.join(
-                RISORSE, "marchio-chiaro.png" if tema == "scuro"
-                else "marchio-scuro.png")
             self.b_logo.setIconSize(QSize(78, 20))
             self.b_logo.setFixedSize(86, 30)
         if percorso and os.path.exists(percorso):
@@ -581,6 +584,7 @@ class FinestraPrincipale(QMainWindow):
                     self._icona_voce)
 
     def applica_tema(self, nome: str) -> None:
+        self.tema = nome
         self.c = colori(nome, self.db.leggi("accento", ACCENTO_PREDEFINITO))
         scala = SCALE.get(self.db.leggi("scala", "normale"), 1.0)
         app = QApplication.instance()
@@ -590,7 +594,6 @@ class FinestraPrincipale(QMainWindow):
         QWidget#Punteggio {{ background: transparent; border-radius: 10px; }}
         QWidget#Punteggio:hover {{ background: {self.c['pannello2']}; }}
         QFrame#Cartellino {{ border-radius: 10px; }}
-        QPushButton#LogoApp:checked {{ background: {self.c['pannello2']}; }}
         """
         self.setStyleSheet(foglio_stile(self.c, scala, frecce_spin(
             os.path.join(DATA_DIR, "cache"), self.c["testo2"])) + extra)
