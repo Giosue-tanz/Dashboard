@@ -240,31 +240,45 @@ cambia, scrivi il totale e si sposta la sveglia. Le due ore finiscono
 nell'archivio (`a_letto`, `sveglia`), il totale in minuti resta in `sonno`
 come prima, così widget, Andamento e Tess continuano a leggerlo.
 
-## Dati dal braccialetto (Galaxy Fit2)
+## Il braccialetto (Galaxy Fit2)
 
-**Lavoro in corso: il braccialetto parla anche col PC.** Il canale c'è ed è
-aperto — quello che manca è capire fino in fondo come racconta i suoi dati.
+In *Salute* c'è il riquadro **Braccialetto**, con un interruttore come quello
+di Tess: finché non lo accendi tu non si collega niente. Acceso, in un paio di
+secondi il braccialetto saluta e comincia a rispondere.
 
-Il Fit2 pubblica il servizio standard **Heart Rate** (`0x180D`) e poi i servizi
-proprietari di Samsung (`0x1a1a`, `0x1901`, `1ab7c24d-…`) più quello di
-aggiornamento del firmware (Dialog, `0xfef5` — da non toccare mai). Dentro
-`0x1a1a` viaggia **SAP**, il *Samsung Accessory Protocol*: non è cifrato, e il
-braccialetto si presenta da solo a chiunque si iscriva alle notifiche.
+| Cosa | Com'è andata |
+|---|---|
+| Stretta di mano SAP | **funziona** — il braccialetto manda 105 byte `68 14 … SAMSUNG_ACCESSARY`, si risponde col `0x15` |
+| Domande e risposte | **funzionano** — trame con CRC-16/ARC, servizi numerati (10 salute, 11 impostazioni) |
+| Batteria | **funziona** — servizio 11, messaggio `02`: il parametro 5 è la percentuale (provato a 1% e a 99%) |
+| Ora del braccialetto | **funziona** — la manda nelle risposte, contata in secondi dal 1990 |
+| Battito in diretta | **funziona** — servizio standard, mentre il braccialetto misura |
+| Storico di passi e sonno | **non ancora**: vedi qui sotto |
 
-Quello che è stato provato sul braccialetto vero, e che adesso sta in
-`vita/sap.py` (protocollo) e `vita/banda.py` (collegamento via BlueZ):
+**Perché lo storico non arriva.** La richiesta parte e il braccialetto
+risponde — ma risponde «non ho niente», anche chiedendo tutto dall'inizio
+(cursore a zero) o da un anno fa. Il Fit2 non è un archivio: è una staffetta.
+Tiene i dati finché il compagno non se li prende, e il compagno è il telefono,
+che lo svuota a ogni sincronizzazione.
 
-| Cosa | Si può? | Come |
-|---|---|---|
-| Stretta di mano SAP | **sì, riuscita** | il braccialetto manda 105 byte `68 14 … SAMSUNG_ACCESSARY`, si risponde col `0x15` |
-| Fare domande e avere risposte | **sì** | trame con CRC-16/ARC, servizi numerati (10 salute, 11 impostazioni) |
-| Batteria e ora del braccialetto | **sì** | servizio 11, messaggio `02` (il significato del livello è ancora da decifrare) |
-| Battito **mentre il braccialetto misura** | sì, dal PC | servizio standard, `strumenti/battito_bluetooth.py` |
-| Storico di passi e sonno | **non ancora** | il braccialetto risponde «non ho niente»: il telefono lo svuota prima |
-| Storico completo | sì, **dal telefono** | esportazione di Samsung Health → importazione in Vita |
+Resta una strada da provare, e richiede solo pazienza: **spegnere il Bluetooth
+del telefono** per qualche ora — una camminata, una notte — così il
+braccialetto accumula, e poi chiedergli i dati da qui. Se arrivano, sono lotti
+col loro formato (tipo 7 passi al minuto, 10 battito, 16 e 17 sonno) e si
+mettono da parte grezzi in `~/.local/share/Vita/banda/` per imparare a
+leggerli.
 
-Le prove del protocollo (con le trame vere registrate) si lanciano senza
-braccialetto: `python3 strumenti/prova_sap.py`.
+**Com'è fatto dentro.** `vita/sap.py` è il protocollo — byte dentro, byte
+fuori, nessun Bluetooth: si prova senza braccialetto con
+`python3 strumenti/prova_sap.py`. `vita/banda.py` è il collegamento vero via
+BlueZ. Non c'è nessun thread, ed è una scelta: su Linux Qt possiede già il
+ciclo di GLib, quindi un secondo ciclo dentro un filo nostro resta lì ad
+aspettare di poterlo prendere. Le notifiche di BlueZ entrano dritte nel ciclo
+di Qt e ogni chiamata che potrebbe far aspettare parte asincrona.
+
+Il servizio di aggiornamento del firmware (Dialog, `0xfef5`) non viene toccato
+mai: da lì si scrive il firmware del braccialetto, e non è un posto dove
+sperimentare.
 
 ### Importare da Samsung Health
 

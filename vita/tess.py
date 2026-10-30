@@ -341,8 +341,11 @@ def giorno_per_giorno(db, aree: set[str], quanti: int = GIORNI_DETTAGLIATI,
         if not presenti:
             righe.append(testa + "nessun dato registrato")
             continue
-        coda = f" — {MANCA} quel giorno: " + ", ".join(mancanti) if mancanti else ""
-        righe.append(testa + " · ".join(presenti) + coda)
+        righe.append(testa + " · ".join(presenti))
+        if mancanti:
+            # su una riga sua: in coda ai valori se la pesca al posto loro
+            righe.append(f"   (quel giorno non sono stati registrati: "
+                         + ", ".join(mancanti) + ")")
     return righe
 
 
@@ -434,13 +437,14 @@ def blocco_giorni_chiesti(db, aree: set[str], quando: list[date]) -> list[str]:
             righe.append(
                 "GIORNO CHIESTO nella domanda. Rispondi usando solo queste "
                 "righe: il numero che ti serve è qui dentro, non prenderlo da "
-                f"nessun'altra parte. «{MANCA}» vuol dire che quel giorno quel "
-                "dato non c'è: dillo, non è uno zero e non è il valore di un "
-                "altro giorno.")
+                "nessun'altra parte. Un dato elencato fra quelli «non "
+                "registrati» quel giorno non c'è: dillo, non è uno zero e non "
+                "è il valore di un altro giorno.")
             righe.extend(dettaglio)
     for q in futuri:
         righe.append(f"GIORNO CHIESTO: {data_lunga(q.isoformat())} non è ancora "
-                     "arrivato, di quel giorno non esiste nessun dato.")
+                     "arrivato. Nessuno può sapere quei numeri: rispondi che "
+                     "è un giorno che deve ancora venire, non dire zero.")
     return righe
 
 
@@ -580,10 +584,10 @@ def contesto(db, fonte, aree: set[str] | None = None,
             "da questo elenco di' che non ce l'hai, non tirare a indovinare. "
             "Cerca la riga che porta la data chiesta e leggi solo quella: "
             "mai il numero di un altro giorno, nemmeno quello più vicino. "
-            f"Se il campo che ti chiede dice «{MANCA}», rispondi che per quel "
-            "giorno non è stato registrato — non è uno zero e non è il valore "
-            "di un altro giorno. Il giorno della settimana è già scritto: usa "
-            "quello, non ricavarlo.")
+            "Sotto ogni riga c'è l'elenco di quello che quel giorno non è "
+            "stato registrato: se ti chiede uno di quelli, rispondi che non "
+            "c'è — non è uno zero. Il giorno della settimana è già scritto: "
+            "usa quello, non ricavarlo.")
         righe.extend(dettaglio)
         righe.append("")
 

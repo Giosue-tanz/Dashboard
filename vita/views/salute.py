@@ -48,7 +48,7 @@ class VistaSalute(VistaSezioni):
     DISPOSIZIONE = [["oggi", "corpo", "costanza"], ["passi", "sonno"],
                     ["indicatori", "allenamenti", "peso", "braccialetto"]]
     ALTEZZE_PREDEFINITE = (0.36, 0.28, 0.36)
-    LARGHEZZE_PREDEFINITE = ((), (), (0.26, 0.28, 0.24, 0.22))
+    LARGHEZZE_PREDEFINITE = ((), (), (0.24, 0.26, 0.22, 0.28))
     PERIODI_SEZIONE = {
         "passi": ({"7": "7 giorni", "14": "14 giorni", "30": "30 giorni",
                    "90": "90 giorni", "180": "6 mesi"}, "14"),

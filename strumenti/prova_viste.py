@@ -23,7 +23,7 @@ RADICE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, RADICE)
 
 from PySide6.QtCore import QElapsedTimer, QLocale, Qt                  # noqa: E402
-from PySide6.QtWidgets import QApplication, QLineEdit                  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit          # noqa: E402
 from PySide6.QtTest import QTest                                       # noqa: E402
 
 import vita.tess as tess                                               # noqa: E402
@@ -35,6 +35,7 @@ from vita.andamento import AMPIEZZE, MISURE, FinestraAndamento         # noqa: E
 from vita.db import DB_PATH, Database                                  # noqa: E402
 from vita.dialoghi import DialogoGiorno                                # noqa: E402
 from vita.finestra import VISTE, FinestraPrincipale                    # noqa: E402
+from vita.tema import SCALE                                            # noqa: E402
 
 errori: list[str] = []
 
@@ -166,10 +167,49 @@ def main() -> int:
         assert riquadro.interruttore is not None
     prova("Braccialetto: sta fermo finché non glielo dici", braccialetto)
 
+    # ---- le quattro dimensioni del testo: niente deve restare tagliato
+    strette = []
+    for scala in SCALE:
+        db.imposta("scala", scala)
+        prova(f"testo {scala}", lambda s=scala: f.applica_tema(
+            db.leggi("tema", "scuro")))
+        for i, (nome, _) in enumerate(VISTE):
+            f.vai(i)
+            posa(60)
+            f.grab()
+            for et in f.viste[i].findChildren(QLabel):
+                testo = et.text()
+                if not et.isVisible() or not testo or testo.endswith("…"):
+                    continue
+                # i quadretti del calendario delle abitudini sono stretti per
+                # scelta: non sono scritte tagliate, sono caselle
+                if et.width() < 48 or "\n" in testo:
+                    continue
+                if et.wordWrap():
+                    # chi va a capo si misura alla larghezza che ha davvero,
+                    # non a quella che vorrebbe
+                    serve = et.heightForWidth(max(1, et.width()))
+                    if serve > et.height() + 1:
+                        strette.append(f"{nome}/{scala}: «{et.text()[:30]}» "
+                                       f"alta {et.height()} invece di {serve}")
+                    continue
+                metriche = et.fontMetrics()
+                if metriche.horizontalAdvance(et.text()) > et.width() + 2:
+                    strette.append(f"{nome}/{scala}: «{et.text()[:30]}» "
+                                   f"larga {et.width()} invece di "
+                                   f"{metriche.horizontalAdvance(et.text())}")
+                elif metriche.height() > et.height() + 1:
+                    strette.append(f"{nome}/{scala}: «{et.text()[:30]}» "
+                                   f"alta {et.height()} invece di {metriche.height()}")
+    db.imposta("scala", "normale")
+    f.applica_tema(db.leggi("tema", "scuro"))
+
     f.grab().save(os.path.join(scatti, "salute.png"))
     fuori = [x for x in app.topLevelWidgets() if x.isVisible() and x not in (f, w)]
     print(f"{periodi} periodi · {andamenti} andamenti · {len(fuori)} finestrelle "
-          f"· {len(errori)} errori")
+          f"· {len(strette)} scritte strette · {len(errori)} errori")
+    for stretta in strette[:6]:
+        print(f"  {stretta}")
     for e in errori[:4]:
         print(e)
     if not opzioni.scatti:

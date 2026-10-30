@@ -959,6 +959,11 @@ def etichetta(testo: str, oggetto: str = "", colore: str = "") -> QLabel:
         e.setObjectName(oggetto)
     if colore:
         e.setStyleSheet(f"color: {colore};")
+    # un'etichetta che va a capo, senza questo, in un layout si prende
+    # l'altezza di una riga sola e taglia il resto
+    politica = e.sizePolicy()
+    politica.setHeightForWidth(True)
+    e.setSizePolicy(politica)
     return e
 
 

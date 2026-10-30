@@ -15,11 +15,12 @@ from __future__ import annotations
 from datetime import date
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QSizePolicy,
+from PySide6.QtWidgets import (QHBoxLayout, QPushButton, QSizePolicy,
                                QVBoxLayout, QWidget)
 
 from .banda import DISPONIBILE, Braccialetto, cerca_braccialetto
-from .componenti import EtichettaAlta, Interruttore, etichetta
+from .componenti import (DisposizioneFluida, EtichettaAlta,
+                         Interruttore, etichetta)
 from .grafici import Sparkline
 
 
@@ -63,28 +64,30 @@ class RiquadroBraccialetto(QWidget):
         self.et_battito.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         lay.addWidget(self.et_battito)
         self.linea = Sparkline(colori)
-        self.linea.setFixedHeight(30)
+        self.linea.setFixedHeight(28)
+        self.linea.hide()            # compare al primo battito che arriva
         lay.addWidget(self.linea)
 
         self.et_stato = etichetta("", "NotaScheda")
         self.et_stato.setWordWrap(True)
         self.et_stato.setAlignment(Qt.AlignCenter)
         lay.addWidget(self.et_stato)
-        lay.addStretch(1)
 
         # --------------------------------------------------- numeri e comandi
         self.et_numeri = etichetta("", "NotaScheda")
         self.et_numeri.setWordWrap(True)
+        lay.addStretch(1)
         lay.addWidget(self.et_numeri)
 
-        fila = QHBoxLayout()
-        fila.setSpacing(8)
-        self.b_salva = QPushButton("Salva come battito a riposo")
+        fila = DisposizioneFluida(spaziatura=8)
+        self.b_salva = QPushButton("Salva battito")
         self.b_salva.setObjectName("Segmento")
         self.b_salva.setMinimumHeight(34)
         self.b_salva.setEnabled(False)
         self.b_salva.clicked.connect(self._salva_battito)
-        self.b_sincronizza = QPushButton("Cerca dati nuovi")
+        self.b_salva.setToolTip("Scrive il battito più basso di questa sessione "
+                                "come battito a riposo di oggi.")
+        self.b_sincronizza = QPushButton("Cerca dati")
         self.b_sincronizza.setObjectName("Segmento")
         self.b_sincronizza.setMinimumHeight(34)
         self.b_sincronizza.setEnabled(False)
@@ -94,7 +97,6 @@ class RiquadroBraccialetto(QWidget):
         self.b_sincronizza.clicked.connect(lambda: self.banda.sincronizza(0))
         fila.addWidget(self.b_salva)
         fila.addWidget(self.b_sincronizza)
-        fila.addStretch(1)
         lay.addLayout(fila)
 
         for segnale, gestore in (("stato", self._stato), ("battito", self._battito),
@@ -135,6 +137,7 @@ class RiquadroBraccialetto(QWidget):
     def _battito(self, valore: int) -> None:
         self.battiti.append(valore)
         self.et_battito.setText(str(valore))
+        self.linea.show()
         self.linea.imposta_dati(self.battiti[-60:], self.c["uscita"])
         self.b_salva.setEnabled(True)
         minimo = min(self.battiti)
