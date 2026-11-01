@@ -100,6 +100,27 @@ Se Tess sta altrove, il percorso si cambia con l'impostazione `percorso_tess`
 nell'archivio; di suo cerca `~/Scrivania/WORK/AI-Locale` e ne legge
 `config/env` per sapere indirizzo del motore e nome del modello.
 
+## Scegliere il periodo
+
+Il tempo si cambia in un modo solo, uguale dappertutto.
+
+**Nei riquadri** la pastiglia sta in alto a destra — `30 giorni ▾` — e apre
+l'elenco dei periodi. Prima il periodo era una scritta grigia in mezzo ai
+numeri del titolo: si poteva cliccare, ma non lo sembrava, e spesso veniva
+tagliata via per fare spazio. Adesso il titolo dice **cosa**, la nota grigia
+**come sta andando** e la pastiglia **quando**: tre cose, tre posti.
+
+**Dove si sfoglia** (Passi, Sonno, Ore di studio) c'è il navigatore: a
+sinistra il binario `Giorni | Settimane | Mesi`, a destra le frecce con in
+mezzo l'intervallo che stai guardando, e «Oggi» che compare solo quando ti sei
+allontanato dal presente. Le scelte brevi stanno tutte in un binario unico —
+anche quelle che non riguardano il tempo, come `Passi | Sonno | Allenamenti`
+della costanza — così l'occhio le riconosce subito.
+
+Quando lo spazio è poco il riquadro rinuncia nell'ordine: prima la nota, poi
+la pastiglia, per ultimo il titolo. E la nota o ci sta intera, o ne resta
+abbastanza da capirla: un moncone come «6/28 centr…» non si vede più.
+
 ## Il testo grande non taglia niente
 
 La dimensione del testo si cambia in **Impostazioni → Aspetto** e arriva fino

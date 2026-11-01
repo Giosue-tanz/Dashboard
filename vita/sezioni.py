@@ -10,13 +10,14 @@ import json
 
 from PySide6.QtCore import QEvent, QMimeData, QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QDrag, QFont, QFontMetrics, QPainter, QPixmap
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QSizePolicy, QSplitter,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton,
+                               QSizePolicy, QSplitter, QVBoxLayout, QWidget)
 
 MIME = "application/x-vita-sezione"
 BORDO_RIGA = 18          # zona in cui il rilascio crea una riga nuova
 LARGHEZZA_MINIMA = 150
 LARGHEZZA_LIBERA = 16777215   # il massimo di Qt: «nessun limite»
+FRECCIA_GIU = "\u25be"        # la punta che dice «qui si sceglie»
 ALTEZZA_MINIMA = 108
 
 
@@ -38,6 +39,7 @@ class Intestazione(QWidget):
         self.setCursor(Qt.OpenHandCursor)
         self.setFixedHeight(self.ALTEZZA_MINIMA)
         self._titolo_pieno = titolo
+        self._nota_piena = ""
         self._periodo_pieno = ""
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -45,9 +47,21 @@ class Intestazione(QWidget):
 
         self.titolo = QLabel(titolo)
         self.titolo.setObjectName(stile)
-        self.periodo = QLabel("")
+        # la nota grigia: quello che il riquadro racconta di sé
+        self.nota = QLabel("")
+        self.nota.setObjectName("Periodo")
+        self.nota.hide()
+        # il periodo invece è un comando, e si vede che lo è: pastiglia a
+        # destra, con la freccia. Prima era una scritta grigia come le altre,
+        # in mezzo ai numeri, e nessuno capiva che ci si poteva cliccare.
+        self.periodo = QPushButton("")
         self.periodo.setObjectName("Periodo")
         self.periodo.setCursor(Qt.PointingHandCursor)
+        self.periodo.setFocusPolicy(Qt.NoFocus)
+        self.periodo.setToolTip("Cambia il periodo mostrato")
+        self.periodo.clicked.connect(
+            lambda: self.periodo_richiesto.emit(
+                self.periodo.mapToGlobal(QPoint(0, self.periodo.height() + 2))))
         self.periodo.hide()
         self.azioni = QLabel("⋯")
         self.azioni.setObjectName("AzioniSezione")
@@ -56,8 +70,9 @@ class Intestazione(QWidget):
         self.azioni.setVisible(False)
 
         lay.addWidget(self.titolo)
-        lay.addWidget(self.periodo)
+        lay.addWidget(self.nota)
         lay.addStretch(1)
+        lay.addWidget(self.periodo)
         lay.addWidget(self.azioni)
         self._premuto: QPoint | None = None
         self._adatta_altezza()
@@ -69,24 +84,25 @@ class Intestazione(QWidget):
         Con il testo molto grande una barra alta 24 px tagliava le code delle
         lettere: la «g» di «Oggi», di «Progetti», di «Prossimi impegni».
         """
-        for etichetta in (self.titolo, self.periodo, self.azioni):
-            etichetta.ensurePolished()
-        alto = max(e.sizeHint().height()
-                   for e in (self.titolo, self.periodo, self.azioni))
+        for widget in (self.titolo, self.nota, self.periodo, self.azioni):
+            widget.ensurePolished()
+        alto = max(w.sizeHint().height()
+                   for w in (self.titolo, self.nota, self.periodo, self.azioni))
         self.setFixedHeight(max(self.ALTEZZA_MINIMA, alto + 2))
 
     def _accorcia(self) -> None:
-        """Se la sezione è stretta, prima si accorcia il periodo, poi il titolo.
+        """Divide lo spazio della barra: prima il titolo, poi il periodo, poi la nota.
 
-        Il titolo ha la precedenza: meglio perdere «· 2 voci» che la parola
-        che dice di che riquadro si tratta. Le misure si chiedono
-        all'etichetta, non al carattere: il grassetto del foglio di stile
-        occupa più di quanto dica la metrica, e il titolo finirebbe tagliato.
+        L'ordine è quello che conta: il titolo dice di che riquadro si tratta,
+        il periodo è un comando e deve restare cliccabile, la nota è il
+        racconto e può accorciarsi. Le misure si chiedono ai widget, non al
+        carattere: il grassetto del foglio di stile occupa più di quanto dica
+        la metrica, e il titolo finirebbe tagliato.
         """
         spazio = max(0, self.width() - 28)        # il posto dei «⋯»
-        for etichetta in (self.titolo, self.periodo):
-            etichetta.setMinimumWidth(0)
-            etichetta.setMaximumWidth(LARGHEZZA_LIBERA)
+        for widget in (self.titolo, self.nota):
+            widget.setMinimumWidth(0)
+            widget.setMaximumWidth(LARGHEZZA_LIBERA)
 
         largo_titolo = self._misura(self.titolo, self._titolo_pieno)
         if largo_titolo > spazio:
@@ -97,27 +113,40 @@ class Intestazione(QWidget):
                 testo = testo[:-2] + "…"
             self.titolo.setFixedWidth(spazio)
             self.titolo.setToolTip(self._titolo_pieno)
+            self.nota.setVisible(False)
             self.periodo.setVisible(False)
             return
         self.titolo.setToolTip("")
-        # larghezza fissa: così il periodo non gli ruba spazio dal layout
+        # larghezza fissa: così nota e periodo non gli rubano spazio dal layout
         self.titolo.setFixedWidth(largo_titolo)
-
-        if not self._periodo_pieno:
-            self.periodo.setVisible(False)
-            return
         resto = spazio - largo_titolo - 12
-        # sotto una certa misura il periodo diventa illeggibile: via del tutto
-        if resto < 44:
+
+        # la pastiglia del periodo, se questo riquadro ne ha uno
+        if self._periodo_pieno:
+            self.periodo.setText(f"{self._periodo_pieno}  {FRECCIA_GIU}")
+            largo_periodo = self.periodo.sizeHint().width()
+            self.periodo.setVisible(resto >= largo_periodo)
+            if self.periodo.isVisible():
+                resto -= largo_periodo + 10
+        else:
             self.periodo.setVisible(False)
+
+        if not self._nota_piena:
+            self.nota.setVisible(False)
             return
-        self.periodo.setVisible(True)
-        testo = self.periodo.fontMetrics().elidedText(
-            self._periodo_pieno, Qt.ElideRight, resto)
-        while len(testo) > 2 and self._misura(self.periodo, testo) > resto:
+        intera = self._misura(self.nota, self._nota_piena)
+        # o ci sta tutta, o ne resta abbastanza da dire qualcosa: un moncone
+        # come «6/28 centr…» non serve a nessuno, meglio niente
+        if resto < min(intera, 70):
+            self.nota.setVisible(False)
+            return
+        self.nota.setVisible(True)
+        testo = self.nota.fontMetrics().elidedText(
+            self._nota_piena, Qt.ElideRight, resto)
+        while len(testo) > 2 and self._misura(self.nota, testo) > resto:
             testo = testo[:-2] + "…"
-        self.periodo.setFixedWidth(min(resto, self.periodo.sizeHint().width()))
-        self.periodo.setToolTip(self._periodo_pieno)
+        self.nota.setFixedWidth(min(resto, self.nota.sizeHint().width()))
+        self.nota.setToolTip(self._nota_piena)
 
     def _misura(self, etichetta: QLabel, testo: str) -> int:
         """Scrive il testo e torna quanto spazio chiede davvero."""
@@ -128,7 +157,13 @@ class Intestazione(QWidget):
         self._titolo_pieno = testo
         self._accorcia()
 
+    def imposta_nota(self, testo: str) -> None:
+        """Il racconto grigio accanto al titolo."""
+        self._nota_piena = testo
+        self._accorcia()
+
     def imposta_periodo(self, testo: str) -> None:
+        """Il periodo mostrato: diventa la pastiglia a destra."""
         self._periodo_pieno = testo
         self._accorcia()
 
@@ -237,6 +272,9 @@ class Sezione(QFrame):
             lambda punto: self.menu_richiesto.emit(self.chiave, punto))
         lay.addWidget(self.intestazione)
         lay.addWidget(contenuto, 1)
+
+    def imposta_nota(self, testo: str) -> None:
+        self.intestazione.imposta_nota(testo)
 
     def imposta_periodo(self, testo: str) -> None:
         self.intestazione.imposta_periodo(testo)

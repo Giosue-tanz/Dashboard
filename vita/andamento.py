@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (QDialog, QHBoxLayout, QHeaderView, QLabel,
                                QPushButton, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
-from .componenti import (DisposizioneFluida, abilita_deselezione,
+from .componenti import (DisposizioneFluida, abilita_deselezione, binario,
                          etichetta, stile_tabella)
 from .grafici import GraficoBarre
 from .utils import data_it, durata, media, numero
@@ -94,38 +94,38 @@ class FinestraAndamento(QDialog):
         testi.setContentsMargins(0, 0, 0, 0); testi.setSpacing(2)
         testi.addWidget(self.et_titolo); testi.addWidget(self.et_periodo)
 
-        self.segmenti: dict[str, QPushButton] = {}
-        fila_amp = QHBoxLayout()
-        fila_amp.setSpacing(6)
-        for chiave, nome in AMPIEZZE.items():
-            b = QPushButton(nome)
-            b.setObjectName("Segmento")
-            b.setCheckable(True)
-            b.setCursor(Qt.PointingHandCursor)
-            b.clicked.connect(lambda _=False, k=chiave: self._cambia_ampiezza(k))
-            self.segmenti[chiave] = b
-            fila_amp.addWidget(b)
+        # l'ampiezza del periodo: un binario solo, come nei riquadri
+        self.binario_ampiezze, self.segmenti = binario(
+            AMPIEZZE, self.ampiezza, self._cambia_ampiezza)
 
+        # le frecce stanno insieme, in un gruppo che si legge come uno solo
+        self.gruppo_frecce = QWidget()
+        self.gruppo_frecce.setObjectName("Segmentato")
+        dentro = QHBoxLayout(self.gruppo_frecce)
+        dentro.setContentsMargins(3, 3, 3, 3)
+        dentro.setSpacing(2)
         self.b_indietro = QPushButton("‹")
         self.b_indietro.setToolTip("Periodo precedente  (←)")
         self.b_avanti = QPushButton("›")
         self.b_avanti.setToolTip("Periodo successivo  (→)")
         for b, passo in ((self.b_indietro, 1), (self.b_avanti, -1)):
-            b.setObjectName("FrecciaGiorno")
-            b.setFixedWidth(36)
-            b.setMinimumHeight(36)
+            b.setObjectName("Freccia")
+            b.setFixedSize(32, 32)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setFocusPolicy(Qt.NoFocus)
             b.clicked.connect(lambda _=False, p=passo: self._sposta(p))
+            dentro.addWidget(b)
         self.b_oggi = QPushButton("Oggi")
+        self.b_oggi.setObjectName("Segmento")
         self.b_oggi.setMinimumHeight(36)
+        self.b_oggi.setCursor(Qt.PointingHandCursor)
         self.b_oggi.clicked.connect(lambda: self._vai_a(0))
 
         fila = QHBoxLayout()
-        fila.setSpacing(8)
+        fila.setSpacing(10)
         fila.addLayout(testi, 1)
-        fila.addLayout(fila_amp)
-        fila.addSpacing(6)
-        fila.addWidget(self.b_indietro)
-        fila.addWidget(self.b_avanti)
+        fila.addWidget(self.binario_ampiezze)
+        fila.addWidget(self.gruppo_frecce)
         fila.addWidget(self.b_oggi)
         return fila
 

@@ -265,7 +265,7 @@ class VistaCruscotto(VistaSezioni):
                      "passi", self.c["accento"], 1)
         self._numero(durata(self.db.minuti_studio(oggi, oggi)), "studio", "#b07cff", 2)
         self._numero(durata(self.db.minuti_lavoro(oggi, oggi)), "lavoro", "#6c8cff", 3)
-        self.contenitore.sezioni["oggi"].imposta_periodo(
+        self.contenitore.sezioni["oggi"].imposta_nota(
             f"{data_lunga(oggi)} · {medie['n']} voci")
 
     def _aggiorna_emotivo(self) -> None:
@@ -273,8 +273,7 @@ class VistaCruscotto(VistaSezioni):
         righe = self.db.medie_giorno(dal, al)
         if not righe:
             self.g_emotivo.imposta_serie([])
-            self.contenitore.sezioni["emotivo"].imposta_periodo(
-                self._nome_periodo("emotivo"))
+            self.contenitore.sezioni["emotivo"].imposta_nota("")
             return
         def punti(campo):
             return [(data_it(r["data"])[:5], float(r[campo])) for r in righe]
@@ -282,7 +281,7 @@ class VistaCruscotto(VistaSezioni):
             ("umore", punti("umore"), self.c["accento"]),
             ("energia", punti("energia"), "#35c4d7")])
         valori = [float(r["umore"]) for r in righe]
-        self.contenitore.sezioni["emotivo"].imposta_periodo(
+        self.contenitore.sezioni["emotivo"].imposta_nota(
             f"umore medio {numero(media(valori), 1)} · {len(righe)} giorni scritti")
 
     def _aggiorna_salute(self) -> None:
@@ -328,7 +327,7 @@ class VistaCruscotto(VistaSezioni):
             f"{allenamenti}/{obiettivo_all:.0f}",
             f"Allenamenti: {allenamenti} su {obiettivo_all:.0f} questa settimana")
 
-        self.contenitore.sezioni["salute"].imposta_periodo(
+        self.contenitore.sezioni["salute"].imposta_nota(
             f"oggi · obiettivo {numero(obiettivo, 0)} passi")
 
     def _aggiorna_carriera(self) -> None:
@@ -352,7 +351,7 @@ class VistaCruscotto(VistaSezioni):
         minuti = self.db.minuti_lavoro(dal, al)
         dal_m, al_m = mese_corrente()
         incassi = self.db.totale_incassi(dal_m, al_m)
-        self.contenitore.sezioni["carriera"].imposta_periodo(
+        self.contenitore.sezioni["carriera"].imposta_nota(
             f"{durata(minuti)} questa settimana · {euro(incassi)} questo mese")
 
     def _aggiorna_accademica(self) -> None:
@@ -372,7 +371,7 @@ class VistaCruscotto(VistaSezioni):
         r = self.db.riepilogo_libretto()
         dal, al = settimana_corrente()
         studio = self.db.minuti_studio(dal, al)
-        self.contenitore.sezioni["accademica"].imposta_periodo(
+        self.contenitore.sezioni["accademica"].imposta_nota(
             f"CFU {r['cfu']} · media {numero(r['media'], 1)} · "
             f"{durata(studio)} di studio questa settimana" if r["n"] else
             f"{durata(studio)} di studio questa settimana")
@@ -407,7 +406,7 @@ class VistaCruscotto(VistaSezioni):
               "giorno. Clicca per aprire Abitudini.")
         segnate = len(fatte)
         giorni_pieni = len(dati)
-        self.contenitore.sezioni["abitudini"].imposta_periodo(
+        self.contenitore.sezioni["abitudini"].imposta_nota(
             f"{segnate} segni in {len(elenco)} giorni · {giorni_pieni} giornate "
             f"con almeno un segno")
 
@@ -425,7 +424,7 @@ class VistaCruscotto(VistaSezioni):
             [(etichetta_mese(m), [e, u]) for m, e, u in serie],
             [("entrate", self.c["entrata"]), ("uscite", self.c["uscita"])])
         risparmio = entrate - uscite
-        self.contenitore.sezioni["finanza"].imposta_periodo(
+        self.contenitore.sezioni["finanza"].imposta_nota(
             f"risparmio del mese {euro(risparmio)}")
 
     def _aggiorna_impegni(self) -> None:
@@ -456,5 +455,5 @@ class VistaCruscotto(VistaSezioni):
             self.tab.setItem(i, 0, cella)
             self.tab.setItem(i, 1, QTableWidgetItem(titolo))
             self.tab.setItem(i, 2, QTableWidgetItem(area))
-        self.contenitore.sezioni["impegni"].imposta_periodo(
+        self.contenitore.sezioni["impegni"].imposta_nota(
             f"{len(voci)} nei prossimi {quanti} giorni")

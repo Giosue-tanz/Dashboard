@@ -478,11 +478,21 @@ def foglio_stile(c: dict, scala: float = 1.0,
     QPlainTextEdit#CampoDiario:focus {{ border: 1px solid {c['accento']}; }}
 
     /* ------------------------------------------------ intestazioni di sezione */
+    /* la nota grigia accanto al titolo: racconta, non comanda */
     QLabel#Periodo {{
         color: {c['testo2']}; font-size: {p(11.5)};
-        padding: 2px 10px; border-radius: 10px;
+        padding: 2px 0; background: transparent;
     }}
-    QLabel#Periodo:hover {{ background: {tocco}; color: {c['accento']}; }}
+    /* il periodo invece è un comando: pastiglia con la punta in giù */
+    QPushButton#Periodo {{
+        background: {c['pannello2']}; border: none; border-radius: 12px;
+        padding: 4px 11px; color: {c['testo2']}; font-size: {p(11.5)};
+        font-weight: 600; text-align: center;
+    }}
+    QPushButton#Periodo:hover {{
+        background: {trasparente(c['accento'], 0.16)}; color: {c['accento']};
+    }}
+    QPushButton#Periodo:pressed {{ background: {c['bordo']}; }}
     QLabel#AzioniSezione {{
         color: {c['testo2']}; font-size: {p(14)}; font-weight: 700;
         padding: 0 7px; border-radius: 9px;
@@ -533,6 +543,38 @@ def foglio_stile(c: dict, scala: float = 1.0,
         background: {c['pannello2']}; border: none; border-radius: 15px;
         padding: 8px 14px; color: {c['testo2']};
     }}
+    /* il binario del tempo: le scelte stanno dentro un unico fondo, come
+       l'interruttore segmentato di One UI, e non come pastiglie sparse */
+    QWidget#Segmentato {{
+        background: {c['pannello2']}; border: none; border-radius: 15px;
+    }}
+    QWidget#Segmentato QPushButton#Scelta {{
+        background: transparent; border: none; border-radius: 12px;
+        padding: 5px 14px; color: {c['testo2']}; font-size: {p(12)};
+        font-weight: 600;
+    }}
+    QWidget#Segmentato QPushButton#Scelta:hover {{
+        background: {tocco}; color: {c['testo']};
+    }}
+    QWidget#Segmentato QPushButton#Scelta:checked {{
+        background: {c['accento']}; color: {su_accento}; font-weight: 700;
+    }}
+    QWidget#Segmentato QPushButton#Scelta:disabled {{ color: {c['bordo']}; }}
+    /* le frecce stanno nel binario come le scelte, ma quadrate: con il
+       margine laterale delle scelte il segno «‹» finirebbe tagliato */
+    QWidget#Segmentato QPushButton#Freccia {{
+        background: transparent; border: none; border-radius: 12px;
+        padding: 0; color: {c['testo2']}; font-size: {p(15)}; font-weight: 700;
+    }}
+    QWidget#Segmentato QPushButton#Freccia:hover {{
+        background: {tocco}; color: {c['testo']};
+    }}
+    QWidget#Segmentato QPushButton#Freccia:disabled {{ color: {c['bordo']}; }}
+    QLabel#Quando {{
+        color: {c['testo']}; font-size: {p(12)}; font-weight: 650;
+        background: transparent; padding: 0 2px;
+    }}
+
     QPushButton#Segmento {{
         background: {c['pannello2']}; border: none; border-radius: 16px;
         padding: 8px 18px; color: {c['testo2']};

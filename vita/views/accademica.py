@@ -265,12 +265,12 @@ class VistaAccademica(VistaSezioni):
         r = self.db.riepilogo_libretto()
         totale_cfu = int(self.db.leggi_num("cfu_laurea", 180))
         if r["n"]:
-            self.contenitore.sezioni["libretto"].imposta_periodo(
+            self.contenitore.sezioni["libretto"].imposta_nota(
                 f"{r['n']} superati · CFU {r['cfu']}/{totale_cfu} · "
                 f"media {numero(r['media'], 1)} · ponderata {numero(r['ponderata'], 1)} · "
                 f"base di laurea {numero(r['base'], 0)}")
         else:
-            self.contenitore.sezioni["libretto"].imposta_periodo(
+            self.contenitore.sezioni["libretto"].imposta_nota(
                 f"{len(esami)} esami in programma")
 
     def _aggiorna_imparare(self) -> None:
@@ -328,7 +328,7 @@ class VistaAccademica(VistaSezioni):
             pezzi.append(f"{len(da_dare)} esami · {cfu} CFU da dare")
         pezzi.append(f"{len(percorsi)} percorsi"
                      + (f" · {attivi} attivi" if percorsi else ""))
-        self.contenitore.sezioni["imparare"].imposta_periodo(" · ".join(pezzi))
+        self.contenitore.sezioni["imparare"].imposta_nota(" · ".join(pezzi))
         self.lay_percorsi.addStretch(1)
 
     @staticmethod
@@ -358,10 +358,10 @@ class VistaAccademica(VistaSezioni):
             f"color: {self.c['entrata'] if scostamento >= 0 else self.c['uscita']};"
             f" font-size: 15px; font-weight: 700;")
         self.et_studio_nota.setText(
-            f"{self.nav_studio.nome()} · obiettivo {durata(riferimento)} · "
+            f"obiettivo {durata(riferimento)} · "
             f"media delle altre {durata(precedenti)}")
         quanti = len(finestre)
-        self.contenitore.sezioni["studio"].imposta_periodo(
+        self.contenitore.sezioni["studio"].imposta_nota(
             f"{quanti} {self.nav_studio.modo}")
 
     def _aggiorna_materie(self) -> None:
@@ -374,7 +374,7 @@ class VistaAccademica(VistaSezioni):
             [(nome, float(minuti), PALETTE_GRAFICI[i % len(PALETTE_GRAFICI)])
              for i, (nome, minuti) in enumerate(voci)],
             durata(totale) if totale else "—", "studiate")
-        self.contenitore.sezioni["materie"].imposta_periodo(
+        self.contenitore.sezioni["materie"].imposta_nota(
             f"{durata(totale)} in {quanti} giorni")
 
     def _aggiorna_tabelle(self) -> None:
@@ -390,7 +390,7 @@ class VistaAccademica(VistaSezioni):
             self.tab_scadenze.setItem(i, 0, cella)
             self.tab_scadenze.setItem(i, 1, QTableWidgetItem(s["titolo"]))
             self.tab_scadenze.setItem(i, 2, QTableWidgetItem("sì" if s["fatta"] else "—"))
-        self.contenitore.sezioni["scadenze"].imposta_periodo(
+        self.contenitore.sezioni["scadenze"].imposta_nota(
             f"{sum(1 for s in scadenze if not s['fatta'])} aperte")
 
         quanti = int(self.periodo("registro"))
@@ -406,5 +406,5 @@ class VistaAccademica(VistaSezioni):
             durata_cella.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.tab_studio.setItem(i, 2, durata_cella)
             self.tab_studio.setItem(i, 3, QTableWidgetItem(v["argomento"]))
-        self.contenitore.sezioni["registro"].imposta_periodo(
+        self.contenitore.sezioni["registro"].imposta_nota(
             f"{durata(sum(v['minuti'] for v in voci))} in {quanti} giorni")

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QHeaderView, QLabel,
                                QWidget)
 
 from ..braccialetto import RiquadroBraccialetto
-from ..componenti import (EtichettaAlta, NavigatorePeriodo, RigaMisura,
+from ..componenti import (EtichettaAlta, NavigatorePeriodo, RigaMisura, binario,
                           abilita_deselezione, etichetta, stile_tabella)
 from ..andamento import FinestraAndamento
 from ..dialoghi import (DialogoAllenamento, DialogoGiorno,
@@ -122,18 +122,12 @@ class VistaSalute(VistaSezioni):
 
         # -------------------------------------------------------- costanza
         contenuto, lay = self.colonna(10)
+        quale, self.pastiglie = binario(
+            {k: nome for k, (nome, _, _) in self.COSTANZA.items()},
+            next(iter(self.COSTANZA)), self._scegli_costanza)
         scelta = QHBoxLayout()
         scelta.setContentsMargins(0, 0, 0, 0)
-        scelta.setSpacing(6)
-        self.pastiglie: dict[str, QPushButton] = {}
-        for chiave, (nome, _, _) in self.COSTANZA.items():
-            b = QPushButton(nome)
-            b.setObjectName("Segmento")
-            b.setCheckable(True)
-            b.setCursor(Qt.PointingHandCursor)
-            b.clicked.connect(lambda _=False, k=chiave: self._scegli_costanza(k))
-            self.pastiglie[chiave] = b
-            scelta.addWidget(b)
+        scelta.addWidget(quale)
         scelta.addStretch(1)
         lay.addLayout(scelta)
 
@@ -362,7 +356,7 @@ class VistaSalute(VistaSezioni):
         self._numero(numero(r["kcal"], 0) if r and r["kcal"] else "—",
                      "kcal attive", "#f7913a", 1)
         self._numero(numero(r["km"], 1) if r and r["km"] else "—", "km", "#35c4d7", 2)
-        self.contenitore.sezioni["oggi"].imposta_periodo(
+        self.contenitore.sezioni["oggi"].imposta_nota(
             f"obiettivo {numero(obiettivo, 0)} passi")
 
     # --------------------------------------------- composizione corporea
@@ -535,8 +529,7 @@ class VistaSalute(VistaSezioni):
             f"meglio {migliore} di fila.\n"
             "Più il quadretto è pieno, più sei andato vicino all'obiettivo: "
             "clicca un giorno per scriverne i dati.")
-        self.contenitore.sezioni["costanza"].imposta_periodo(
-            f"{self._nome_periodo('costanza')} · {riassunto}")
+        self.contenitore.sezioni["costanza"].imposta_nota(riassunto)
 
     def _aggiorna_passi(self) -> None:
         """I passi nel modo scelto: un giorno per barra, o una settimana, o un mese."""
@@ -556,10 +549,10 @@ class VistaSalute(VistaSezioni):
         self.g_passi.riferimento = giornaliero * quanti_giorni
         self.g_passi.imposta_dati(barre, [("passi", self.c["accento"])])
         raggiunti = sum(1 for v in valori if v >= self.g_passi.riferimento)
-        self.contenitore.sezioni["passi"].imposta_periodo(
-            f"{self.nav_passi.nome()} · media {numero(media(valori), 0)} · "
-            f"obiettivo raggiunto {raggiunti} volte su {len(valori)}"
-            if valori else f"{self.nav_passi.nome()} · nessun dato")
+        self.contenitore.sezioni["passi"].imposta_nota(
+            f"media {numero(media(valori), 0)} · obiettivo raggiunto "
+            f"{raggiunti} volte su {len(valori)}"
+            if valori else "nessun dato")
 
     def _crea_braccialetto(self) -> None:
         """Il riquadro del braccialetto: non si collega finché non glielo dici."""
@@ -609,8 +602,7 @@ class VistaSalute(VistaSezioni):
 
         if ultimo is None:
             self.et_sonno.setText("—")
-            self.et_sonno_nota.setText(
-                f"{self.nav_sonno.nome()} · nessuna notte registrata")
+            self.et_sonno_nota.setText("nessuna notte registrata")
             self.fasi.imposta_dati([])
             self.et_fasi.setText("")
             self._barre_sonno(finestre, dati)
@@ -624,7 +616,7 @@ class VistaSalute(VistaSezioni):
             dentro = [float(r["sonno"]) for g, r in dati.items()
                       if scelto_dal <= g <= scelto_al and r["sonno"]]
             grande = int(media(dentro))
-            nota_quando = f"{self.nav_sonno.nome()} · media di {len(dentro)} notti"
+            nota_quando = f"media di {len(dentro)} notti"
         self.et_sonno.setText(durata(grande))
         scostamento = grande - media(tutte)
         segno = "+" if scostamento >= 0 else "−"
@@ -676,9 +668,9 @@ class VistaSalute(VistaSezioni):
             if dentro:
                 valori.extend(dentro)
         self.g_sonno.imposta_dati(barre, [("sonno", "#6c8cff")])
-        self.contenitore.sezioni["sonno"].imposta_periodo(
+        self.contenitore.sezioni["sonno"].imposta_nota(
             f"media {durata(media(valori))} su {len(valori)} notti"
-            if valori else f"{self.nav_sonno.nome()} · nessun dato")
+            if valori else "nessun dato")
 
     def _aggiorna_indicatori(self) -> None:
         self.svuota(self.lay_ind)
@@ -754,7 +746,7 @@ class VistaSalute(VistaSezioni):
         obiettivo = self.db.leggi_num("obiettivo_allenamenti",
                                       PREDEFINITI["obiettivo_allenamenti"])
         minuti = sum(a["minuti"] for a in voci)
-        self.contenitore.sezioni["allenamenti"].imposta_periodo(
+        self.contenitore.sezioni["allenamenti"].imposta_nota(
             f"{questa} su {obiettivo:.0f} questa settimana · {durata(minuti)} in totale")
 
     def _aggiorna_peso(self) -> None:
@@ -766,8 +758,8 @@ class VistaSalute(VistaSezioni):
         if len(serie) >= 2:
             scostamento = serie[-1][1] - serie[0][1]
             segno = "+" if scostamento > 0 else "−"
-            self.contenitore.sezioni["peso"].imposta_periodo(
+            self.contenitore.sezioni["peso"].imposta_nota(
                 f"{numero(serie[-1][1], 1)} kg · {segno}{numero(abs(scostamento), 1)} "
                 f"in {quanti} giorni")
         else:
-            self.contenitore.sezioni["peso"].imposta_periodo(f"{quanti} giorni")
+            self.contenitore.sezioni["peso"].imposta_nota(f"{quanti} giorni")

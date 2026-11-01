@@ -14,8 +14,9 @@ from PySide6.QtWidgets import (QHBoxLayout, QHeaderView, QLabel, QMenu,
                                QProgressBar, QPushButton, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
-from ..componenti import (DisposizioneFluida, abilita_deselezione, etichetta,
-                          faccia, pillola, stile_tabella)
+from ..componenti import (DisposizioneFluida, EtichettaACapo, EtichettaAlta,
+                          abilita_deselezione, etichetta, faccia,
+                          pillola, stile_tabella)
 from ..dialoghi import DialogoVoce
 from ..grafici import GraficoCiambella, GraficoLinea, MappaCalore
 from ..utils import (PERIODI, data_it, data_lunga, giorni, intervallo, media,
@@ -184,7 +185,7 @@ class VistaEmozioni(VistaSezioni):
         self.svuota(self.lay_oggi)
         oggi = date.today().isoformat()
         voci = self.db.voci(oggi, oggi)
-        self.contenitore.sezioni["oggi"].imposta_periodo(data_lunga(oggi))
+        self.contenitore.sezioni["oggi"].imposta_nota(data_lunga(oggi))
 
         medie = {chiave: media([float(v[chiave]) for v in voci])
                  for chiave, _, _ in MISURE} if voci else {}
@@ -202,14 +203,19 @@ class VistaEmozioni(VistaSezioni):
             nota = (f"umore · alle {ora}" if len(voci) == 1
                     else f"media di {len(voci)} voci · ultima alle {ora}")
         else:
-            grande = etichetta("Nessuna voce, per ora", "Sezione")
+            grande = EtichettaAlta("Nessuna voce, per ora")
+            grande.setObjectName("Sezione")
             nota = ("Quattro cursori, le emozioni che riconosci e, se ti va, "
                     "due righe di diario.")
         testi = QVBoxLayout()
         testi.setContentsMargins(0, 0, 0, 0)
         testi.setSpacing(1)
-        et_nota = etichetta(nota, "NotaScheda")
-        et_nota.setWordWrap(not voci)
+        if voci:
+            et_nota = etichetta(nota, "NotaScheda")
+        else:
+            # la frase d'invito va a capo: le serve l'altezza di tutte le righe
+            et_nota = EtichettaACapo(nota)
+            et_nota.setObjectName("NotaScheda")
         testi.addWidget(grande)
         testi.addWidget(et_nota)
 

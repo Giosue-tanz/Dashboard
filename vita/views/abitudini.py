@@ -293,7 +293,7 @@ class VistaAbitudini(VistaSezioni):
 
         self.griglia.setColumnStretch(0, 0)
         self.griglia.setRowStretch(len(abitudini) + 1, 1)
-        self.contenitore.sezioni["griglia"].imposta_periodo(
+        self.contenitore.sezioni["griglia"].imposta_nota(
             f"{len(abitudini)} abitudini · clic per segnare")
 
     def _aggiorna_elenco(self) -> None:
@@ -314,7 +314,7 @@ class VistaAbitudini(VistaSezioni):
                 "Nessuna abitudine. Usa «+ Nuova abitudine» in alto a destra.",
                 "NotaScheda"))
         self.lay_elenco.addStretch(1)
-        self.contenitore.sezioni["elenco"].imposta_periodo(
+        self.contenitore.sezioni["elenco"].imposta_nota(
             "rinomina sul posto")
 
     def _aggiorna_serie(self) -> None:
@@ -351,5 +351,5 @@ class VistaAbitudini(VistaSezioni):
         self.g_andamento.riferimento = 100
         self.g_andamento.imposta_dati(dati, [("costanza", self.c["accento"])])
         valori = [v[0] for _, v in dati]
-        self.contenitore.sezioni["andamento"].imposta_periodo(
+        self.contenitore.sezioni["andamento"].imposta_nota(
             f"media {numero(media(valori), 0)}% degli obiettivi settimanali")

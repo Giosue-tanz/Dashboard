@@ -198,7 +198,8 @@ class VistaSezioni(VistaBase):
 
     def _imposta_periodo(self, chiave: str, valore: str) -> None:
         self.db.imposta(f"periodo_{self.chiave_vista}_{chiave}", valore)
-        self.contenitore.sezioni[chiave].imposta_periodo(self._nome_periodo(chiave))
+        self.contenitore.sezioni[chiave].imposta_periodo(
+            self._nome_periodo(chiave))
         self.aggiorna()
 
     def _menu_sezione(self, chiave: str, punto) -> None:

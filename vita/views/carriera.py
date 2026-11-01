@@ -358,7 +358,7 @@ class VistaCarriera(VistaSezioni):
             self.colonne[p["stato"]].addWidget(scheda)
         for chiave, lay in self.colonne.items():
             lay.addStretch(1)
-        self.contenitore.sezioni["lavagna"].imposta_periodo(
+        self.contenitore.sezioni["lavagna"].imposta_nota(
             " · ".join(f"{nome.lower()} {conteggio.get(k, 0)}"
                        for k, nome in STATI_PROGETTO.items()))
 
@@ -392,7 +392,7 @@ class VistaCarriera(VistaSezioni):
         else:
             self.et_tariffa.setText("—")
             self.et_tariffa.setToolTip("registra le ore per vedere la tariffa reale")
-        self.contenitore.sezioni["ore"].imposta_periodo(f"{settimane} settimane")
+        self.contenitore.sezioni["ore"].imposta_nota(f"{settimane} settimane")
 
     def _aggiorna_soldi(self) -> None:
         periodo = self.periodo("soldi")
@@ -406,7 +406,7 @@ class VistaCarriera(VistaSezioni):
         totale = sum(v for _, v, _ in voci)
         self.g_soldi.imposta_dati([(nome, valore, colore) for nome, valore, colore in voci],
                                   euro(totale) if totale else "—", "incassati")
-        self.contenitore.sezioni["soldi"].imposta_periodo(
+        self.contenitore.sezioni["soldi"].imposta_nota(
             f"{euro(totale)} in totale" if totale else "nessun incasso registrato")
 
     def _aggiorna_tabelle(self) -> None:
@@ -423,7 +423,7 @@ class VistaCarriera(VistaSezioni):
             durata_cella.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.tab_ore.setItem(i, 2, durata_cella)
             self.tab_ore.setItem(i, 3, QTableWidgetItem(v["note"]))
-        self.contenitore.sezioni["registro"].imposta_periodo(
+        self.contenitore.sezioni["registro"].imposta_nota(
             f"{durata(sum(v['minuti'] for v in voci))} in {giorni_ore} giorni")
 
         giorni_inc = int(self.periodo("incassi"))
@@ -447,7 +447,7 @@ class VistaCarriera(VistaSezioni):
                 else f"{categoria} · solo in Carriera")
             self.tab_incassi.setItem(i, 2, importo)
             self.tab_incassi.setItem(i, 3, QTableWidgetItem(v["descrizione"]))
-        self.contenitore.sezioni["incassi"].imposta_periodo(
+        self.contenitore.sezioni["incassi"].imposta_nota(
             euro(sum(v["importo"] for v in voci)) + f" in {giorni_inc} giorni")
 
         scadenze = self.db.query(
@@ -462,5 +462,5 @@ class VistaCarriera(VistaSezioni):
             self.tab_scadenze.setItem(i, 0, cella)
             self.tab_scadenze.setItem(i, 1, QTableWidgetItem(s["titolo"]))
             self.tab_scadenze.setItem(i, 2, QTableWidgetItem("sì" if s["fatta"] else "—"))
-        self.contenitore.sezioni["scadenze"].imposta_periodo(
+        self.contenitore.sezioni["scadenze"].imposta_nota(
             f"{sum(1 for s in scadenze if not s['fatta'])} aperte")

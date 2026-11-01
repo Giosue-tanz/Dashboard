@@ -72,6 +72,36 @@ class EtichettaAlta(QLabel):
             self._adatta()
 
 
+class EtichettaACapo(QLabel):
+    """Etichetta che va a capo e si prende per davvero le righe che le servono.
+
+    Un `QLabel` con `wordWrap` dentro un layout verticale chiede l'altezza di
+    una riga sola e il resto lo nasconde: l'altezza giusta dipende dalla
+    larghezza, e la larghezza si sa solo dopo. Qui si rimisura a ogni
+    ridimensionamento.
+    """
+
+    def __init__(self, testo: str = "", parent=None):
+        super().__init__(testo, parent)
+        self.setWordWrap(True)
+
+    def _adatta(self) -> None:
+        if self.width() > 0:
+            self.setMinimumHeight(self.heightForWidth(self.width()))
+
+    def setText(self, testo: str) -> None:
+        super().setText(testo)
+        self._adatta()
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        self._adatta()
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._adatta()
+
+
 class DisposizioneFluida(QLayout):
     """Righe che vanno a capo da sole: serve alle etichette delle emozioni."""
 
@@ -728,6 +758,33 @@ class SceltaSonno(QWidget):
         self._presa = ""
 
 
+def binario(voci: dict, scelto: str, al_clic) -> tuple[QWidget, dict]:
+    """Un interruttore segmentato: le scelte dentro un unico fondo.
+
+    È la forma che One UI dà alle scelte brevi — tre o quattro voci che si
+    escludono — ed è quella che usa tutta l'applicazione per il tempo: giorni
+    o settimane o mesi, sette o trenta giorni. Torna il binario e i pulsanti,
+    perché chi lo usa possa riaccenderli quando cambia la scelta.
+    """
+    contenitore = QWidget()
+    contenitore.setObjectName("Segmentato")
+    lay = QHBoxLayout(contenitore)
+    lay.setContentsMargins(3, 3, 3, 3)
+    lay.setSpacing(2)
+    pulsanti: dict[str, QPushButton] = {}
+    for chiave, nome in voci.items():
+        b = QPushButton(nome)
+        b.setObjectName("Scelta")
+        b.setCheckable(True)
+        b.setChecked(chiave == scelto)
+        b.setCursor(Qt.PointingHandCursor)
+        b.setFocusPolicy(Qt.NoFocus)
+        b.clicked.connect(lambda _=False, k=chiave: al_clic(k))
+        pulsanti[chiave] = b
+        lay.addWidget(b)
+    return contenitore, pulsanti
+
+
 class NavigatorePeriodo(QWidget):
     """Il comando per sfogliare i dati: giorni, settimane o mesi, avanti e indietro.
 
@@ -752,41 +809,73 @@ class NavigatorePeriodo(QWidget):
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
+        lay.setSpacing(8)
 
-        self.pastiglie: dict[str, QPushButton] = {}
-        for chiave, nome in MODI_PERIODO.items():
-            b = QPushButton(nome)
-            b.setObjectName("Segmento")
-            b.setCheckable(True)
-            b.setChecked(chiave == modo)
-            b.setFixedHeight(26)
-            b.clicked.connect(lambda _=False, k=chiave: self.imposta_modo(k))
-            self.pastiglie[chiave] = b
-            lay.addWidget(b)
-        lay.addSpacing(6)
+        # ---- a sinistra il modo, in un binario solo: giorni | settimane | mesi
+        self.binario, self.pastiglie = binario(MODI_PERIODO, modo,
+                                               self.imposta_modo)
+        lay.addWidget(self.binario)
+        lay.addStretch(1)
 
+        # ---- a destra il quando, frecce e scritta in un gruppo unico, così
+        #      sta in riga con le pastiglie del periodo degli altri riquadri
+        self.gruppo = QWidget()
+        self.gruppo.setObjectName("Segmentato")
+        fianco = QHBoxLayout(self.gruppo)
+        fianco.setContentsMargins(3, 3, 3, 3)
+        fianco.setSpacing(2)
         self.b_prima = QPushButton("‹")
         self.b_dopo = QPushButton("›")
         for freccia, passo in ((self.b_prima, 1), (self.b_dopo, -1)):
-            freccia.setObjectName("FrecciaGiorno")
-            freccia.setFixedSize(26, 26)
+            freccia.setObjectName("Freccia")
+            freccia.setCursor(Qt.PointingHandCursor)
+            freccia.setFocusPolicy(Qt.NoFocus)
             freccia.clicked.connect(lambda _=False, p=passo: self.scorri(p))
         self.b_prima.setToolTip("Indietro")
         self.b_dopo.setToolTip("Avanti")
         self.et_quando = QLabel("")
-        self.et_quando.setObjectName("TitoloRiga")
+        self.et_quando.setObjectName("Quando")
+        self.et_quando.setAlignment(Qt.AlignCenter)
+        fianco.addWidget(self.b_prima)
+        fianco.addWidget(self.et_quando, 1)
+        fianco.addWidget(self.b_dopo)
+        lay.addWidget(self.gruppo)
+
         self.b_oggi = QPushButton("Oggi")
         self.b_oggi.setObjectName("Segmento")
-        self.b_oggi.setFixedHeight(26)
+        self.b_oggi.setCursor(Qt.PointingHandCursor)
+        self.b_oggi.setFocusPolicy(Qt.NoFocus)
         self.b_oggi.setToolTip("Torna al presente")
         self.b_oggi.clicked.connect(self.torna_a_oggi)
-        lay.addWidget(self.b_prima)
-        lay.addWidget(self.et_quando)
-        lay.addWidget(self.b_dopo)
-        lay.addStretch(1)
         lay.addWidget(self.b_oggi)
         self._mostra()
+        self._misura()
+
+    def _misura(self) -> None:
+        """Altezze e larghezze dal carattere: col testo grande cresce tutto.
+
+        La scritta del «quando» si tiene una larghezza minima: senza, il
+        gruppo ballerebbe a ogni freccia («oggi» è corto, «27 ott – 2 nov» no).
+        """
+        for widget in (*self.pastiglie.values(), self.b_prima, self.b_dopo,
+                       self.et_quando, self.b_oggi):
+            widget.ensurePolished()
+        riga = max(w.sizeHint().height() for w in self.pastiglie.values())
+        lato = max(24, riga)
+        for freccia in (self.b_prima, self.b_dopo):
+            freccia.setFixedSize(lato, lato)
+        misura = QFontMetrics(self.et_quando.font())
+        self.et_quando.setMinimumWidth(misura.horizontalAdvance("30 set – 6 ott") + 8)
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        self._misura()
+
+    def changeEvent(self, ev):
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.StyleChange, QEvent.FontChange,
+                         QEvent.ApplicationFontChange):
+            self._misura()
 
     # ------------------------------------------------------------- comandi
     def imposta_modo(self, modo: str) -> None:

@@ -354,7 +354,7 @@ class VistaFinanza(VistaSezioni):
         if not conti:
             self.lay_conti.addWidget(etichetta("Nessun conto.", "NotaScheda"))
         self.lay_conti.addStretch(1)
-        self.contenitore.sezioni["conti"].imposta_periodo(
+        self.contenitore.sezioni["conti"].imposta_nota(
             f"{len(conti)} conti" if len(conti) != 1 else "")
 
     def _aggiorna_mensili(self) -> None:
@@ -372,8 +372,7 @@ class VistaFinanza(VistaSezioni):
                 "Nessun budget impostato." if self.fonte.modificabile
                 else "Nessun budget in Finance.", "NotaScheda"))
             self.lay_budget.addStretch(1)
-            self.contenitore.sezioni["budget"].imposta_periodo(
-                self._nome_periodo("budget"))
+            self.contenitore.sezioni["budget"].imposta_nota("")
             return
         sforati = 0
         for categoria, limite, speso in voci:
@@ -385,7 +384,7 @@ class VistaFinanza(VistaSezioni):
                 self.c, "", categoria, f"restano {euro(max(0.0, limite - speso))}",
                 euro(speso), f"su {euro(limite)}", quota, colore))
         self.lay_budget.addStretch(1)
-        self.contenitore.sezioni["budget"].imposta_periodo(
+        self.contenitore.sezioni["budget"].imposta_nota(
             f"{sforati} sforati" if sforati else f"{len(voci)} categorie")
 
     def _aggiorna_obiettivi(self) -> None:
@@ -432,5 +431,5 @@ class VistaFinanza(VistaSezioni):
                                          else self.c["uscita"]))
             self.tab.setItem(i, 3, importo)
         nota = "" if self.fonte.modificabile else " · sola lettura"
-        self.contenitore.sezioni["ultimi"].imposta_periodo(
+        self.contenitore.sezioni["ultimi"].imposta_nota(
             f"{len(voci)} movimenti{nota}")
