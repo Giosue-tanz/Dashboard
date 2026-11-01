@@ -303,6 +303,31 @@ def _acqua(righe, giorni: dict) -> None:
         voce["acqua"] = round(voce.get("acqua", 0.0) + litri, 2)
 
 
+def _stress(righe, giorni: dict) -> None:
+    """Lo stress della giornata: Samsung lo scrive misura per misura, da 0 a 100.
+
+    Di un giorno si tiene la media delle misure, che è il numero che poi
+    compare negli indicatori.
+    """
+    if not righe:
+        return
+    testate = righe[0].keys()
+    c_data = _colonna(testate, "start_time", "create_time", "update_time")
+    c_valore = _colonna(testate, "score", "stress.score", "value")
+    if not c_data or not c_valore:
+        return
+    somme: dict[str, list[float]] = {}
+    for r in righe:
+        giorno = _giorno(r.get(c_data))
+        valore = _numero(r.get(c_valore))
+        if not giorno or not 0 < valore <= 100:
+            continue
+        somme.setdefault(giorno, []).append(valore)
+    for giorno, misure in somme.items():
+        giorni.setdefault(giorno, {})["stress"] = round(
+            sum(misure) / len(misure), 1)
+
+
 def _allenamenti(righe) -> list[dict]:
     if not righe:
         return []
@@ -362,6 +387,8 @@ def tipo_di_file(nome: str) -> str:
         return "peso"
     if "water_intake" in n:
         return "acqua"
+    if "stress" in n:
+        return "stress"
     if any(chiave in n for chiave in ("step_daily_trend", "pedometer_day_summary",
                                       "activity.day_summary")):
         return "passi"
@@ -369,7 +396,7 @@ def tipo_di_file(nome: str) -> str:
 
 
 # L'ordine di lavorazione conta: le notti servono a collocare le fasi del sonno
-ORDINE = ("passi", "sonno", "fasi", "battito", "peso", "acqua")
+ORDINE = ("passi", "sonno", "fasi", "battito", "peso", "acqua", "stress")
 
 
 # ------------------------------------------------- trovare l'esportazione
@@ -491,6 +518,8 @@ def importa_samsung_health(db, percorso: str, sovrascrivi: bool = False,
                 _peso(righe, giorni)
             elif tipo == "acqua":
                 _acqua(righe, giorni)
+            elif tipo == "stress":
+                _stress(righe, giorni)
     for righe in raccolta.get("allenamenti", []):
         allenamenti += _allenamenti(righe)
 
@@ -505,7 +534,7 @@ def importa_samsung_health(db, percorso: str, sovrascrivi: bool = False,
         cambiato = False
         for campo in ("passi", "km", "kcal", "sonno", "sonno_profondo", "sonno_rem",
                       "sonno_sveglio", "battito", "hrv", "peso", "grasso",
-                      "muscolo", "acqua"):
+                      "muscolo", "acqua", "stress"):
             importato = valori.get(campo)
             precedente = attuale.get(campo, 0) or 0
             if importato and (sovrascrivi or not precedente):

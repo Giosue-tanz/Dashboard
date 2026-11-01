@@ -38,6 +38,7 @@ MISURE: dict[str, tuple[str, str, str, str, int, str]] = {
     "km": ("Distanza", "Distanza", "#16c47f", "km", 1, "somma"),
     "hrv": ("Variabilità (HRV)", "HRV", "#2bc4e0", "ms", 0, "media"),
     "acqua": ("Acqua", "Acqua", "#3d7bfd", "L", 1, "somma"),
+    "stress": ("Stress", "Stress", "#f0b429", "", 0, "media"),
 }
 
 AMPIEZZE = {"settimana": "Settimana", "mese": "Mese", "trimestre": "3 mesi",

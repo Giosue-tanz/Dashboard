@@ -324,6 +324,9 @@ class DialogoGiorno(QDialog):
         self.battito = QSpinBox(); self.battito.setRange(0, 250)
         self.battito.setSuffix(" bpm")
         self.hrv = QSpinBox(); self.hrv.setRange(0, 300); self.hrv.setSuffix(" ms")
+        self.stress = QSpinBox(); self.stress.setRange(0, 100)
+        self.stress.setSuffix(" su 100")
+        self.stress.setToolTip("Come lo conta il braccialetto: più basso è meglio.")
         self.acqua = QDoubleSpinBox(); self.acqua.setRange(0, 15)
         self.acqua.setSuffix(" L"); self.acqua.setSingleStep(0.25)
         self.peso = QDoubleSpinBox(); self.peso.setRange(0, 400)
@@ -349,6 +352,7 @@ class DialogoGiorno(QDialog):
             ("Corpo", "appena svegli",
              (("battito", "Battito a riposo", self.battito),
               ("hrv", "Variabilità (HRV)", self.hrv),
+              ("stress", "Stress", self.stress),
               ("acqua", "Acqua", self.acqua))),
             ("Composizione", "dalla bilancia",
              (("peso", "Peso", self.peso),
@@ -445,6 +449,7 @@ class DialogoGiorno(QDialog):
         self.battito.setValue(int(v.get("battito", 0)))
         self.hrv.setValue(int(v.get("hrv", 0)))
         self.acqua.setValue(float(v.get("acqua", 0)))
+        self.stress.setValue(int(v.get("stress", 0) or 0))
         self.peso.setValue(float(v.get("peso", 0)))
         self.grasso.setValue(float(v.get("grasso", 0)))
         self.muscolo.setValue(float(v.get("muscolo", 0)))
@@ -477,7 +482,8 @@ class DialogoGiorno(QDialog):
             "sonno_sveglio": self.sveglio.valore(), "battito": self.battito.value(),
             "hrv": self.hrv.value(), "peso": self.peso.value(),
             "grasso": self.grasso.value(), "muscolo": self.muscolo.value(),
-            "acqua": self.acqua.value(), "note": "",
+            "acqua": self.acqua.value(), "stress": self.stress.value(),
+            "note": "",
             "a_letto": self.ghiera.ore()[0], "sveglia": self.ghiera.ore()[1],
         })
         self.salvataggi += 1

@@ -524,6 +524,9 @@ def contesto(db, fonte, aree: set[str] | None = None,
         salute_righe.append(f"battito a riposo {numero(battito, 0)} bpm")
     dal, al = settimana_corrente()
     allenamenti = len(db.allenamenti(dal, al))
+    stress = medio("stress")
+    if stress:
+        salute_righe.append(f"stress medio {numero(stress, 0)} su 100")
     salute_righe.append(f"{allenamenti} allenamenti questa settimana")
     righe.append("SALUTE (7 giorni): " + " · ".join(salute_righe))
 

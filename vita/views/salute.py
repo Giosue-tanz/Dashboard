@@ -668,6 +668,7 @@ class VistaSalute(VistaSezioni):
             ("❤", "Battito a riposo", "battito", "bpm", "#ef5f5c", 0),
             ("〰", "Variabilità (HRV)", "hrv", "ms", self.c["accento"], 0),
             ("💧", "Acqua", "acqua", "L", "#6c8cff", acqua_obiettivo),
+            ("◐", "Stress", "stress", "", "#f0b429", 0),
         ]
         presenti = 0
         for simbolo, nome, campo, unita, colore, obiettivo in voci:
@@ -676,13 +677,16 @@ class VistaSalute(VistaSezioni):
                 continue
             presenti += 1
             attuale = float(oggi[campo]) if oggi and oggi[campo] else (serie[-1] if serie else 0)
-            decimali = 0 if campo in ("battito", "hrv") else 1
+            decimali = 0 if campo in ("battito", "hrv", "stress") else 1
             if obiettivo:
                 quota = int(min(100, attuale / obiettivo * 100))
             elif campo == "battito":
                 quota = int(max(0.0, min(100.0, (85 - attuale) / 40 * 100)))
             elif campo == "hrv":
                 quota = int(max(0.0, min(100.0, attuale / 80 * 100)))
+            elif campo == "stress":
+                # qui la barra piena vuol dire «sereno»: lo stress si rovescia
+                quota = int(max(0.0, min(100.0, 100 - attuale)))
             else:
                 quota = int(min(100, (attuale / max(serie) * 100) if serie else 0))
             nota = (f"obiettivo {numero(obiettivo, 1)} {unita}" if obiettivo
@@ -695,8 +699,9 @@ class VistaSalute(VistaSezioni):
             self.lay_ind.addWidget(misura)
         if not presenti:
             self.lay_ind.addWidget(etichetta(
-                "Battito, variabilità e acqua si scrivono nella finestra "
-                "«Inserimento dati», in alto.", "NotaScheda"))
+                "Battito, variabilità, stress e acqua si scrivono nella "
+                "finestra «Inserimento dati», in alto — oppure li porta il "
+                "braccialetto.", "NotaScheda"))
         self.lay_ind.addStretch(1)
 
     def _aggiorna_allenamenti(self) -> None:

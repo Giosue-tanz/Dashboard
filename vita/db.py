@@ -216,6 +216,8 @@ COLONNE_AGGIUNTE = (
     ("salute", "muscolo", "REAL NOT NULL DEFAULT 0"),
     # a che ora sei andato a letto e a che ora ti sei alzato, «HH:MM»: il
     # quadrante del sonno le scrive, il totale in minuti resta in `sonno`
+    # lo stress come lo conta il braccialetto: da 0 a 100, più basso è meglio
+    ("salute", "stress", "REAL NOT NULL DEFAULT 0"),
     ("salute", "a_letto", "TEXT NOT NULL DEFAULT ''"),
     ("salute", "sveglia", "TEXT NOT NULL DEFAULT ''"),
     # un incasso sa in che categoria di entrata finisce e a quale movimento
@@ -462,7 +464,7 @@ class Database:
     def salva_salute(self, d: dict) -> None:
         campi = ("passi", "km", "kcal", "sonno", "sonno_profondo", "sonno_rem",
                  "sonno_sveglio", "battito", "hrv", "peso", "grasso", "muscolo",
-                 "acqua", "note", "a_letto", "sveglia")
+                 "acqua", "stress", "note", "a_letto", "sveglia")
         testi = {"note", "a_letto", "sveglia"}
         self.esegui(
             "INSERT INTO salute(data," + ",".join(campi) + ") "
@@ -474,7 +476,7 @@ class Database:
 
     def serie_salute(self, campo: str, dal: str, al: str) -> list[tuple[str, float]]:
         if campo not in {"passi", "km", "kcal", "sonno", "battito", "hrv", "peso",
-                         "grasso", "muscolo", "acqua"}:
+                         "grasso", "muscolo", "acqua", "stress"}:
             raise ValueError("campo non valido")
         righe = self.query(
             f"SELECT data, {campo} v FROM salute WHERE data BETWEEN ? AND ? "

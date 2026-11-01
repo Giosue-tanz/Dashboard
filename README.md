@@ -217,7 +217,7 @@ restano i soli anelli, con il dettaglio nel suggerimento.
 | **Emozioni** | il diario vero e proprio: la voce di oggi in breve, calendario dell'umore, emozioni più frequenti e **correlazioni** fra umore e sonno, allenamento, lavoro, studio | la finestra «Scrivi voce» in alto (o un giorno del calendario, o una riga dell'elenco): umore, energia, stress, lucidità, emozioni e testo libero |
 | **Carriera** | lavagna dei progetti (idee, in corso, in pausa, fatti), ore lavorate, **tariffa oraria reale**, da dove arrivano i soldi, scadenze | progetti, ore di lavoro, incassi — che diventano anche un'**entrata in Finanza**, con la loro categoria |
 | **Accademica** | libretto con CFU, media ponderata e base di laurea; ore di studio per materia; **percorsi "da imparare"** separati dagli esami | esami, sessioni di studio, percorsi, scadenze |
-| **Salute** | impostata come un'app per la salute: anello dell'attività, composizione corporea (peso, massa grassa, muscolare e secca), costanza, passi, fasi del sonno, battito, HRV, acqua, allenamenti, più la finestra **«Andamento»** per scorrere i dati passati | la finestra «Inserimento dati» in alto (anche per i giorni passati), gli allenamenti, oppure un'importazione da Samsung Health |
+| **Salute** | impostata come un'app per la salute: anello dell'attività, composizione corporea (peso, massa grassa, muscolare e secca), costanza, passi, fasi del sonno, battito, HRV, **stress**, acqua, allenamenti, più la finestra **«Andamento»** per scorrere i dati passati | la finestra «Inserimento dati» in alto (anche per i giorni passati), gli allenamenti, oppure un'importazione da Samsung Health |
 | **Finanza** | gli stessi riquadri del cruscotto di Finance: saldo, entrate, uscite, risparmio, andamento, uscite per categoria, conti, barre mensili, budget, ultimi movimenti | movimenti e obiettivi, se la sorgente è l'archivio interno |
 | **Abitudini** | griglia dei giorni: un clic segna, un clic toglie; elenco con i nomi riscrivibili sul posto, serie in corso e costanza settimana per settimana | le abitudini e i segni quotidiani |
 | **Impostazioni** | aspetto, obiettivi, sorgente della finanza, archivio e backup | — |
@@ -302,6 +302,13 @@ che cancella quello che ha in pancia e le sue impostazioni; dopo il reset va
 riaccoppiato col PC dalle impostazioni Bluetooth. Se l'adozione dal PC non
 riesce, per rimetterlo in piedi serve una volta Galaxy Wearable. Non è una
 strada da imboccare di fretta.
+
+**I dati hanno già una casa.** Passi, sonno (con le fasi), battito e
+**stress** hanno il loro posto nell'archivio, nella finestra d'inserimento,
+negli indicatori di Salute e in «Andamento»: quando il braccialetto comincerà
+a consegnarli, non c'è altro da costruire. Lo stress si legge come lo conta
+lui, da 0 a 100, e negli indicatori la barra è rovesciata — piena vuol dire
+sereno.
 
 **Com'è fatto dentro.** `vita/sap.py` è il protocollo — byte dentro, byte
 fuori, nessun Bluetooth: si prova senza braccialetto con
