@@ -36,6 +36,7 @@ from datetime import datetime
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from . import lotti as decodifica
 from . import sap
 from .db import DATA_DIR
 
@@ -95,6 +96,7 @@ class Braccialetto(QObject):
     orologio = Signal(str)                # l'ora che segna il braccialetto
     sincronia = Signal(int, str)          # lotti ricevuti, esito
     lotto = Signal(int, bytes)            # dati di salute, ancora grezzi
+    giorni_pronti = Signal(dict)          # i giorni già messi in ordine
     firmware = Signal(str)                # che versione porta dentro
     adozione = Signal(str)                # a che punto è l'adozione
 
@@ -114,6 +116,8 @@ class Braccialetto(QObject):
         self._ascolto = None
         self._attesa_saluto = False
         self._ultima_notifica = ("", b"", 0.0)
+        self._raccolti: list[bytes] = []      # i lotti di questa sincronizzazione
+        self._pezzi: dict[int, bytes] = {}    # i frammenti di un lotto grande
         # il braccialetto chiude il collegamento se nessuno gli parla: il
         # telefono lo tiene sveglio chiedendogli cose ogni tanto, e qui si fa
         # lo stesso. Senza, cade dopo qualche minuto.
@@ -348,6 +352,25 @@ class Braccialetto(QObject):
             self.stato.emit("pronta", "Braccialetto pronto.")
             QTimer.singleShot(2000, self.chiedi_batteria)
 
+    def _rimetti_insieme(self, messaggio: bytes) -> bytes | None:
+        """I lotti grandi arrivano a pezzi: `3f <stato> <indice>` e poi il pezzo.
+
+        Lo stato dice a che punto siamo — 8 il primo, 9 quelli in mezzo, 10
+        l'ultimo. Finché non arriva l'ultimo non c'è niente da leggere.
+        """
+        if len(messaggio) < 6:
+            return None
+        stato = messaggio[1]
+        indice = int.from_bytes(messaggio[2:6], "little")
+        if stato == 0x08:                      # primo pezzo: si ricomincia
+            self._pezzi = {}
+        self._pezzi[indice] = messaggio[6:]
+        if stato != 0x0A:                      # non è l'ultimo: si aspetta
+            return None
+        intero = b"".join(self._pezzi[i] for i in sorted(self._pezzi))
+        self._pezzi = {}
+        return intero
+
     def _messaggio(self, trama) -> None:
         if trama.servizio == sap.SERVIZI["avvio"]:
             self._risposta_adozione(trama)
@@ -362,9 +385,17 @@ class Braccialetto(QObject):
         messaggio = trama.messaggio
         numero = messaggio[0] if messaggio else 0
         sequenza = sap.sequenza_di(messaggio)
-        if numero in (0x82, 0x83, 0x3F):          # un lotto di dati veri
+        if numero == 0x3F:                        # un pezzo di un lotto grande
+            intero = self._rimetti_insieme(messaggio)
+            if intero is None:
+                return
+            messaggio = intero
+            numero = messaggio[0] if messaggio else 0
+            sequenza = sap.sequenza_di(messaggio)
+        if numero in (0x82, 0x83):                # un lotto di dati veri
             self._lotti += 1
             self._conserva(messaggio)
+            self._raccolti.append(messaggio)
             self.lotto.emit(self._lotti, messaggio)
             self._scrivi(sap.inquadra(sap.SERVIZI["salute"],
                                       sap.conferma_salute(sequenza),
@@ -378,10 +409,14 @@ class Braccialetto(QObject):
                         self.orologio.emit(quando.astimezone().strftime("%d/%m %H:%M"))
                 except Exception:
                     pass
+            giorni = decodifica.per_giorno(self._raccolti) if self._raccolti else {}
+            self._raccolti = []
+            if giorni:
+                self.giorni_pronti.emit(giorni)
             self.sincronia.emit(
                 self._lotti,
                 "non ha ancora niente da dare" if vuoto and not self._lotti
-                else "fatto")
+                else f"{len(giorni)} giorni" if giorni else "fatto")
 
     # ------------------------------------------------------------ adozione
     PASSI_ADOZIONE = {0x41: "si è presentato", 0x42: "ha detto come sta",
@@ -476,6 +511,7 @@ class Braccialetto(QObject):
             self.sincronia.emit(0, "il braccialetto non si è ancora presentato")
             return
         self._sequenza = (self._sequenza % 0xFFFF) + 1
+        self._raccolti = []
         messaggio = sap.richiesta_salute(self._sequenza)
         if cursore:
             messaggio = messaggio[:-6] + cursore.to_bytes(4, "little") + messaggio[-2:]

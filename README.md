@@ -303,6 +303,22 @@ riaccoppiato col PC dalle impostazioni Bluetooth. Se l'adozione dal PC non
 riesce, per rimetterlo in piedi serve una volta Galaxy Wearable. Non è una
 strada da imboccare di fretta.
 
+**I dati arrivano davvero.** Dopo l'adozione il braccialetto consegna quello
+che ha raccolto, in «lotti» che cominciano con `82 03 E0`. Dentro, un byte
+dice di che si tratta — 7 passi (con metri e calorie, un record al minuto),
+10 battito (col minimo e il massimo), 16 e 17 sonno, **19 stress**, 112
+ossigeno — e poi i record, ognuno con la sua lunghezza e i campi etichettati.
+I lotti grandi arrivano a pezzi da 490 byte (`3f`, con l'indice) e si
+rimettono insieme. Li legge `vita/lotti.py`, che è solo byte dentro e numeri
+fuori: si prova senza braccialetto con `python3 strumenti/prova_lotti.py`.
+
+Ogni lotto grezzo viene messo da parte in `~/.local/share/Vita/banda/` prima
+di essere letto, perché **il braccialetto i dati li consegna una volta sola**:
+se qualcosa va storto nella scrittura, `python3 strumenti/importa_lotti.py
+--scrivi` li rilegge da lì. Nell'archivio finiscono solo i campi che il
+braccialetto ha misurato, e solo dove non c'è già un valore scritto a mano:
+quello che metti tu vince sempre.
+
 **I dati hanno già una casa.** Passi, sonno (con le fasi), battito e
 **stress** hanno il loro posto nell'archivio, nella finestra d'inserimento,
 negli indicatori di Salute e in «Andamento»: quando il braccialetto comincerà

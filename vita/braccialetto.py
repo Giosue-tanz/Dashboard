@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from datetime import date
 
+from .utils import data_it
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QHBoxLayout, QPushButton, QSizePolicy,
                                QVBoxLayout, QWidget)
@@ -99,6 +101,7 @@ class RiquadroBraccialetto(QWidget):
         fila.addWidget(self.b_sincronizza)
         lay.addLayout(fila)
 
+        self.banda.giorni_pronti.connect(self._scrivi_giorni)
         for segnale, gestore in (("stato", self._stato), ("battito", self._battito),
                                  ("batteria", self._batteria),
                                  ("orologio", self._orologio),
@@ -153,6 +156,32 @@ class RiquadroBraccialetto(QWidget):
     def _orologio(self, quando: str) -> None:
         self.db.imposta("banda_orologio", quando)
         self._numeri()
+
+    def _scrivi_giorni(self, giorni: dict) -> None:
+        """Quello che il braccialetto ha raccontato finisce nell'archivio.
+
+        Scrive solo i campi che ha misurato lui, e solo dove non c'è già un
+        valore scritto a mano: quello che hai messo tu vince sempre.
+        """
+        scritti = []
+        for giorno, misure in sorted(giorni.items()):
+            riga = self.db.salute_giorno(giorno)
+            valori = dict(riga) if riga else {}
+            cambiato = False
+            for campo, valore in misure.items():
+                if valore and not (valori.get(campo) or 0):
+                    valori[campo] = valore
+                    cambiato = True
+            if not cambiato:
+                continue
+            valori.update({"data": giorno, "note": valori.get("note", "")})
+            self.db.salva_salute(valori)
+            scritti.append(giorno)
+        if scritti:
+            self.et_stato.setText(
+                f"Scritti {len(scritti)} giorni: " +
+                ", ".join(data_it(g)[:5] for g in scritti[-4:]))
+            self.dati_cambiati.emit()
 
     def _sincronia(self, lotti: int, esito: str) -> None:
         self.et_stato.setText(
