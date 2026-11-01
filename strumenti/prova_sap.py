@@ -75,6 +75,26 @@ prova("la conferma è quella mandata al braccialetto",
 prova("la richiesta comincia col messaggio 3",
       sap.richiesta_salute(1)[0] == 0x03)
 
+print("l'adozione (servizio 1)")
+prova("«chi sei» è la domanda documentata",
+      sap.CHI_SEI.hex() == "01040200000005000e", sap.CHI_SEI.hex())
+prova("«come stai» è 02 01 00", sap.COME_STAI.hex() == "020100", sap.COME_STAI.hex())
+prova("l'accordo è 84 01 01", sap.ACCORDO.hex() == "840101", sap.ACCORDO.hex())
+# il vettore vero: 14/11/2023 22:13:20Z, Mosca (+3h), lingua 57, orologio a 24 ore
+from datetime import datetime, timezone                                 # noqa: E402
+prova("le impostazioni iniziali combaciano col vettore noto",
+      sap.impostazioni_iniziali(
+          datetime(2023, 11, 14, 22, 13, 20, tzinfo=timezone.utc),
+          lingua=57, fuso=3 * 3600, ore24=True).hex()
+      == "830139000200030a313730303030303030300400302a0501")
+prova("il fuso negativo mette il segno",
+      sap.impostazioni_iniziali(
+          datetime(2023, 11, 14, 22, 13, 20, tzinfo=timezone.utc),
+          lingua=57, fuso=-5 * 3600)[-6:-2].hex() == "04015046",
+      sap.impostazioni_iniziali(
+          datetime(2023, 11, 14, 22, 13, 20, tzinfo=timezone.utc),
+          lingua=57, fuso=-5 * 3600)[-6:-2].hex())
+
 print("le ore")
 prova("il 1990 vale zero", sap.a_samsung(sap.EPOCA_SAMSUNG) == 0)
 prova("1162127333 è un giorno del 2026", sap.da_samsung(1162127333).year == 2026,

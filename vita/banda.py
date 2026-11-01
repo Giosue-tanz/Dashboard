@@ -94,6 +94,8 @@ class Braccialetto(QObject):
     orologio = Signal(str)                # l'ora che segna il braccialetto
     sincronia = Signal(int, str)          # lotti ricevuti, esito
     lotto = Signal(int, bytes)            # dati di salute, ancora grezzi
+    firmware = Signal(str)                # che versione porta dentro
+    adozione = Signal(str)                # a che punto è l'adozione
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -159,6 +161,7 @@ class Braccialetto(QObject):
         self.percorso = "/org/bluez/hci0/dev_" + self.indirizzo.replace(":", "_")
         self.acceso = True
         self._lotti = 0
+        self._attese = 0
         if self._prop(self.percorso, DISPOSITIVO, "ServicesResolved"):
             self._pronto_a_parlare()
             return True
@@ -175,8 +178,30 @@ class Braccialetto(QObject):
         return True
 
     def _collegato(self) -> None:
-        if self.acceso:
+        """Collegati sì, ma i servizi arrivano un istante dopo: si aspetta."""
+        self._attese = 0
+        self._aspetta_servizi()
+
+    def _aspetta_servizi(self) -> None:
+        if not self.acceso:
+            return
+        if self._prop(self.percorso, DISPOSITIVO, "ServicesResolved"):
             self._pronto_a_parlare()
+            return
+        if not self._prop(self.percorso, DISPOSITIVO, "Connected"):
+            self.acceso = False
+            self.stato.emit("assente",
+                            "Si è scollegato. Sveglialo (tocca lo schermo) e "
+                            "riprova.")
+            return
+        self._attese += 1
+        if self._attese > 25:                       # una decina di secondi
+            self.acceso = False
+            self.stato.emit("assente",
+                            "Collegato, ma non espone i suoi servizi. Sveglialo "
+                            "e riprova fra un momento.")
+            return
+        QTimer.singleShot(400, self._aspetta_servizi)
 
     def _non_collegato(self, _errore=None) -> None:
         self.acceso = False
@@ -199,6 +224,14 @@ class Braccialetto(QObject):
         self._cuore = caratteristiche.get((sap.SERVIZIO_BATTITO,
                                            sap.CAR_BATTITO), "")
         if not self._notifica or not self._scrittura:
+            # può essere che si sia scollegato mentre guardavamo: allora non è
+            # il protocollo sbagliato, è che non c'è più nessuno dall'altra parte
+            if not self._prop(self.percorso, DISPOSITIVO, "Connected"):
+                self.acceso = False
+                self.stato.emit("assente",
+                                "Si è scollegato prima di dire chi è. "
+                                "Sveglialo e riprova.")
+                return
             self.acceso = False
             self.stato.emit("sconosciuto",
                             "Questo braccialetto non parla il protocollo che "
@@ -254,6 +287,9 @@ class Braccialetto(QObject):
             QTimer.singleShot(2000, self.chiedi_batteria)
 
     def _messaggio(self, trama) -> None:
+        if trama.servizio == sap.SERVIZI["avvio"]:
+            self._risposta_adozione(trama)
+            return
         if trama.servizio == sap.SERVIZI["impostazioni"]:
             letta = sap.batteria(trama)
             if letta:
@@ -284,6 +320,65 @@ class Braccialetto(QObject):
                 self._lotti,
                 "il telefono l'ha già svuotato" if vuoto and not self._lotti
                 else "fatto")
+
+    # ------------------------------------------------------------ adozione
+    PASSI_ADOZIONE = {0x41: "si è presentato", 0x42: "ha detto come sta",
+                      0x43: "ha preso ora e lingua", 0x44: "ha accettato: "
+                      "da adesso il compagno è questo computer"}
+
+    def _risposta_adozione(self, trama) -> None:
+        """Le risposte del servizio 1, una per ogni passo dell'adozione."""
+        primo = trama.messaggio[0] if trama.messaggio else 0
+        if primo == 0x41:
+            versione = sap.firmware(trama)
+            if versione:
+                self.firmware.emit(versione)
+        nota = self.PASSI_ADOZIONE.get(primo)
+        if nota:
+            self.adozione.emit(nota)
+
+    def presentati(self) -> None:
+        """I due passi che chiedono e basta: «chi sei» e «come stai».
+
+        Non cambiano niente sul braccialetto: servono a capire se parla la
+        lingua dell'adozione prima di provare quelli che scrivono.
+        """
+        if not self.pronta:
+            self.adozione.emit("il braccialetto non si è ancora presentato")
+            return
+        self.adozione.emit("gli chiedo chi è…")
+        self._scrivi(sap.inquadra(sap.SERVIZI["avvio"], sap.CHI_SEI,
+                                  capienza=self._capienza))
+        QTimer.singleShot(1500, lambda: self._scrivi(sap.inquadra(
+            sap.SERVIZI["avvio"], sap.COME_STAI, capienza=self._capienza)))
+
+    def sistema_ora(self) -> bool:
+        """Rimette l'ora, il fuso e la lingua. **Scrive sul braccialetto.**"""
+        if not self.pronta:
+            return False
+        self.adozione.emit("gli do l'ora giusta…")
+        return self._scrivi(sap.inquadra(sap.SERVIZI["avvio"],
+                                         sap.impostazioni_iniziali(),
+                                         capienza=self._capienza))
+
+    def adotta(self, conferma: bool = False) -> bool:
+        """Tutti e quattro i passi: questo computer diventa il compagno.
+
+        **Scrive sul braccialetto** (ora, fuso, lingua, accordo), perciò non
+        parte senza `conferma=True`: non deve poter succedere per sbaglio, né
+        per un clic distratto né per una chiamata di troppo.
+        """
+        if not conferma:
+            self.adozione.emit("adozione non confermata: non ho scritto niente")
+            return False
+        if not self.pronta:
+            self.adozione.emit("il braccialetto non si è ancora presentato")
+            return False
+        self.presentati()
+        QTimer.singleShot(4000, self.sistema_ora)
+        QTimer.singleShot(6500, lambda: self._scrivi(sap.inquadra(
+            sap.SERVIZI["avvio"], sap.ACCORDO, capienza=self._capienza)))
+        return True
 
     def _conserva(self, messaggio: bytes) -> None:
         """Mette da parte il lotto grezzo: serve a capire il resto del formato."""

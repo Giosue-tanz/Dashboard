@@ -257,6 +257,59 @@ def sequenza_di(messaggio_: bytes) -> bytes:
     return messaggio_[posizione + 1:posizione + 3]
 
 
+# ------------------------------------------------------------- l'adozione
+# Il servizio 1 è quello dell'adozione: è lì che il compagno dice al
+# braccialetto «da oggi ci sono io». La sequenza è di quattro passi, e il
+# braccialetto serve gli altri canali solo dopo averla vista tutta.
+#
+#   1. chi sei            → risponde 0x41 con la versione del firmware
+#   2. come stai          → risponde 0x42
+#   3. impostazioni       → risponde 0x43   ← questo SCRIVE sul braccialetto
+#   4. accordo            → risponde 0x44   ← e anche questo
+#
+# I primi due chiedono e basta: si possono mandare senza cambiare niente.
+
+CHI_SEI = bytes([0x01, 0x04, 0x02, 0x00, 0x00, 0x00, 0x05, 0x00, 0x0E])
+COME_STAI = bytes([0x02, 0x01, 0x00])
+ACCORDO = bytes([0x84, 0x01, 0x01])
+
+LINGUA_ITALIANO = 57          # lo stesso numero del vettore di prova noto
+EPOCA_UNIX = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def impostazioni_iniziali(quando: datetime | None = None, lingua: int = LINGUA_ITALIANO,
+                          fuso: int | None = None, ore24: bool = True) -> bytes:
+    """Il terzo passo: ora, fuso, lingua e formato dell'orologio.
+
+    **Scrive sul braccialetto.** Da sola serve anche a rimettergli l'ora
+    giusta quando ci si ricollega, senza rifare tutta l'adozione.
+
+    L'ora viaggia come secondi dal 1970 *scritti in cifre* (ASCII), con la
+    lunghezza davanti; il fuso in secondi, col segno in un byte a parte.
+    """
+    quando = quando or datetime.now(timezone.utc)
+    if quando.tzinfo is None:
+        quando = quando.astimezone()
+    if fuso is None:
+        locale = quando.astimezone()
+        fuso = int(locale.utcoffset().total_seconds()) if locale.utcoffset() else 0
+    secondi = str(int((quando - EPOCA_UNIX).total_seconds())).encode("ascii")
+    return (bytes([messaggio(3, variabile=True), 0x01])
+            + (lingua & 0xFFFF).to_bytes(2, "little")
+            + bytes([0x02, 0x00, 0x03, len(secondi)]) + secondi
+            + bytes([0x04, 1 if fuso < 0 else 0])
+            + (abs(fuso) & 0xFFFF).to_bytes(2, "little")
+            + bytes([0x05, 1 if ore24 else 0]))
+
+
+def firmware(trama: "Trama") -> str:
+    """La versione del firmware, dalla risposta al primo passo."""
+    if trama.servizio != SERVIZI["avvio"] or trama.messaggio[:1] != b"\x41":
+        return ""
+    leggibile = bytes(c for c in trama.messaggio if 32 <= c < 127)
+    return leggibile.decode("ascii", "ignore").strip()
+
+
 # il battito standard: due byte, o tre se il valore è grande
 def battito(dati: bytes) -> int | None:
     """Legge una misura del servizio «Heart Rate» standard."""

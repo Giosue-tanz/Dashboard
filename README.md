@@ -268,6 +268,41 @@ col loro formato (tipo 7 passi al minuto, 10 battito, 16 e 17 sonno) e si
 mettono da parte grezzi in `~/.local/share/Vita/banda/` per imparare a
 leggerli.
 
+## L'adozione: il PC al posto del telefono
+
+Il braccialetto consegna i suoi dati a **un compagno solo**. Finché il
+compagno è il telefono, passi, sonno, battito e stress arrivano qui soltanto
+con l'esportazione di Samsung Health. Per farne a meno davvero bisogna che il
+compagno diventi questo computer — e l'adozione ha una sequenza precisa, che
+Dashboard adesso sa fare (`vita/sap.py`, servizio 1):
+
+| Passo | Cosa manda | Cosa fa |
+|---|---|---|
+| 1 | `01 04 02 00 00 00 05 00 0e` | chiede chi è; risponde con la versione del firmware |
+| 2 | `02 01 00` | chiede come sta |
+| 3 | `83 01 …` ora, fuso, lingua, formato | **scrive** sul braccialetto |
+| 4 | `84 01 01` | l'accordo; **scrive** |
+
+I primi due chiedono e basta. Gli ultimi due scrivono, e per questo
+`Braccialetto.adotta()` non parte senza `conferma=True`: non deve poter
+succedere per un clic distratto.
+
+```bash
+python3 strumenti/adotta_banda.py            # solo le domande, non scrive
+python3 strumenti/adotta_banda.py --adotta   # l'adozione vera
+```
+
+Il messaggio del passo 3 è provato contro un vettore reale documentato
+(14/11/2023 22:13:20Z, Mosca, lingua 57): i byte che Dashboard costruisce sono
+identici a quelli che manda il telefono. Lo verifica
+`python3 strumenti/prova_sap.py`.
+
+**Il prezzo, detto chiaro.** L'adozione parte da un **reset del braccialetto**,
+che cancella quello che ha in pancia e le sue impostazioni; dopo il reset va
+riaccoppiato col PC dalle impostazioni Bluetooth. Se l'adozione dal PC non
+riesce, per rimetterlo in piedi serve una volta Galaxy Wearable. Non è una
+strada da imboccare di fretta.
+
 **Com'è fatto dentro.** `vita/sap.py` è il protocollo — byte dentro, byte
 fuori, nessun Bluetooth: si prova senza braccialetto con
 `python3 strumenti/prova_sap.py`. `vita/banda.py` è il collegamento vero via
