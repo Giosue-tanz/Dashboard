@@ -13,8 +13,8 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QHeaderView, QLabel,
                                QWidget)
 
 from ..braccialetto import RiquadroBraccialetto
-from ..componenti import (EtichettaAlta, RigaMisura, abilita_deselezione,
-                          etichetta, stile_tabella)
+from ..componenti import (EtichettaAlta, NavigatorePeriodo, RigaMisura,
+                          abilita_deselezione, etichetta, stile_tabella)
 from ..andamento import FinestraAndamento
 from ..dialoghi import (DialogoAllenamento, DialogoGiorno,
                         DialogoImporta)
@@ -50,10 +50,6 @@ class VistaSalute(VistaSezioni):
     ALTEZZE_PREDEFINITE = (0.36, 0.28, 0.36)
     LARGHEZZE_PREDEFINITE = ((), (), (0.24, 0.26, 0.22, 0.28))
     PERIODI_SEZIONE = {
-        "passi": ({"7": "7 giorni", "14": "14 giorni", "30": "30 giorni",
-                   "90": "90 giorni", "180": "6 mesi"}, "14"),
-        "sonno": ({"7": "7 giorni", "14": "14 giorni", "30": "30 giorni",
-                   "90": "90 giorni", "180": "6 mesi"}, "14"),
         "peso": ({"30": "30 giorni", "90": "90 giorni", "180": "6 mesi",
                   "365": "un anno", "730": "due anni"}, "90"),
         "corpo": ({"30": "30 giorni", "90": "90 giorni", "180": "6 mesi",
@@ -150,11 +146,16 @@ class VistaSalute(VistaSezioni):
         self.aggiungi("costanza", contenuto)
 
         # ------------------------------------------------------------ passi
+        contenuto, lay = self.colonna(6)
+        self.nav_passi = NavigatorePeriodo(self.c, "giorni")
+        self.nav_passi.cambiato.connect(self._aggiorna_passi)
+        lay.addWidget(self.nav_passi)
         self.g_passi = GraficoBarre(self.c)
         self.g_passi.formato = lambda v: numero(v, 0)
         self.g_passi.evidenzia_ultima = True
         self._apribile(self.g_passi, "passi")
-        self.aggiungi("passi", self.g_passi)
+        lay.addWidget(self.g_passi, 1)
+        self.aggiungi("passi", contenuto)
 
         # ------------------------------------------------------------ sonno
         contenuto, lay = self.colonna(8)
@@ -169,6 +170,9 @@ class VistaSalute(VistaSezioni):
         testa.addStretch(1)
         testa.addWidget(self.et_sonno_nota)
         lay.addLayout(testa)
+        self.nav_sonno = NavigatorePeriodo(self.c, "giorni")
+        self.nav_sonno.cambiato.connect(self._aggiorna_sonno)
+        lay.addWidget(self.nav_sonno)
         self.fasi = BarraFasi(self.c)
         lay.addWidget(self.fasi)
         self.et_fasi = etichetta("", "NotaScheda")
@@ -535,23 +539,27 @@ class VistaSalute(VistaSezioni):
             f"{self._nome_periodo('costanza')} · {riassunto}")
 
     def _aggiorna_passi(self) -> None:
-        quanti = int(self.periodo("passi"))
-        elenco = ultimi_giorni(quanti)
-        dati = self.db.giorni_salute(elenco[0], elenco[-1])
-        self.g_passi.riferimento = self.db.leggi_num(
-            "obiettivo_passi", PREDEFINITI["obiettivo_passi"])
-        self.g_passi.imposta_dati(
-            [(data_it(g)[:5], [float(dati[g]["passi"]) if g in dati and dati[g]["passi"]
-                               else None])
-             for g in elenco],
-            [("passi", self.c["accento"])])
-        valori = [float(dati[g]["passi"]) for g in elenco
-                  if g in dati and dati[g]["passi"]]
+        """I passi nel modo scelto: un giorno per barra, o una settimana, o un mese."""
+        finestre = self.nav_passi.finestre()
+        giornaliero = self.db.leggi_num("obiettivo_passi",
+                                        PREDEFINITI["obiettivo_passi"])
+        barre, valori = [], []
+        for etichetta_barra, dal, al in finestre:
+            giorni_dentro = self.db.giorni_salute(dal, al)
+            somma = sum(float(r["passi"]) for r in giorni_dentro.values() if r["passi"])
+            con_dati = any(r["passi"] for r in giorni_dentro.values())
+            barre.append((etichetta_barra, [somma if con_dati else None]))
+            if con_dati:
+                valori.append(somma)
+        # l'obiettivo è al giorno: su settimane e mesi va moltiplicato
+        quanti_giorni = {"giorni": 1, "settimane": 7, "mesi": 30}[self.nav_passi.modo]
+        self.g_passi.riferimento = giornaliero * quanti_giorni
+        self.g_passi.imposta_dati(barre, [("passi", self.c["accento"])])
         raggiunti = sum(1 for v in valori if v >= self.g_passi.riferimento)
         self.contenitore.sezioni["passi"].imposta_periodo(
-            f"{quanti} giorni · {len(valori)} con dati · "
-            f"media {numero(media(valori), 0)} · obiettivo raggiunto {raggiunti} volte"
-            if valori else f"{quanti} giorni · nessun dato")
+            f"{self.nav_passi.nome()} · media {numero(media(valori), 0)} · "
+            f"obiettivo raggiunto {raggiunti} volte su {len(valori)}"
+            if valori else f"{self.nav_passi.nome()} · nessun dato")
 
     def _crea_braccialetto(self) -> None:
         """Il riquadro del braccialetto: non si collega finché non glielo dici."""
@@ -588,70 +596,89 @@ class VistaSalute(VistaSezioni):
             widget.setVisible(altezza >= serve)
 
     def _aggiorna_sonno(self) -> None:
-        quanti = int(self.periodo("sonno"))
-        elenco = ultimi_giorni(quanti)
-        dati = self.db.giorni_salute(elenco[0], elenco[-1])
-        ultimo = None
-        for g in reversed(elenco):
-            if g in dati and dati[g]["sonno"]:
-                ultimo = dati[g]
-                break
+        """Il sonno nel modo scelto. Le fasi sono sempre quelle di una notte:
+        l'ultima con dati dentro l'intervallo che stai guardando."""
+        finestre = self.nav_sonno.finestre()
+        dal, al = finestre[0][1], finestre[-1][2]
+        dati = self.db.giorni_salute(dal, al)
+        scelto_dal, scelto_al = self.nav_sonno.scelto()
+        notti = [r for g, r in sorted(dati.items())
+                 if scelto_dal <= g <= scelto_al and r["sonno"]]
+        ultimo = notti[-1] if notti else None
+        tutte = [float(r["sonno"]) for r in dati.values() if r["sonno"]]
+
         if ultimo is None:
             self.et_sonno.setText("—")
-            self.et_sonno_nota.setText("nessuna notte registrata")
+            self.et_sonno_nota.setText(
+                f"{self.nav_sonno.nome()} · nessuna notte registrata")
             self.fasi.imposta_dati([])
             self.et_fasi.setText("")
+            self._barre_sonno(finestre, dati)
+            return
+
+        totale = int(ultimo["sonno"])
+        if self.nav_sonno.modo == "giorni":
+            grande, nota_quando = totale, relativa(ultimo["data"])
         else:
-            totale = int(ultimo["sonno"])
-            self.et_sonno.setText(durata(totale))
-            medie = media([float(dati[g]["sonno"]) for g in elenco
-                           if g in dati and dati[g]["sonno"]])
-            scostamento = totale - medie
-            segno = "+" if scostamento >= 0 else "−"
-            self.et_sonno_nota.setText(
-                f"{relativa(ultimo['data'])} · {segno}{durata(abs(scostamento))} "
-                f"sulla media di {quanti} giorni")
-            dettagliate = (int(ultimo["sonno_profondo"]) + int(ultimo["sonno_rem"])
-                           + int(ultimo["sonno_sveglio"]))
-            if not dettagliate:
-                # senza fasi registrate non si finge di conoscerle
-                self.fasi.imposta_dati([("sonno", float(totale), "#6c8cff")])
-                self.et_fasi.setText("fasi non registrate per questa notte")
-                self.et_fasi.setTextFormat(Qt.PlainText)
-                self._barre_sonno(elenco, dati, quanti)
-                return
-            leggero = max(0, totale - int(ultimo["sonno_profondo"])
-                          - int(ultimo["sonno_rem"]) - int(ultimo["sonno_sveglio"]))
-            self.fasi.imposta_dati([
-                ("profondo", float(ultimo["sonno_profondo"]), "#6c8cff"),
-                ("leggero", float(leggero), "#35c4d7"),
-                ("REM", float(ultimo["sonno_rem"]), "#b07cff"),
-                ("sveglio", float(ultimo["sonno_sveglio"]), self.c["griglia"]),
-            ])
-            pezzi = [("profondo", ultimo["sonno_profondo"], "#6c8cff"),
-                     ("leggero", leggero, "#35c4d7"),
-                     ("REM", ultimo["sonno_rem"], "#b07cff"),
-                     ("sveglio", ultimo["sonno_sveglio"], self.c["testo2"])]
-            self.et_fasi.setText("   ".join(
-                f"<span style='color:{col}'>●</span> {nome} {durata(v)}"
-                for nome, v, col in pezzi if v) or "fasi non registrate")
-            self.et_fasi.setTextFormat(Qt.RichText)
+            # su settimane e mesi il numero grande è la media per notte
+            dentro = [float(r["sonno"]) for g, r in dati.items()
+                      if scelto_dal <= g <= scelto_al and r["sonno"]]
+            grande = int(media(dentro))
+            nota_quando = f"{self.nav_sonno.nome()} · media di {len(dentro)} notti"
+        self.et_sonno.setText(durata(grande))
+        scostamento = grande - media(tutte)
+        segno = "+" if scostamento >= 0 else "−"
+        self.et_sonno_nota.setText(
+            f"{nota_quando} · {segno}{durata(abs(scostamento))} sulla media")
 
-        self._barre_sonno(elenco, dati, quanti)
+        dettagliate = (int(ultimo["sonno_profondo"]) + int(ultimo["sonno_rem"])
+                       + int(ultimo["sonno_sveglio"]))
+        if not dettagliate:
+            # senza fasi registrate non si finge di conoscerle
+            self.fasi.imposta_dati([("sonno", float(totale), "#6c8cff")])
+            self.et_fasi.setText("fasi non registrate per questa notte")
+            self.et_fasi.setTextFormat(Qt.PlainText)
+            self._barre_sonno(finestre, dati)
+            return
+        leggero = max(0, totale - int(ultimo["sonno_profondo"])
+                      - int(ultimo["sonno_rem"]) - int(ultimo["sonno_sveglio"]))
+        self.fasi.imposta_dati([
+            ("profondo", float(ultimo["sonno_profondo"]), "#6c8cff"),
+            ("leggero", float(leggero), "#35c4d7"),
+            ("REM", float(ultimo["sonno_rem"]), "#b07cff"),
+            ("sveglio", float(ultimo["sonno_sveglio"]), self.c["griglia"]),
+        ])
+        pezzi = [("profondo", ultimo["sonno_profondo"], "#6c8cff"),
+                 ("leggero", leggero, "#35c4d7"),
+                 ("REM", ultimo["sonno_rem"], "#b07cff"),
+                 ("sveglio", ultimo["sonno_sveglio"], self.c["testo2"])]
+        legenda = "   ".join(
+            f"<span style='color:{col}'>●</span> {nome} {durata(v)}"
+            for nome, v, col in pezzi if v) or "fasi non registrate"
+        if self.nav_sonno.modo != "giorni":
+            legenda += f"   <span style='color:{self.c['testo2']}'>" \
+                       f"(notte del {data_it(ultimo['data'])[:5]})</span>"
+        self.et_fasi.setText(legenda)
+        self.et_fasi.setTextFormat(Qt.RichText)
+        self._barre_sonno(finestre, dati)
 
-    def _barre_sonno(self, elenco, dati, quanti: int) -> None:
-        """Le barre delle ultime notti, sotto alla barra delle fasi."""
+    def _barre_sonno(self, finestre, dati) -> None:
+        """Le barre del sonno: una notte per barra, o la media di ogni
+        settimana o mese."""
         self.g_sonno.riferimento = self.db.leggi_num(
             "obiettivo_sonno", PREDEFINITI["obiettivo_sonno"])
-        self.g_sonno.imposta_dati(
-            [(data_it(g)[:5], [float(dati[g]["sonno"]) if g in dati and dati[g]["sonno"]
-                               else None])
-             for g in elenco],
-            [("sonno", "#6c8cff")])
-        valori = [float(dati[g]["sonno"]) for g in elenco if g in dati and dati[g]["sonno"]]
+        barre, valori = [], []
+        for etichetta_barra, dal, al in finestre:
+            dentro = [float(r["sonno"]) for g, r in dati.items()
+                      if dal <= g <= al and r["sonno"]]
+            valore = media(dentro) if dentro else None
+            barre.append((etichetta_barra, [valore]))
+            if dentro:
+                valori.extend(dentro)
+        self.g_sonno.imposta_dati(barre, [("sonno", "#6c8cff")])
         self.contenitore.sezioni["sonno"].imposta_periodo(
-            f"media {durata(media(valori))} su {len(valori)} notti di {quanti} giorni"
-            if valori else f"{quanti} giorni · nessun dato")
+            f"media {durata(media(valori))} su {len(valori)} notti"
+            if valori else f"{self.nav_sonno.nome()} · nessun dato")
 
     def _aggiorna_indicatori(self) -> None:
         self.svuota(self.lay_ind)

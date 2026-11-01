@@ -216,6 +216,65 @@ def intervallo_precedente(periodo: str) -> tuple[str, str]:
     return (d - timedelta(days=passo)).isoformat(), (d - timedelta(days=1)).isoformat()
 
 
+# ------------------------------------------------- periodi da sfogliare
+# Tre modi di guardare gli stessi dati: giorno per giorno, settimana per
+# settimana, mese per mese. `scarto` dice di quanti passi si è tornati
+# indietro: 0 è adesso.
+MODI_PERIODO = {"giorni": "Giorni", "settimane": "Settimane", "mesi": "Mesi"}
+QUANTI_PREDEFINITI = {"giorni": 14, "settimane": 12, "mesi": 12}
+
+
+def intervalli(modo: str = "giorni", quanti: int = 0,
+               scarto: int = 0) -> list[tuple[str, str, str]]:
+    """Gli intervalli da mostrare, dal più vecchio al più recente.
+
+    Ognuno è (etichetta, primo giorno, ultimo giorno). L'ultimo della lista è
+    quello «scelto»: oggi, o il giorno/settimana/mese a cui sei tornato.
+    """
+    quanti = quanti or QUANTI_PREDEFINITI.get(modo, 14)
+    finestre: list[tuple[str, str, str]] = []
+    oggi = date.today()
+    if modo == "giorni":
+        ultimo = oggi - timedelta(days=scarto)
+        for i in range(quanti - 1, -1, -1):
+            giorno = ultimo - timedelta(days=i)
+            finestre.append((data_it(giorno.isoformat())[:5],
+                             giorno.isoformat(), giorno.isoformat()))
+    elif modo == "settimane":
+        lunedi = oggi - timedelta(days=oggi.weekday()) - timedelta(weeks=scarto)
+        for i in range(quanti - 1, -1, -1):
+            inizio = lunedi - timedelta(weeks=i)
+            fine = inizio + timedelta(days=6)
+            finestre.append((data_it(inizio.isoformat())[:5],
+                             inizio.isoformat(), fine.isoformat()))
+    else:                                     # mesi
+        primo = _indietro_mesi(oggi.replace(day=1), scarto)
+        for i in range(quanti - 1, -1, -1):
+            inizio = _indietro_mesi(primo, i)
+            dopo = _indietro_mesi(inizio, -1)
+            fine = dopo - timedelta(days=1)
+            finestre.append((etichetta_mese(inizio.isoformat()[:7]),
+                             inizio.isoformat(), fine.isoformat()))
+    return finestre
+
+
+def nome_intervallo(modo: str, dal: str, al: str, scarto: int = 0) -> str:
+    """Come si chiama l'intervallo scelto: «oggi», «questa settimana», o le date."""
+    if modo == "giorni":
+        return relativa(dal)
+    if modo == "settimane":
+        if scarto == 0:
+            return "questa settimana"
+        if scarto == 1:
+            return "settimana scorsa"
+        return f"{data_it(dal)[:5]} – {data_it(al)[:5]}"
+    if scarto == 0:
+        return "questo mese"
+    if scarto == 1:
+        return "mese scorso"
+    return etichetta_mese(dal[:7])
+
+
 def media(valori) -> float:
     valori = [v for v in valori if v is not None]
     return sum(valori) / len(valori) if valori else 0.0

@@ -12,6 +12,8 @@ from PySide6.QtWidgets import (QCheckBox, QDateEdit, QFrame, QHBoxLayout, QLabel
 
 from .grafici import Anello, Sparkline
 from .tema import scurisci, su_colore as su_tinta, trasparente
+from .utils import (MODI_PERIODO, QUANTI_PREDEFINITI, intervalli,
+                    nome_intervallo)
 
 FACCE = ["😖", "😣", "😕", "😐", "🙂", "😊", "😄", "🤩"]
 
@@ -724,6 +726,113 @@ class SceltaSonno(QWidget):
 
     def mouseReleaseEvent(self, _ev):
         self._presa = ""
+
+
+class NavigatorePeriodo(QWidget):
+    """Il comando per sfogliare i dati: giorni, settimane o mesi, avanti e indietro.
+
+    Una riga sola: le tre pastiglie del modo, le frecce, e in mezzo il nome
+    dell'intervallo che stai guardando («oggi», «questa settimana», «ott 26»).
+    Quando non sei sul presente compare «Oggi» per tornare.
+
+    Chi lo usa ascolta `cambiato` e ridisegna, leggendo `modo`, `scarto` e
+    `finestre()` — che sono già gli intervalli pronti da interrogare.
+    """
+
+    cambiato = Signal()
+
+    def __init__(self, colori: dict, modo: str = "giorni",
+                 quanti: dict | None = None, parent=None):
+        super().__init__(parent)
+        self.setObjectName("ContenutoSezione")
+        self.c = colori
+        self.modo = modo
+        self.scarto = 0
+        self.quanti = dict(QUANTI_PREDEFINITI if quanti is None else quanti)
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+
+        self.pastiglie: dict[str, QPushButton] = {}
+        for chiave, nome in MODI_PERIODO.items():
+            b = QPushButton(nome)
+            b.setObjectName("Segmento")
+            b.setCheckable(True)
+            b.setChecked(chiave == modo)
+            b.setFixedHeight(26)
+            b.clicked.connect(lambda _=False, k=chiave: self.imposta_modo(k))
+            self.pastiglie[chiave] = b
+            lay.addWidget(b)
+        lay.addSpacing(6)
+
+        self.b_prima = QPushButton("‹")
+        self.b_dopo = QPushButton("›")
+        for freccia, passo in ((self.b_prima, 1), (self.b_dopo, -1)):
+            freccia.setObjectName("FrecciaGiorno")
+            freccia.setFixedSize(26, 26)
+            freccia.clicked.connect(lambda _=False, p=passo: self.scorri(p))
+        self.b_prima.setToolTip("Indietro")
+        self.b_dopo.setToolTip("Avanti")
+        self.et_quando = QLabel("")
+        self.et_quando.setObjectName("TitoloRiga")
+        self.b_oggi = QPushButton("Oggi")
+        self.b_oggi.setObjectName("Segmento")
+        self.b_oggi.setFixedHeight(26)
+        self.b_oggi.setToolTip("Torna al presente")
+        self.b_oggi.clicked.connect(self.torna_a_oggi)
+        lay.addWidget(self.b_prima)
+        lay.addWidget(self.et_quando)
+        lay.addWidget(self.b_dopo)
+        lay.addStretch(1)
+        lay.addWidget(self.b_oggi)
+        self._mostra()
+
+    # ------------------------------------------------------------- comandi
+    def imposta_modo(self, modo: str) -> None:
+        if modo not in MODI_PERIODO:
+            return
+        self.modo, self.scarto = modo, 0      # cambiando modo si torna a oggi
+        for chiave, b in self.pastiglie.items():
+            b.setChecked(chiave == modo)
+        self._mostra()
+        self.cambiato.emit()
+
+    def scorri(self, passo: int) -> None:
+        nuovo = max(0, self.scarto + passo)   # nel futuro non si va
+        if nuovo == self.scarto:
+            return
+        self.scarto = nuovo
+        self._mostra()
+        self.cambiato.emit()
+
+    def torna_a_oggi(self) -> None:
+        if self.scarto:
+            self.scarto = 0
+            self._mostra()
+            self.cambiato.emit()
+
+    # --------------------------------------------------------------- dati
+    def finestre(self) -> list[tuple[str, str, str]]:
+        """Gli intervalli da disegnare: (etichetta, dal, al)."""
+        return intervalli(self.modo, self.quanti.get(self.modo, 0), self.scarto)
+
+    def scelto(self) -> tuple[str, str]:
+        """L'intervallo in primo piano: l'ultimo, quello del numero grande."""
+        finestre = self.finestre()
+        return (finestre[-1][1], finestre[-1][2]) if finestre else ("", "")
+
+    def nome(self) -> str:
+        dal, al = self.scelto()
+        return nome_intervallo(self.modo, dal, al, self.scarto) if dal else ""
+
+    def _mostra(self) -> None:
+        self.et_quando.setText(self.nome())
+        self.b_dopo.setEnabled(self.scarto > 0)
+        self.b_oggi.setVisible(self.scarto > 0)
+
+    def aggiorna_tema(self, colori: dict) -> None:
+        self.c = colori
 
 
 class BarraAttesa(QWidget):
