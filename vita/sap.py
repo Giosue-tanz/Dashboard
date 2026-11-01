@@ -273,11 +273,17 @@ CHI_SEI = bytes([0x01, 0x04, 0x02, 0x00, 0x00, 0x00, 0x05, 0x00, 0x0E])
 COME_STAI = bytes([0x02, 0x01, 0x00])
 ACCORDO = bytes([0x84, 0x01, 0x01])
 
-LINGUA_ITALIANO = 57          # lo stesso numero del vettore di prova noto
+# La lingua è un numero dell'elenco di Samsung: di documentato c'è poco
+# (en=13, en-US=100, hi=24) e il 57 del vettore di prova era il russo. Meglio
+# partire dall'inglese, che è sicuro: sbagliare numero vuol dire ritrovarsi i
+# menù in una lingua che non si legge.
+LINGUA_INGLESE = 13
+LINGUA_PREDEFINITA = LINGUA_INGLESE
 EPOCA_UNIX = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
-def impostazioni_iniziali(quando: datetime | None = None, lingua: int = LINGUA_ITALIANO,
+def impostazioni_iniziali(quando: datetime | None = None,
+                          lingua: int = LINGUA_PREDEFINITA,
                           fuso: int | None = None, ore24: bool = True) -> bytes:
     """Il terzo passo: ora, fuso, lingua e formato dell'orologio.
 

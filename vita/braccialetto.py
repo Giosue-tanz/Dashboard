@@ -92,8 +92,8 @@ class RiquadroBraccialetto(QWidget):
         self.b_sincronizza.setMinimumHeight(34)
         self.b_sincronizza.setEnabled(False)
         self.b_sincronizza.setToolTip(
-            "Chiede al braccialetto quello che ha in pancia. Di solito non ha "
-            "niente: il telefono lo svuota a ogni sincronizzazione.")
+            "Chiede al braccialetto i dati che ha raccolto da solo: passi, "
+            "sonno, battito, stress.")
         self.b_sincronizza.clicked.connect(lambda: self.banda.sincronizza(0))
         fila.addWidget(self.b_salva)
         fila.addWidget(self.b_sincronizza)

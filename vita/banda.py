@@ -318,7 +318,7 @@ class Braccialetto(QObject):
                     pass
             self.sincronia.emit(
                 self._lotti,
-                "il telefono l'ha già svuotato" if vuoto and not self._lotti
+                "non ha ancora niente da dare" if vuoto and not self._lotti
                 else "fatto")
 
     # ------------------------------------------------------------ adozione
