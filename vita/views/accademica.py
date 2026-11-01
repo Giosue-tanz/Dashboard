@@ -75,6 +75,28 @@ class VistaAccademica(VistaSezioni):
         lay.addLayout(riga(self.et_studio, None, self.et_scarto))
         self.et_studio_nota = etichetta("", "NotaScheda")
         lay.addWidget(self.et_studio_nota)
+
+        # frecce per scorrere di settimana in settimana: ogni barra è una
+        # settimana e porta il suo lunedì, cosa che da sola si legge male
+        self._scarto_studio = 0
+        self.b_studio_prima = QPushButton("‹")
+        self.b_studio_dopo = QPushButton("›")
+        for freccia, passo in ((self.b_studio_prima, 1), (self.b_studio_dopo, -1)):
+            freccia.setObjectName("FrecciaGiorno")
+            freccia.setFixedSize(28, 26)
+            freccia.clicked.connect(lambda _=False, p=passo: self._scorri_studio(p))
+        self.b_studio_prima.setToolTip("La settimana prima")
+        self.b_studio_dopo.setToolTip("La settimana dopo")
+        self.et_studio_settimana = etichetta("", "TitoloRiga")
+        self.b_studio_oggi = QPushButton("Oggi")
+        self.b_studio_oggi.setObjectName("Segmento")
+        self.b_studio_oggi.setFixedHeight(26)
+        self.b_studio_oggi.setToolTip("Torna alla settimana di oggi")
+        self.b_studio_oggi.clicked.connect(lambda: self._scorri_studio(0, True))
+        lay.addLayout(riga(self.b_studio_prima, self.et_studio_settimana,
+                           self.b_studio_dopo, None, self.b_studio_oggi,
+                           spaziatura=6))
+
         self.g_studio = GraficoBarre(self.c)
         self.g_studio.formato = lambda v: ore(v, 0)
         self.g_studio.evidenzia_ultima = True
@@ -328,23 +350,34 @@ class VistaAccademica(VistaSezioni):
     def _titolo_blocco(testo: str):
         return etichetta(testo.upper(), "EtichettaScheda")
 
+    def _scorri_studio(self, passo: int, a_oggi: bool = False) -> None:
+        """Avanti e indietro di una settimana; con `a_oggi` si torna a questa."""
+        self._scarto_studio = 0 if a_oggi else max(0, self._scarto_studio + passo)
+        self._aggiorna_studio()
+
     def _aggiorna_studio(self) -> None:
         settimane = int(self.periodo("studio"))
         oggi = date.today()
-        lunedi = oggi - timedelta(days=oggi.weekday())
+        lunedi_oggi = oggi - timedelta(days=oggi.weekday())
+        # l'ultima settimana mostrata: quella di oggi, o una delle precedenti
+        ultimo = lunedi_oggi - timedelta(weeks=self._scarto_studio)
         dati, totali = [], []
         for i in range(settimane - 1, -1, -1):
-            inizio = lunedi - timedelta(weeks=i)
+            inizio = ultimo - timedelta(weeks=i)
             fine = inizio + timedelta(days=6)
             minuti = self.db.minuti_studio(inizio.isoformat(), fine.isoformat())
             totali.append(minuti)
-            dati.append((data_it(inizio.isoformat())[:5], [float(minuti)]))
+            # «questa» al posto della data: una barra è una settimana, e la
+            # data del lunedì da sola si legge come se fosse un giorno
+            etichetta_barra = ("questa" if inizio == lunedi_oggi
+                               else data_it(inizio.isoformat())[:5])
+            dati.append((etichetta_barra, [float(minuti)]))
         obiettivo = self.db.leggi_num("obiettivo_studio", PREDEFINITI["obiettivo_studio"])
         self.g_studio.riferimento = obiettivo
         self.g_studio.imposta_dati(dati, [("studio", "#b07cff")])
 
-        dal, al = settimana_corrente()
-        questa = self.db.minuti_studio(dal, al)
+        fine_ultimo = ultimo + timedelta(days=6)
+        questa = totali[-1] if totali else 0
         self.et_studio.setText(durata(questa))
         precedenti = media(totali[:-1]) if len(totali) > 1 else 0
         scostamento = questa - precedenti
@@ -353,9 +386,19 @@ class VistaAccademica(VistaSezioni):
         self.et_scarto.setStyleSheet(
             f"color: {self.c['entrata'] if scostamento >= 0 else self.c['uscita']};"
             f" font-size: 15px; font-weight: 700;")
+        quale = ("questa settimana" if not self._scarto_studio
+                 else f"{self._scarto_studio} settimane fa"
+                 if self._scarto_studio > 1 else "settimana scorsa")
         self.et_studio_nota.setText(
-            f"questa settimana · obiettivo {durata(obiettivo)} · "
-            f"media {durata(precedenti)}")
+            f"{quale} · obiettivo {durata(obiettivo)} · "
+            f"media delle altre {durata(precedenti)}")
+        self.et_studio_settimana.setText(
+            f"{data_it(ultimo.isoformat())[:5]} – "
+            f"{data_it(fine_ultimo.isoformat())[:5]}"
+            + ("  ·  ogni barra è una settimana, dal lunedì"
+               if not self._scarto_studio else ""))
+        self.b_studio_dopo.setEnabled(self._scarto_studio > 0)
+        self.b_studio_oggi.setVisible(self._scarto_studio > 0)
         self.contenitore.sezioni["studio"].imposta_periodo(f"{settimane} settimane")
 
     def _aggiorna_materie(self) -> None:

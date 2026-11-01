@@ -95,6 +95,10 @@ def piede_pillola(voci) -> tuple[QWidget, dict]:
             b.setObjectName("ComandoForte")
         b.setMinimumHeight(42)
         b.setCursor(Qt.PointingHandCursor)
+        # Invio deve salvare, mai annullare: senza questo Qt elegge «default»
+        # il primo pulsante della fila, e quello che hai scritto se ne va
+        b.setAutoDefault(False)
+        b.setDefault(bool(principale))
         lay.addWidget(b, 1)
         pulsanti[chiave] = b
     return piede, pulsanti

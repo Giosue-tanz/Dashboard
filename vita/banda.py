@@ -31,6 +31,7 @@ nemmeno di striscio.
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -111,6 +112,15 @@ class Braccialetto(QObject):
         self._lotti = 0
         self._sequenza = 1
         self._ascolto = None
+        self._attesa_saluto = False
+        self._ultima_notifica = ("", b"", 0.0)
+        # il braccialetto chiude il collegamento se nessuno gli parla: il
+        # telefono lo tiene sveglio chiedendogli cose ogni tanto, e qui si fa
+        # lo stesso. Senza, cade dopo qualche minuto.
+        self._battito_presenza = QTimer(self)
+        self._battito_presenza.setInterval(40000)
+        self._battito_presenza.timeout.connect(self._tieni_sveglio)
+        self._cadute = 0
 
     # --------------------------------------------------------- D-Bus comodo
     def _oggetto(self, percorso: str, interfaccia: str):
@@ -216,7 +226,17 @@ class Braccialetto(QObject):
             self._non_collegato()
 
     def _pronto_a_parlare(self) -> None:
-        """Collegato: ci si iscrive alle notifiche e si aspetta il saluto."""
+        """Collegato: ci si iscrive alle notifiche e si aspetta il saluto.
+
+        Ci si può arrivare da due strade (la risposta di Connect e l'attesa
+        dei servizi): se il lavoro è già fatto non lo si rifà, se no ogni
+        domanda tornerebbe indietro in doppia e tripla copia.
+        """
+        if self._ascolto is not None and self._notifica:
+            if self.pronta:
+                return
+            self._aspetta_saluto()
+            return
         caratteristiche = self._caratteristiche()
         self._notifica = caratteristiche.get((sap.SERVIZIO_SAP, sap.CAR_NOTIFICA), "")
         self._scrittura = caratteristiche.get((sap.SERVIZIO_SAP,
@@ -249,15 +269,48 @@ class Braccialetto(QObject):
                 except Exception:
                     pass
         self.stato.emit("saluto", "Collegato. Aspetto che si presenti…")
-        # il saluto arriva solo quando la sessione nasce: se il braccialetto
-        # ci parlava già non lo rimanda, e allora si riprende da dov'era
+        self._cadute = 0
+        if not self._battito_presenza.isActive():
+            self._battito_presenza.start()
+        self._aspetta_saluto()
+
+    def _aspetta_saluto(self) -> None:
+        """Il saluto arriva solo quando la sessione nasce: se il braccialetto
+        ci parlava già non lo rimanda, e allora si riprende da dov'era."""
+        if self._attesa_saluto:
+            return
+        self._attesa_saluto = True
         QTimer.singleShot(9000, self._sessione_gia_aperta)
 
     def _sessione_gia_aperta(self) -> None:
+        self._attesa_saluto = False
         if self.acceso and not self.pronta:
             self.pronta = True
             self.stato.emit("pronta", "Braccialetto pronto.")
             self.chiedi_batteria()
+
+    def _tieni_sveglio(self) -> None:
+        """Una domanda ogni tanto: se cade, si riprova una volta da soli."""
+        if not self.acceso:
+            self._battito_presenza.stop()
+            return
+        if self._prop(self.percorso, DISPOSITIVO, "Connected"):
+            self.chiedi_batteria()
+            self._cadute = 0
+            return
+        self._cadute += 1
+        if self._cadute > 3:
+            self.stato.emit("assente", "Si è staccato e non torna. "
+                                       "Sveglialo e riaccendi l'interruttore.")
+            self.spegni()
+            return
+        self.stato.emit("collego", "Si era staccato: lo richiamo…")
+        self.pronta = False
+        try:
+            self._oggetto(self.percorso, DISPOSITIVO).Connect(
+                reply_handler=self._collegato, error_handler=self._zitto)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------ ricezione
     def _arrivato(self, _interfaccia, cambiamenti, _rimosse, percorso=None) -> None:
@@ -265,6 +318,14 @@ class Braccialetto(QObject):
             return
         percorso = str(percorso)
         dati = bytes(cambiamenti["Value"])
+        # ogni notifica arriva in doppia copia (lo fa già BlueZ, l'ho visto
+        # anche con un ascoltatore solo): la seconda, identica e a ridosso
+        # della prima, si butta. Un battito ripetuto non dice niente di nuovo.
+        adesso = time.monotonic()
+        ultimo_percorso, ultimi_dati, quando = self._ultima_notifica
+        if (percorso, dati) == (ultimo_percorso, ultimi_dati) and adesso - quando < 0.4:
+            return
+        self._ultima_notifica = (percorso, dati, adesso)
         if percorso == self._cuore:
             valore = sap.battito(dati)
             if valore:
@@ -280,6 +341,7 @@ class Braccialetto(QObject):
             self._messaggio(trama)
 
     def _stringi_mano(self, saluto: bytes) -> None:
+        self._attesa_saluto = False
         self._capienza = sap.capienza_dichiarata(saluto)
         if self._scrivi(sap.risposta_al_saluto(saluto)):
             self.pronta = True
@@ -426,6 +488,7 @@ class Braccialetto(QObject):
             return
         self.acceso = False
         self.pronta = False
+        self._battito_presenza.stop()
         for percorso in (self._notifica, self._cuore):
             if not percorso:
                 continue
