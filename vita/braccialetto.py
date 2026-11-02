@@ -102,6 +102,7 @@ class RiquadroBraccialetto(QWidget):
         lay.addLayout(fila)
 
         self.banda.giorni_pronti.connect(self._scrivi_giorni)
+        self.banda.battiti_pronti.connect(self._scrivi_battiti)
         for segnale, gestore in (("stato", self._stato), ("battito", self._battito),
                                  ("batteria", self._batteria),
                                  ("orologio", self._orologio),
@@ -156,6 +157,12 @@ class RiquadroBraccialetto(QWidget):
     def _orologio(self, quando: str) -> None:
         self.db.imposta("banda_orologio", quando)
         self._numeri()
+
+    def _scrivi_battiti(self, misure: list) -> None:
+        """Le ore del battito: è quello che disegna la giornata nel riquadro."""
+        quante = self.db.salva_battiti(misure)
+        if quante:
+            self.dati_cambiati.emit()
 
     def _scrivi_giorni(self, giorni: dict) -> None:
         """Quello che il braccialetto ha raccontato finisce nell'archivio.

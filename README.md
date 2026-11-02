@@ -100,6 +100,33 @@ Se Tess sta altrove, il percorso si cambia con l'impostazione `percorso_tess`
 nell'archivio; di suo cerca `~/Scrivania/WORK/AI-Locale` e ne legge
 `config/env` per sapere indirizzo del motore e nome del modello.
 
+## Il battito, ora per ora
+
+Il braccialetto non manda un numero al giorno: di **ogni ora** manda la media,
+la più bassa e la più alta. Dashboard le tiene tutte, nella tabella `battiti`,
+e il riquadro **Battito** (in Salute e nel cruscotto) le disegna come capsule:
+ogni capsula va dal minimo al massimo di quell'ora, e il puntino chiaro dentro
+è la media. Una barra che parte da zero direbbe una bugia — il cuore non fa
+mai un numero solo.
+
+La pastiglia del periodo sceglie cosa guardare: **oggi** e **ieri** mostrano le
+ore di quella giornata, `7 · 14 · 30 · 90 giorni` una capsula per giornata. Se
+oggi il braccialetto non ha ancora misurato niente — la mattina presto capita
+— il riquadro mostra gli ultimi sette giorni e lo dice, invece di restare
+vuoto. Il numero grande è sempre il **battito a riposo**: il più basso della
+giornata, o la media dei più bassi nel periodo.
+
+Accanto c'è **Indicatori**: battito a riposo, variabilità (HRV), acqua e
+stress, con la media del periodo e quanto sei lontano dall'obiettivo. Lo stesso
+riquadro sta sia in Salute sia nel cruscotto.
+
+Le ore arrivano con la sincronizzazione del braccialetto. Se un lotto è già
+stato scaricato ma non ancora letto, lo recupera
+
+```bash
+python3 strumenti/importa_lotti.py --scrivi
+```
+
 ## Scegliere il periodo
 
 Il tempo si cambia in un modo solo, uguale dappertutto.

@@ -13,13 +13,15 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QHeaderView, QLabel,
                                QWidget)
 
 from ..braccialetto import RiquadroBraccialetto
-from ..componenti import (EtichettaAlta, NavigatorePeriodo, RigaMisura, binario,
-                          abilita_deselezione, etichetta, stile_tabella)
+from ..componenti import (COLORE_BATTITO, EtichettaACapo, EtichettaAlta,
+                          NavigatorePeriodo, RigaMisura,
+                          abilita_deselezione, binario, dati_battito,
+                          etichetta, righe_indicatori, stile_tabella)
 from ..andamento import FinestraAndamento
 from ..dialoghi import (DialogoAllenamento, DialogoGiorno,
                         DialogoImporta)
-from ..grafici import (Anello, BarraFasi, GraficoBarre, GraficoLinea,
-                       MappaCalore)
+from ..grafici import (Anello, BarraFasi, GraficoBarre, GraficoIntervalli,
+                       GraficoLinea, MappaCalore)
 from ..punteggi import PREDEFINITI
 from ..utils import (data_it, durata, media, numero, relativa,
                      settimana_corrente, ultimi_giorni)
@@ -32,7 +34,7 @@ class VistaSalute(VistaSezioni):
     nome_nuovo = "+  Allenamento"
 
     chiave_vista = "salute"
-    versione_layout = 4
+    versione_layout = 5
 
     SEZIONI = {
         "oggi": "Oggi",
@@ -40,15 +42,19 @@ class VistaSalute(VistaSezioni):
         "costanza": "Costanza",
         "passi": "Passi",
         "sonno": "Sonno",
+        "battito": "Battito",
         "indicatori": "Indicatori",
         "allenamenti": "Allenamenti",
         "peso": "Peso",
         "braccialetto": "Braccialetto",
     }
-    DISPOSIZIONE = [["oggi", "corpo", "costanza"], ["passi", "sonno"],
+    DISPOSIZIONE = [["oggi", "corpo", "costanza"], ["passi", "sonno", "battito"],
                     ["indicatori", "allenamenti", "peso", "braccialetto"]]
-    ALTEZZE_PREDEFINITE = (0.36, 0.28, 0.36)
-    LARGHEZZE_PREDEFINITE = ((), (), (0.24, 0.26, 0.22, 0.28))
+    # la riga di mezzo tiene tre grafici con il loro navigatore: le serve
+    # più aria delle altre
+    ALTEZZE_PREDEFINITE = (0.31, 0.35, 0.34)
+    LARGHEZZE_PREDEFINITE = ((), (0.34, 0.34, 0.32),
+                             (0.24, 0.26, 0.22, 0.28))
     PERIODI_SEZIONE = {
         "peso": ({"30": "30 giorni", "90": "90 giorni", "180": "6 mesi",
                   "365": "un anno", "730": "due anni"}, "90"),
@@ -58,6 +64,11 @@ class VistaSalute(VistaSezioni):
                       "12": "12 settimane", "26": "6 mesi"}, "4"),
         "indicatori": ({"7": "7 giorni", "30": "30 giorni", "90": "90 giorni",
                         "365": "un anno"}, "7"),
+        # il battito si guarda in due modi: le ore di una giornata, oppure
+        # come è andato giorno per giorno
+        "battito": ({"oggi": "oggi", "ieri": "ieri", "7": "7 giorni",
+                     "14": "14 giorni", "30": "30 giorni",
+                     "90": "90 giorni"}, "oggi"),
         "allenamenti": ({"7": "questa settimana", "30": "30 giorni",
                          "90": "90 giorni", "365": "un anno"}, "30"),
     }
@@ -112,8 +123,8 @@ class VistaSalute(VistaSezioni):
         self.barra_corpo = BarraFasi(self.c)
         lay.addWidget(self.barra_corpo)
         # compare solo quando manca qualcosa: le righe sotto dicono già tutto
-        self.et_corpo_nota = etichetta("", "NotaScheda")
-        self.et_corpo_nota.setWordWrap(True)
+        self.et_corpo_nota = EtichettaACapo("")
+        self.et_corpo_nota.setObjectName("NotaScheda")
         self.et_corpo_nota.hide()
         lay.addWidget(self.et_corpo_nota)
         self.cont_corpo, self.lay_corpo = self.colonna(7)
@@ -186,6 +197,23 @@ class VistaSalute(VistaSezioni):
             ev.size().width(), ev.size().height())
         self.aggiungi("sonno", contenuto)
         self.sez_sonno = self.contenitore.sezioni["sonno"]
+
+        # ---------------------------------------------------------- battito
+        contenuto, lay = self.colonna(8)
+        self.et_battito = EtichettaAlta("—")
+        self.et_battito.setObjectName("ValoreScheda")
+        self.et_battito_nota = etichetta("", "NotaScheda")
+        self.et_battito_nota.setAlignment(Qt.AlignRight | Qt.AlignBottom)
+        testa = QHBoxLayout()
+        testa.setSpacing(10)
+        testa.addWidget(self.et_battito)
+        testa.addStretch(1)
+        testa.addWidget(self.et_battito_nota)
+        lay.addLayout(testa)
+        self.g_battito = GraficoIntervalli(self.c, COLORE_BATTITO)
+        self.g_battito.formato = lambda v: numero(v, 0)
+        lay.addWidget(self.g_battito, 1)
+        self.aggiungi("battito", contenuto)
 
         # ------------------------------------------------------- indicatori
         self.cont_ind, self.lay_ind = self.colonna(10)
@@ -328,6 +356,7 @@ class VistaSalute(VistaSezioni):
         self._aggiorna_sonno()
         self._aggiorna_indicatori()
         self._aggiorna_allenamenti()
+        self._aggiorna_battito()
         self._aggiorna_peso()
 
     def _numero(self, valore: str, nota: str, colore: str, colonna: int) -> None:
@@ -672,51 +701,39 @@ class VistaSalute(VistaSezioni):
             f"media {durata(media(valori))} su {len(valori)} notti"
             if valori else "nessun dato")
 
+    def _aggiorna_battito(self) -> None:
+        """Il battito: le ore di una giornata, o come è andato giorno per giorno.
+
+        Non si disegna una barra da zero: in un'ora il cuore sta fra un minimo
+        e un massimo, e quello che conta è l'intervallo. Il puntino chiaro
+        dentro la capsula è la media.
+        """
+        scelta = self.periodo("battito")
+        dati, riposo, nota = dati_battito(self.db, scelta)
+        self.g_battito.imposta_dati(dati)
+        self.et_battito_nota.setText(nota)
+        if riposo:
+            self.et_battito.setText(str(riposo))
+            self.et_battito.setStyleSheet(
+                f"color: {COLORE_BATTITO}; font-weight: 700;")
+            self.contenitore.sezioni["battito"].imposta_nota(
+                "bpm a riposo" if scelta in ("oggi", "ieri")
+                else "bpm a riposo, in media")
+        else:
+            self.et_battito.setText("—")
+            self.et_battito.setStyleSheet("")
+            self.contenitore.sezioni["battito"].imposta_nota(
+                "il braccialetto non ha ancora dato misure")
+
     def _aggiorna_indicatori(self) -> None:
         self.svuota(self.lay_ind)
         quanti = int(self.periodo("indicatori"))
-        elenco = ultimi_giorni(quanti)
-        dati = self.db.giorni_salute(elenco[0], elenco[-1])
-        oggi = self.db.salute_giorno(date.today().isoformat())
-
-        def valori(campo):
-            return [float(r[campo]) for r in dati.values() if r[campo]]
-
-        acqua_obiettivo = self.db.leggi_num("obiettivo_acqua", PREDEFINITI["obiettivo_acqua"])
-        voci = [
-            ("❤", "Battito a riposo", "battito", "bpm", "#ef5f5c", 0),
-            ("〰", "Variabilità (HRV)", "hrv", "ms", self.c["accento"], 0),
-            ("💧", "Acqua", "acqua", "L", "#6c8cff", acqua_obiettivo),
-            ("◐", "Stress", "stress", "", "#f0b429", 0),
-        ]
-        presenti = 0
-        for simbolo, nome, campo, unita, colore, obiettivo in voci:
-            serie = valori(campo)
-            if not serie and not (oggi and oggi[campo]):
-                continue
-            presenti += 1
-            attuale = float(oggi[campo]) if oggi and oggi[campo] else (serie[-1] if serie else 0)
-            decimali = 0 if campo in ("battito", "hrv", "stress") else 1
-            if obiettivo:
-                quota = int(min(100, attuale / obiettivo * 100))
-            elif campo == "battito":
-                quota = int(max(0.0, min(100.0, (85 - attuale) / 40 * 100)))
-            elif campo == "hrv":
-                quota = int(max(0.0, min(100.0, attuale / 80 * 100)))
-            elif campo == "stress":
-                # qui la barra piena vuol dire «sereno»: lo stress si rovescia
-                quota = int(max(0.0, min(100.0, 100 - attuale)))
-            else:
-                quota = int(min(100, (attuale / max(serie) * 100) if serie else 0))
-            nota = (f"obiettivo {numero(obiettivo, 1)} {unita}" if obiettivo
-                    else f"media {numero(media(serie), decimali)} {unita}" if serie else "")
-            misura = RigaMisura(
-                self.c, simbolo, nome, nota, f"{numero(attuale, decimali)} {unita}",
-                f"{quanti} giorni", quota, colore)
+        righe = righe_indicatori(self.db, self.c, quanti)
+        for campo, misura in righe:
             misura.setToolTip("Doppio clic per scorrere l'andamento di questo dato.")
             self._apribile(misura, campo)
             self.lay_ind.addWidget(misura)
-        if not presenti:
+        if not righe:
             self.lay_ind.addWidget(etichetta(
                 "Battito, variabilità, stress e acqua si scrivono nella "
                 "finestra «Inserimento dati», in alto — oppure li porta il "

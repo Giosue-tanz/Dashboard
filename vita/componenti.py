@@ -12,8 +12,8 @@ from PySide6.QtWidgets import (QCheckBox, QDateEdit, QFrame, QHBoxLayout, QLabel
 
 from .grafici import Anello, Sparkline
 from .tema import scurisci, su_colore as su_tinta, trasparente
-from .utils import (MODI_PERIODO, QUANTI_PREDEFINITI, intervalli,
-                    nome_intervallo)
+from .utils import (MODI_PERIODO, QUANTI_PREDEFINITI, data_it, intervalli,
+                    media, nome_intervallo, numero, ultimi_giorni)
 
 FACCE = ["😖", "😣", "😕", "😐", "🙂", "😊", "😄", "🤩"]
 
@@ -758,6 +758,95 @@ class SceltaSonno(QWidget):
         self._presa = ""
 
 
+COLORE_BATTITO = "#ef5f5c"        # il cuore: lo stesso rosso dappertutto
+
+
+def dati_battito(db, scelta: str) -> tuple[list, int, str]:
+    """I dati del riquadro del battito: capsule, valore a riposo, nota.
+
+    Con «oggi» o «ieri» si guardano le ore di quella giornata; con un numero
+    di giorni, una capsula per giornata. Torna già pronto quello che serve a
+    disegnare, così il riquadro è uguale in Salute e nel cruscotto.
+    """
+    from datetime import date, timedelta
+    if scelta in ("oggi", "ieri"):
+        giorno = (date.today() - timedelta(days=1 if scelta == "ieri" else 0)
+                  ).isoformat()
+        righe = db.battiti_del_giorno(giorno)
+        if not righe:
+            # la mattina presto il braccialetto non ha ancora misurato nulla:
+            # invece di un riquadro vuoto si mostrano gli ultimi giorni
+            dati, riposo, _ = dati_battito(db, "7")
+            return dati, riposo, (f"{scelta} non ancora misurato · "
+                                  "ultimi 7 giorni" if dati else "")
+        dati = [(r["quando"][11:16], r["minimo"] or r["valore"], r["valore"],
+                 r["massimo"] or r["valore"]) for r in righe]
+        bassi = [r["minimo"] or r["valore"] for r in righe]
+        alti = [r["massimo"] or r["valore"] for r in righe]
+        nota = f"{len(righe)} ore misurate · da {min(bassi)} a {max(alti)} bpm"
+        riposo = min(bassi)
+    else:
+        elenco = ultimi_giorni(int(scelta))
+        righe = db.battiti_per_giorno(elenco[0], elenco[-1])
+        dati = [(data_it(r["data"])[:5], r["minimo"], r["media"], r["massimo"])
+                for r in righe]
+        bassi = [r["minimo"] for r in righe]
+        nota = f"{len(righe)} giornate con misure" if righe else ""
+        riposo = int(round(sum(bassi) / len(bassi))) if bassi else 0
+    return dati, riposo, nota
+
+
+def righe_indicatori(db, colori: dict, quanti: int) -> list[tuple[str, QWidget]]:
+    """Le righe di battito, variabilità, acqua e stress: (campo, riga).
+
+    Le usano sia Salute sia il cruscotto: il campo torna indietro perché chi
+    le mostra possa renderle apribili sull'andamento di quel dato.
+    """
+    from datetime import date
+
+    from .punteggi import PREDEFINITI
+    elenco = ultimi_giorni(quanti)
+    dati = db.giorni_salute(elenco[0], elenco[-1])
+    oggi = db.salute_giorno(date.today().isoformat())
+
+    def valori(campo):
+        return [float(r[campo]) for r in dati.values() if r[campo]]
+
+    obiettivo_acqua = db.leggi_num("obiettivo_acqua", PREDEFINITI["obiettivo_acqua"])
+    voci = [
+        ("❤", "Battito a riposo", "battito", "bpm", COLORE_BATTITO, 0),
+        ("〰", "Variabilità (HRV)", "hrv", "ms", colori["accento"], 0),
+        ("💧", "Acqua", "acqua", "L", "#6c8cff", obiettivo_acqua),
+        ("◐", "Stress", "stress", "", "#f0b429", 0),
+    ]
+    fatte = []
+    for simbolo, nome, campo, unita, colore, obiettivo in voci:
+        serie = valori(campo)
+        if not serie and not (oggi and oggi[campo]):
+            continue
+        attuale = (float(oggi[campo]) if oggi and oggi[campo]
+                   else (serie[-1] if serie else 0))
+        decimali = 0 if campo in ("battito", "hrv", "stress") else 1
+        if obiettivo:
+            quota = int(min(100, attuale / obiettivo * 100))
+        elif campo == "battito":
+            quota = int(max(0.0, min(100.0, (85 - attuale) / 40 * 100)))
+        elif campo == "hrv":
+            quota = int(max(0.0, min(100.0, attuale / 80 * 100)))
+        elif campo == "stress":
+            # qui la barra piena vuol dire «sereno»: lo stress si rovescia
+            quota = int(max(0.0, min(100.0, 100 - attuale)))
+        else:
+            quota = int(min(100, (attuale / max(serie) * 100) if serie else 0))
+        nota = (f"obiettivo {numero(obiettivo, 1)} {unita}" if obiettivo
+                else f"media {numero(media(serie), decimali)} {unita}"
+                if serie else "")
+        fatte.append((campo, RigaMisura(
+            colori, simbolo, nome, nota, f"{numero(attuale, decimali)} {unita}",
+            f"{quanti} giorni", quota, colore)))
+    return fatte
+
+
 def binario(voci: dict, scelto: str, al_clic) -> tuple[QWidget, dict]:
     """Un interruttore segmentato: le scelte dentro un unico fondo.
 
@@ -807,15 +896,15 @@ class NavigatorePeriodo(QWidget):
         self.scarto = 0
         self.quanti = dict(QUANTI_PREDEFINITI if quanti is None else quanti)
 
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(8)
+        # i due gruppi vanno a capo da soli: in un riquadro stretto il
+        # «quando» scende sotto il binario invece di schiacciarlo
+        lay = DisposizioneFluida(self, 0, 8)
 
         # ---- a sinistra il modo, in un binario solo: giorni | settimane | mesi
         self.binario, self.pastiglie = binario(MODI_PERIODO, modo,
                                                self.imposta_modo)
+        self.binario.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         lay.addWidget(self.binario)
-        lay.addStretch(1)
 
         # ---- a destra il quando, frecce e scritta in un gruppo unico, così
         #      sta in riga con le pastiglie del periodo degli altri riquadri
@@ -839,6 +928,7 @@ class NavigatorePeriodo(QWidget):
         fianco.addWidget(self.b_prima)
         fianco.addWidget(self.et_quando, 1)
         fianco.addWidget(self.b_dopo)
+        self.gruppo.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         lay.addWidget(self.gruppo)
 
         self.b_oggi = QPushButton("Oggi")

@@ -206,6 +206,18 @@ CREATE TABLE IF NOT EXISTS tess_titoli (
     titolo TEXT NOT NULL DEFAULT ''
 );
 
+-- Il battito ora per ora, come lo manda il braccialetto: di ogni ora la
+-- media, la più bassa e la più alta. In `salute.battito` resta il valore a
+-- riposo del giorno, che è il numero di cui si parla; qui c'è la giornata.
+CREATE TABLE IF NOT EXISTS battiti (
+    quando TEXT PRIMARY KEY,       -- «2026-11-01T14:00»: rileggere non duplica
+    data TEXT NOT NULL,
+    valore INTEGER NOT NULL,
+    minimo INTEGER NOT NULL DEFAULT 0,
+    massimo INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_battiti_data ON battiti(data);
+
 CREATE INDEX IF NOT EXISTS idx_studio_data ON studio(data);
 CREATE INDEX IF NOT EXISTS idx_mov_data ON movimenti(data);
 """
@@ -473,6 +485,43 @@ class Database:
             ", ".join(f"{c}=excluded.{c}" for c in campi),
             (d["data"],) + tuple(d.get(c) or ("" if c in testi else 0)
                                   for c in campi))
+
+    # ------------------------------------------------------------- battito
+    def salva_battiti(self, misure) -> int:
+        """Scrive le misure orarie del braccialetto. Riscriverle non le duplica."""
+        righe = [(m["quando"], m["quando"][:10], int(m["valore"]),
+                  int(m.get("minimo") or 0), int(m.get("massimo") or 0))
+                 for m in misure if m.get("quando") and m.get("valore")]
+        if not righe:
+            return 0
+        self.conn.executemany(
+            "INSERT INTO battiti(quando, data, valore, minimo, massimo) "
+            "VALUES(?,?,?,?,?) ON CONFLICT(quando) DO UPDATE SET "
+            "valore=excluded.valore, minimo=excluded.minimo, "
+            "massimo=excluded.massimo", righe)
+        self.conn.commit()
+        return len(righe)
+
+    def battiti_del_giorno(self, giorno: str) -> list[sqlite3.Row]:
+        """Le ore di una giornata, in ordine."""
+        return self.query(
+            "SELECT quando, valore, minimo, massimo FROM battiti "
+            "WHERE data=? ORDER BY quando", (giorno,))
+
+    def battiti_per_giorno(self, dal: str, al: str) -> list[sqlite3.Row]:
+        """Un riepilogo per giornata: la più bassa, la media, la più alta."""
+        return self.query(
+            "SELECT data, MIN(COALESCE(NULLIF(minimo,0), valore)) minimo, "
+            "       CAST(ROUND(AVG(valore)) AS INTEGER) media, "
+            "       MAX(COALESCE(NULLIF(massimo,0), valore)) massimo, "
+            "       COUNT(*) misure "
+            "FROM battiti WHERE data BETWEEN ? AND ? GROUP BY data ORDER BY data",
+            (dal, al))
+
+    def giorni_con_battito(self, limite: int = 60) -> list[str]:
+        return [r["data"] for r in self.query(
+            "SELECT DISTINCT data FROM battiti ORDER BY data DESC LIMIT ?",
+            (limite,))]
 
     def serie_salute(self, campo: str, dal: str, al: str) -> list[tuple[str, float]]:
         if campo not in {"passi", "km", "kcal", "sonno", "battito", "hrv", "peso",

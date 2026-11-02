@@ -97,6 +97,7 @@ class Braccialetto(QObject):
     sincronia = Signal(int, str)          # lotti ricevuti, esito
     lotto = Signal(int, bytes)            # dati di salute, ancora grezzi
     giorni_pronti = Signal(dict)          # i giorni già messi in ordine
+    battiti_pronti = Signal(list)         # il battito ora per ora
     firmware = Signal(str)                # che versione porta dentro
     adozione = Signal(str)                # a che punto è l'adozione
 
@@ -410,7 +411,11 @@ class Braccialetto(QObject):
                 except Exception:
                     pass
             giorni = decodifica.per_giorno(self._raccolti) if self._raccolti else {}
+            ore = (decodifica.misure_battito(self._raccolti)
+                   if self._raccolti else [])
             self._raccolti = []
+            if ore:
+                self.battiti_pronti.emit(ore)
             if giorni:
                 self.giorni_pronti.emit(giorni)
             self.sincronia.emit(

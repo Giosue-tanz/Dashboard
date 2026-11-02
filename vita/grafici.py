@@ -285,6 +285,11 @@ class GraficoBarre(BaseGrafico):
         largo_gruppo = area.width() / n_gruppi
         largo_barra = max(2.0, min(30.0, (largo_gruppo * 0.72) / n_serie))
 
+        # con tanti giorni le date si sovrappongono: se ne scrive una ogni
+        # tanto, quante ne stanno nello spazio che c'è
+        serve = max((QFontMetrics(f).horizontalAdvance(e) for e, _ in self.dati),
+                    default=20) + 10
+        ogni = max(1, int(serve / max(1.0, largo_gruppo) + 0.999))
         for g, (etic, valori) in enumerate(self.dati):
             centro = area.left() + largo_gruppo * (g + 0.5)
             inizio = centro - (largo_barra * n_serie) / 2
@@ -315,10 +320,10 @@ class GraficoBarre(BaseGrafico):
                 self._zone.append((rect.adjusted(-2, -8, 2, 8),
                                    f"{etic}" + (f" · {nome_s}" if nome_s else "") +
                                    f": {self.formato(v)}"))
-            if etichette:
+            if etichette and g % ogni == 0:
                 p.setPen(QColor(self.c["testo2"]))
-                p.drawText(QRectF(centro - largo_gruppo / 2, area.bottom() + 4,
-                                  largo_gruppo, 16), Qt.AlignCenter, etic)
+                p.drawText(QRectF(centro - largo_gruppo, area.bottom() + 4,
+                                  largo_gruppo * 2, 16), Qt.AlignCenter, etic)
 
     def _orizzontale(self, p: QPainter) -> None:
         f = QFont(); f.setPointSize(9); p.setFont(f)
@@ -348,6 +353,94 @@ class GraficoBarre(BaseGrafico):
             p.drawText(QRectF(area.left() + largo + 8, y - 3, mr - 10, h + 6),
                        Qt.AlignLeft | Qt.AlignVCenter, self.formato(v))
             self._zone.append((rect, f"{etic}: {self.formato(v)}"))
+
+
+class GraficoIntervalli(BaseGrafico):
+    """Capsule da un minimo a un massimo, col valore medio segnato sopra.
+
+    È il disegno giusto per il battito: in un'ora (o in un giorno) il cuore
+    non fa un numero solo, fa un intervallo. Una barra che parte da zero
+    direbbe una bugia; una capsula che va da 57 a 106 racconta la verità, e
+    il puntino dice dove sta la media.
+    """
+
+    def __init__(self, colori: dict, colore: str = "", parent=None):
+        super().__init__(colori, parent)
+        self.dati: list[tuple[str, float, float, float]] = []   # etichetta, min, media, max
+        self.colore = colore or colori["accento"]
+        self.unita = "bpm"
+        self.setMinimumHeight(120)
+
+    def imposta_dati(self, dati, colore: str = "") -> None:
+        self.dati = [d for d in dati]
+        if colore:
+            self.colore = colore
+        self.update()
+
+    def paintEvent(self, _):
+        p = self._pittore()
+        self._zone = []
+        presenti = [v for _, basso, _, alto in self.dati
+                    for v in (basso, alto) if v]
+        if not presenti:
+            self._vuoto(p, "Nessuna misura")
+            return
+        f = QFont(); f.setPointSize(9); p.setFont(f)
+        fm = QFontMetrics(f)
+
+        minimo = max(0.0, min(presenti) - 6)
+        massimo = max(presenti) + 6
+        campo = max(1.0, massimo - minimo)
+        sinistra = self._margine_sinistro(p, (minimo, massimo))
+        area = QRectF(sinistra, 8.0, max(10.0, self.width() - sinistra - 6),
+                      max(10.0, self.height() - 8 - 22))
+
+        # le righe di riferimento, con il valore a sinistra
+        p.setPen(QColor(self.c["testo2"]))
+        for quota in (0.0, 0.5, 1.0):
+            y = area.bottom() - quota * area.height()
+            p.setPen(QPen(QColor(self.c["griglia"]), 1))
+            p.drawLine(QPointF(area.left(), y), QPointF(area.right(), y))
+            p.setPen(QColor(self.c["testo2"]))
+            p.drawText(QRectF(2, y - 8, sinistra - 8, 16),
+                       Qt.AlignRight | Qt.AlignVCenter,
+                       self.formato(minimo + quota * campo))
+
+        passo = area.width() / max(1, len(self.dati))
+        largo = max(5.0, min(26.0, passo * 0.55))
+        for i, (etichetta, basso, media_, alto) in enumerate(self.dati):
+            centro = area.left() + passo * (i + 0.5)
+            if not alto:
+                continue
+            basso = basso or alto
+            cima = area.bottom() - (alto - minimo) / campo * area.height()
+            fondo = area.bottom() - (basso - minimo) / campo * area.height()
+            rect = QRectF(centro - largo / 2, cima, largo,
+                          max(largo, fondo - cima))
+            colore = QColor(self.colore)
+            colore.setAlpha(190)
+            p.setPen(Qt.NoPen); p.setBrush(colore)
+            p.drawRoundedRect(rect, largo / 2, largo / 2)
+            if media_:
+                y = area.bottom() - (media_ - minimo) / campo * area.height()
+                p.setBrush(QColor(self.c["pannello"]))
+                p.drawEllipse(QPointF(centro, y), largo * 0.22, largo * 0.22)
+            self._zone.append((rect.adjusted(-4, -6, 4, 6),
+                               f"{etichetta}: {self.formato(basso)}–"
+                               f"{self.formato(alto)} {self.unita}"
+                               + (f" · media {self.formato(media_)}" if media_ else "")))
+
+        # le etichette in fondo: si scrivono solo quelle che ci stanno
+        p.setPen(QColor(self.c["testo2"]))
+        larghezza_minima = max(
+            (fm.horizontalAdvance(e) for e, *_ in self.dati), default=20) + 8
+        ogni = max(1, int(larghezza_minima / max(1.0, passo) + 0.5))
+        for i, (etichetta, *_) in enumerate(self.dati):
+            if i % ogni:
+                continue
+            centro = area.left() + passo * (i + 0.5)
+            p.drawText(QRectF(centro - passo, area.bottom() + 4, passo * 2, 16),
+                       Qt.AlignCenter, etichetta)
 
 
 class GraficoCiambella(BaseGrafico):

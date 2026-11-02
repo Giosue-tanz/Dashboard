@@ -9,11 +9,14 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QHeaderView, QLabel,
                                QPushButton, QTableWidget, QTableWidgetItem,
                                QWidget)
 
-from ..componenti import (AnelloEtichettato, Interruttore, RigaMisura,
-                          abilita_deselezione, etichetta, faccia,
+from ..componenti import (COLORE_BATTITO, AnelloEtichettato, EtichettaACapo,
+                          EtichettaAlta,
+                          Interruttore, RigaMisura, abilita_deselezione,
+                          dati_battito, etichetta, faccia, righe_indicatori,
                           stile_tabella)
 from ..db import AREE
-from ..grafici import Anello, GraficoBarre, GraficoLinea, MappaCalore
+from ..grafici import (Anello, GraficoBarre, GraficoIntervalli,
+                       GraficoLinea, MappaCalore)
 from ..punteggi import PREDEFINITI
 from ..tess import Accensione, Motore
 from ..utils import (PERIODI, data_it, data_lunga, durata, etichetta_mese, euro,
@@ -42,21 +45,23 @@ class VistaCruscotto(VistaSezioni):
         "carriera": "Carriera",
         "accademica": "Accademica",
         "abitudini": "Abitudini",
+        "battito": "Battito",
+        "indicatori": "Indicatori",
         "finanza": "Finanza",
         "impegni": "Prossimi impegni",
     }
-    versione_layout = 5
+    versione_layout = 6
     # Come si legge una giornata: prima com'è andata (anello, salute, costanza),
     # poi come si sta muovendo (umore e soldi, i due andamenti che vogliono
     # larghezza), in fondo cosa resta da fare. Tess ha una pagina sua: qui
     # resta solo l'interruttore in testata.
     DISPOSIZIONE = [["oggi", "salute", "abitudini"],
-                    ["emotivo", "finanza"],
-                    ["carriera", "accademica", "impegni"]]
-    ALTEZZE_PREDEFINITE = (0.37, 0.31, 0.32)
+                    ["battito", "indicatori", "emotivo"],
+                    ["finanza", "carriera", "accademica", "impegni"]]
+    ALTEZZE_PREDEFINITE = (0.33, 0.33, 0.34)
     LARGHEZZE_PREDEFINITE = ((0.30, 0.34, 0.36),
-                             (0.56, 0.44),
-                             (0.35, 0.35, 0.30))
+                             (0.34, 0.26, 0.40),
+                             (0.26, 0.26, 0.26, 0.22))
     PERIODI_SEZIONE = {
         "emotivo": (PERIODI, "trenta"),
         "abitudini": ({"14": "14 giorni", "30": "30 giorni", "90": "90 giorni",
@@ -65,6 +70,10 @@ class VistaCruscotto(VistaSezioni):
                      "36": "36 mesi"}, "6"),
         "impegni": ({"30": "30 giorni", "90": "90 giorni", "365": "un anno",
                      "730": "due anni"}, "90"),
+        "battito": ({"oggi": "oggi", "ieri": "ieri", "7": "7 giorni",
+                     "14": "14 giorni", "30": "30 giorni"}, "oggi"),
+        "indicatori": ({"7": "7 giorni", "30": "30 giorni", "90": "90 giorni",
+                        "365": "un anno"}, "7"),
     }
 
     def crea_sezioni(self) -> None:
@@ -144,12 +153,34 @@ class VistaCruscotto(VistaSezioni):
         lay.addWidget(self.mappa, 1)
         self.aggiungi("abitudini", contenuto)
 
+        # ---------------------------------------------------------- battito
+        contenuto, lay = self.colonna(8)
+        self.et_battito = EtichettaAlta("—")
+        self.et_battito.setObjectName("ValoreScheda")
+        self.et_battito_nota = etichetta("", "NotaScheda")
+        self.et_battito_nota.setAlignment(Qt.AlignRight | Qt.AlignBottom)
+        testa = QHBoxLayout()
+        testa.setSpacing(10)
+        testa.addWidget(self.et_battito)
+        testa.addStretch(1)
+        testa.addWidget(self.et_battito_nota)
+        lay.addLayout(testa)
+        self.g_battito = GraficoIntervalli(self.c, COLORE_BATTITO)
+        self.g_battito.formato = lambda v: numero(v, 0)
+        lay.addWidget(self.g_battito, 1)
+        self.aggiungi("battito", contenuto)
+
+        # ------------------------------------------------------- indicatori
+        self.cont_ind, self.lay_ind = self.colonna(10)
+        self.aggiungi("indicatori", self.scorrevole(self.cont_ind))
+
         # --------------------------------------------------------- finanza
         contenuto, lay = self.colonna(8)
         self.et_saldo = QLabel("—")
         self.et_saldo.setObjectName("ValoreScheda")
         lay.addWidget(self.et_saldo)
-        self.et_finanza = etichetta("", "NotaScheda")
+        self.et_finanza = EtichettaACapo("")
+        self.et_finanza.setObjectName("NotaScheda")
         lay.addWidget(self.et_finanza)
         self.g_finanza = GraficoBarre(self.c)
         self.g_finanza.formato = lambda v: euro(v).replace(",00", "")
@@ -229,6 +260,8 @@ class VistaCruscotto(VistaSezioni):
         self._aggiorna_oggi()
         self._aggiorna_emotivo()
         self._aggiorna_salute()
+        self._aggiorna_battito()
+        self._aggiorna_indicatori()
         self._aggiorna_carriera()
         self._aggiorna_accademica()
         self._aggiorna_abitudini()
@@ -329,6 +362,37 @@ class VistaCruscotto(VistaSezioni):
 
         self.contenitore.sezioni["salute"].imposta_nota(
             f"oggi · obiettivo {numero(obiettivo, 0)} passi")
+
+    def _aggiorna_battito(self) -> None:
+        """Lo stesso riquadro di Salute, qui in piccolo."""
+        scelta = self.periodo("battito")
+        dati, riposo, nota = dati_battito(self.db, scelta)
+        self.g_battito.imposta_dati(dati)
+        self.et_battito_nota.setText(nota)
+        if riposo:
+            self.et_battito.setText(str(riposo))
+            self.et_battito.setStyleSheet(
+                f"color: {COLORE_BATTITO}; font-weight: 700;")
+            self.contenitore.sezioni["battito"].imposta_nota(
+                "bpm a riposo" if scelta in ("oggi", "ieri")
+                else "bpm a riposo, in media")
+        else:
+            self.et_battito.setText("—")
+            self.et_battito.setStyleSheet("")
+            self.contenitore.sezioni["battito"].imposta_nota(
+                "nessuna misura dal braccialetto")
+
+    def _aggiorna_indicatori(self) -> None:
+        self.svuota(self.lay_ind)
+        quanti = int(self.periodo("indicatori"))
+        righe = righe_indicatori(self.db, self.c, quanti)
+        for _campo, misura in righe:
+            self.lay_ind.addWidget(misura)
+        if not righe:
+            self.lay_ind.addWidget(etichetta(
+                "Battito, variabilità, stress e acqua: li scrivi in Salute → "
+                "«Inserimento dati», o li porta il braccialetto.", "NotaScheda"))
+        self.lay_ind.addStretch(1)
 
     def _aggiorna_carriera(self) -> None:
         self.svuota(self.lay_carriera)

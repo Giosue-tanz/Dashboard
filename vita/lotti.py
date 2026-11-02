@@ -141,6 +141,31 @@ def leggi(messaggio: bytes) -> tuple[int, list[dict]]:
 
 
 # ------------------------------------------------------- dai record ai giorni
+def misure_battito(lotti) -> list[dict]:
+    """Le misure del battito una per una, con l'ora a cui appartengono.
+
+    Il braccialetto manda un record per ogni ora: la media di quell'ora, la
+    più bassa e la più alta. Tenerle tutte è quello che permette di
+    disegnare la giornata, invece del solo numero a riposo.
+    """
+    misure = []
+    for messaggio in lotti:
+        tipo, record = leggi(messaggio)
+        if tipo != BATTITO:
+            continue
+        for r in record:
+            secondi = r.get("inizio") or r.get("quando")
+            if not secondi or not r.get("battito"):
+                continue
+            misure.append({
+                "quando": quando(secondi).astimezone().strftime("%Y-%m-%dT%H:00"),
+                "valore": int(r["battito"]),
+                "minimo": int(r.get("battito_min") or 0),
+                "massimo": int(r.get("battito_max") or 0),
+            })
+    return misure
+
+
 def per_giorno(lotti) -> dict[str, dict]:
     """Mette insieme i record di tanti lotti, un riepilogo per giorno.
 

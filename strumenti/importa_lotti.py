@@ -3,8 +3,10 @@
 
 Ogni volta che il braccialetto consegna qualcosa, Dashboard mette il lotto
 grezzo in `~/.local/share/Vita/banda/`. Questo comando li rilegge tutti e ne
-scrive i giorni: serve da rete di sicurezza, perché il braccialetto i dati li
-consegna **una volta sola** e poi se li dimentica.
+scrive i giorni **e le ore del battito**: serve da rete di sicurezza, perché
+il braccialetto i dati li consegna **una volta sola** e poi se li dimentica —
+e perché quando impariamo a leggere un campo in più non serve aspettare la
+prossima sincronizzazione, basta rileggere quello che c'è già.
 
     python3 strumenti/importa_lotti.py            fa vedere cosa farebbe
     python3 strumenti/importa_lotti.py --scrivi   e li scrive davvero
@@ -20,7 +22,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vita.db import DATA_DIR, DB_PATH, Database                       # noqa: E402
-from vita.lotti import per_giorno                                     # noqa: E402
+from vita.lotti import misure_battito, per_giorno                     # noqa: E402
 
 CARTELLA = os.path.join(DATA_DIR, "banda")
 
@@ -49,11 +51,23 @@ def main() -> int:
 
     lotti = raccogli()
     giorni = per_giorno(lotti)
-    print(f"{len(lotti)} lotti · {len(giorni)} giorni con dati")
-    if not giorni:
-        return 0
+    ore = misure_battito(lotti)
+    print(f"{len(lotti)} lotti · {len(giorni)} giorni con dati · "
+          f"{len(ore)} ore di battito")
 
     db = Database(DB_PATH)
+    if ore:
+        # le ore del battito si riscrivono sempre: l'ora è la chiave, quindi
+        # rileggere lo stesso lotto non crea doppioni
+        quante = db.salva_battiti(ore) if opzioni.scrivi else len(ore)
+        giornate = len({m["quando"][:10] for m in ore})
+        print(f"  battito: {quante} ore su {giornate} giornate"
+              + ("" if opzioni.scrivi else "  (da scrivere)"))
+    if not giorni:
+        print("Scritti." if opzioni.scrivi else
+              "Niente scritto: rilanciami con --scrivi.")
+        return 0
+
     for giorno, misure in sorted(giorni.items()):
         riga = db.salute_giorno(giorno)
         valori = dict(riga) if riga else {}
