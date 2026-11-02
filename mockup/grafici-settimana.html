@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Grafici a settimana — quattro proposte</title>
+<style>
+  :root{
+    --fondo:#0a0a0c; --pannello:#17181d; --pannello2:#1f2027; --tocco:#272930;
+    --bordo:#272930; --testo:#f3f4f7; --testo2:#9aa0ac; --griglia:#272930;
+    --accento:#16c47f; --su-accento:#06130d;
+    --salute:#19c2e0; --sonno:#3d7bfd; --battito:#ef5f5c; --ambra:#ffa62b;
+  }
+  body.chiaro{
+    --fondo:#f1f2f6; --pannello:#ffffff; --pannello2:#f4f5f9; --tocco:#e9ebf2;
+    --bordo:#e6e8ef; --testo:#15171c; --testo2:#6b7280; --griglia:#e6e8ef;
+    --accento:#0f9d63; --su-accento:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:30px 26px 70px; background:var(--fondo); color:var(--testo);
+    font:14px/1.5 "Noto Sans","Segoe UI",system-ui,sans-serif;
+    transition:background .2s;
+  }
+  h1{font-size:26px; font-weight:780; margin:0 0 6px}
+  .sotto{color:var(--testo2); font-size:13.5px; margin:0 0 22px; max-width:760px}
+  .barra-alto{display:flex; align-items:center; gap:12px; margin-bottom:26px}
+  button.tema{
+    background:var(--pannello2); color:var(--testo); border:none; border-radius:16px;
+    padding:9px 18px; font:inherit; font-weight:650; cursor:pointer;
+  }
+  button.tema:hover{background:var(--tocco)}
+  .griglia{display:grid; grid-template-columns:repeat(auto-fit,minmax(430px,1fr)); gap:22px}
+
+  /* ---------------------------------------------------------- la scheda */
+  .scheda{
+    background:var(--pannello); border-radius:22px; padding:16px 18px 18px;
+    border:1px solid transparent;
+  }
+  body.chiaro .scheda{border-color:var(--bordo)}
+  .capo{display:flex; align-items:baseline; gap:10px; margin-bottom:2px}
+  .capo h2{font-size:16.5px; font-weight:700; margin:0}
+  .capo .nota{color:var(--testo2); font-size:12px}
+  .capo .etichetta{
+    margin-left:auto; background:var(--pannello2); color:var(--testo2);
+    border-radius:12px; padding:4px 11px; font-size:11.5px; font-weight:650;
+  }
+  .grande{font-size:31px; font-weight:780; letter-spacing:-.5px; margin:8px 0 0}
+  .grande small{font-size:14px; font-weight:600; color:var(--testo2); margin-left:4px}
+  .riga-nota{color:var(--testo2); font-size:12.5px; margin:2px 0 12px}
+
+  /* ------------------------------------------------- navigatore di settimana */
+  .settimana{
+    display:flex; align-items:center; gap:4px; background:var(--pannello2);
+    border-radius:15px; padding:3px; width:max-content; margin:0 0 14px;
+  }
+  .settimana button{
+    background:transparent; border:none; color:var(--testo2); font:inherit;
+    font-weight:700; width:30px; height:30px; border-radius:12px; cursor:pointer;
+  }
+  .settimana button:hover{background:var(--tocco); color:var(--testo)}
+  .settimana span{
+    min-width:148px; text-align:center; font-size:12.5px; font-weight:650;
+  }
+  .scorri{color:var(--testo2); font-size:11.5px; margin:-8px 0 12px}
+
+  svg{display:block; width:100%; height:auto; overflow:visible}
+  .perche{
+    margin-top:12px; padding-top:12px; border-top:1px solid var(--bordo);
+    color:var(--testo2); font-size:12.5px;
+  }
+  .perche b{color:var(--testo)}
+  .nome-proposta{
+    display:inline-block; background:var(--accento); color:var(--su-accento);
+    border-radius:10px; padding:2px 9px; font-size:11px; font-weight:750;
+    letter-spacing:.3px; margin-bottom:10px;
+  }
+</style>
+</head>
+<body>
+
+<div class="barra-alto">
+  <div>
+    <h1>Grafici a settimana</h1>
+    <p class="sotto">Quattro modi di disegnare gli stessi sette giorni. I numeri
+      sono inventati: una settimana con due giorni vuoti, uno sopra l'obiettivo
+      e uno quasi a zero — i casi che mettono in difficoltà il disegno.
+      Tutte e quattro scorrono da una settimana all'altra.</p>
+  </div>
+  <button class="tema" onclick="document.body.classList.toggle('chiaro')">
+    Chiaro / scuro
+  </button>
+</div>
+
+<div class="griglia" id="griglia"></div>
+
+<script>
+// ---------------------------------------------------------------- i dati
+const GIORNI = ["L","M","M","G","V","S","D"];
+const PASSI  = [8200, 3241, 4698, null, 11400, 6350, 1120];
+const OBIETTIVO = 10000;
+const SONNO  = [7.4, 6.2, 8.1, null, 7.9, 9.2, 6.8];   // ore
+const OGGI = 6;                                        // l'ultimo è oggi
+
+const miglia = n => String(Math.round(n)).replace(
+  /\B(?=(\d{3})+(?!\d))/g, ".");
+const ore = v => `${Math.floor(v)}h${String(Math.round((v%1)*60)).padStart(2,"0")}`;
+
+function cornice(titolo, nota, etichetta, grande, unita, riganota, corpo, perche, nome){
+  return `<div class="scheda">
+    <div class="nome-proposta">${nome}</div>
+    <div class="capo"><h2>${titolo}</h2><span class="nota">${nota}</span>
+      <span class="etichetta">${etichetta}</span></div>
+    <div class="grande">${grande}<small>${unita}</small></div>
+    <div class="riga-nota">${riganota}</div>
+    <div class="settimana"><button>‹</button><span>27 ott – 2 nov</span><button>›</button></div>
+    ${corpo}
+    <div class="perche">${perche}</div>
+  </div>`;
+}
+
+// ====================================================== A · binario pieno
+function propostaA(){
+  const L=360, H=150, passo=L/7, largo=26, r=largo/2;
+  let s = "";
+  PASSI.forEach((v,i)=>{
+    const x = passo*i + passo/2 - largo/2;
+    const quota = v===null ? 0 : Math.min(1, v/OBIETTIVO);
+    const alt = quota*H;
+    s += `<rect x="${x}" y="0" width="${largo}" height="${H}" rx="${r}"
+            fill="var(--pannello2)"/>`;
+    if(v===null){
+      s += `<circle cx="${x+r}" cy="${H-6}" r="3" fill="var(--griglia)"/>`;
+    } else {
+      s += `<rect x="${x}" y="${H-alt}" width="${largo}" height="${Math.max(alt,largo)}"
+              rx="${r}" fill="${v>=OBIETTIVO?"var(--accento)":"var(--salute)"}"
+              opacity="${i===OGGI?1:.85}"/>`;
+    }
+    s += `<text x="${x+r}" y="${H+20}" text-anchor="middle" font-size="11.5"
+            fill="${i===OGGI?"var(--testo)":"var(--testo2)"}"
+            font-weight="${i===OGGI?700:500}">${GIORNI[i]}</text>`;
+  });
+  s += `<text x="0" y="-8" font-size="11" fill="var(--testo2)">obiettivo ${miglia(OBIETTIVO)}</text>`;
+  return cornice("Passi","settimana scorsa","settimana ▾",
+    miglia(PASSI.reduce((a,b)=>a+(b||0),0)),"passi in 6 giorni",
+    "media 5.835 · obiettivo centrato 1 volta",
+    `<svg viewBox="-6 -22 372 184">${s}</svg>`,
+    `<b>Il binario è l'obiettivo.</b> Ogni giorno ha la sua corsia alta quanto
+     i 10.000 passi: la parte piena è quanto hai fatto. Niente scala che
+     schiaccia — il vuoto sopra la candela <i>è</i> quello che manca.
+     I giorni senza dati sono un puntino, non una corsia vuota.`, "A");
+}
+
+// ================================================ B · scala sui dati veri
+function propostaB(){
+  const L=360, H=150, passo=L/7, largo=22, r=largo/2;
+  const max = Math.max(...PASSI.filter(v=>v!==null))*1.12;
+  const y = v => H - (v/max)*H;
+  let s = "";
+  [0.5, 1].forEach(q=>{
+    s += `<line x1="0" x2="${L}" y1="${H-q*H}" y2="${H-q*H}" stroke="var(--griglia)"/>
+          <text x="-8" y="${H-q*H+4}" text-anchor="end" font-size="10"
+            fill="var(--testo2)">${miglia(Math.round(q*max/100)*100)}</text>`;
+  });
+  s += `<line x1="0" x2="${L}" y1="${y(OBIETTIVO)}" y2="${y(OBIETTIVO)}"
+          stroke="var(--accento)" stroke-width="1.5" stroke-dasharray="5 5"/>
+        <text x="${L}" y="${y(OBIETTIVO)-7}" text-anchor="end" font-size="10.5"
+          fill="var(--accento)" font-weight="650">obiettivo</text>`;
+  PASSI.forEach((v,i)=>{
+    const x = passo*i + passo/2 - largo/2;
+    if(v===null){
+      s += `<circle cx="${x+r}" cy="${H-4}" r="3" fill="var(--griglia)"/>`;
+    } else {
+      const alt = Math.max(H-y(v), largo);
+      s += `<rect x="${x}" y="${H-alt}" width="${largo}" height="${alt}" rx="${r}"
+              fill="${v>=OBIETTIVO?"var(--accento)":"var(--salute)"}"/>`;
+      if(i===OGGI || v===Math.max(...PASSI.filter(n=>n!==null)))
+        s += `<text x="${x+r}" y="${H-alt-8}" text-anchor="middle" font-size="11"
+                font-weight="700" fill="var(--testo)">${miglia(v)}</text>`;
+    }
+    s += `<text x="${x+r}" y="${H+20}" text-anchor="middle" font-size="11.5"
+            fill="${i===OGGI?"var(--testo)":"var(--testo2)"}"
+            font-weight="${i===OGGI?700:500}">${GIORNI[i]}</text>`;
+  });
+  return cornice("Passi","settimana scorsa","settimana ▾",
+    miglia(5835),"passi al giorno",
+    "media della settimana · 11.400 il giorno migliore",
+    `<svg viewBox="-42 -20 410 184">${s}</svg>`,
+    `<b>La scala la fanno i dati.</b> Il massimo del grafico è il giorno più
+     alto, non l'obiettivo: anche una settimana da tremila passi si legge bene.
+     L'obiettivo resta come riga tratteggiata, e quando lo superi la candela
+     diventa verde. Il numero scritto sopra è solo sul giorno più alto e su oggi.`, "B");
+}
+
+// ============================================= C · due toni, fatto e mancante
+function propostaC(){
+  const L=360, H=150, passo=L/7, largo=28, r=6;
+  let s = "";
+  PASSI.forEach((v,i)=>{
+    const x = passo*i + passo/2 - largo/2;
+    const quota = v===null ? 0 : Math.min(1, v/OBIETTIVO);
+    const alt = quota*H;
+    s += `<rect x="${x}" y="0" width="${largo}" height="${H}" rx="${r}"
+            fill="var(--pannello2)"/>`;
+    if(v!==null){
+      s += `<rect x="${x}" y="${H-alt}" width="${largo}" height="${Math.max(alt,8)}"
+              rx="${r}" fill="var(--salute)"/>`;
+      if(v>=OBIETTIVO)
+        s += `<circle cx="${x+largo/2}" cy="-10" r="7" fill="var(--accento)"/>
+              <path d="M${x+largo/2-3} -10 l2 2.5 l4 -5" stroke="var(--su-accento)"
+                stroke-width="1.6" fill="none" stroke-linecap="round"/>`;
+    }
+    s += `<text x="${x+largo/2}" y="${H+20}" text-anchor="middle" font-size="11.5"
+            fill="${i===OGGI?"var(--testo)":"var(--testo2)"}"
+            font-weight="${i===OGGI?700:500}">${GIORNI[i]}</text>`;
+  });
+  return cornice("Passi","settimana scorsa","settimana ▾",
+    "1 / 7","giorni a obiettivo",
+    "media 5.835 passi · 40.009 in tutto",
+    `<svg viewBox="-6 -26 372 188">${s}</svg>`,
+    `<b>Conta l'abitudine, non il numero.</b> Stessa corsia della A ma con gli
+     angoli morbidi invece che tondi, e una spunta sopra i giorni in cui hai
+     centrato l'obiettivo. Il numero grande diventa «quanti giorni su sette»:
+     è la domanda a cui di solito vuoi rispondere.`, "C");
+}
+
+// ============================================ D · barre sottili + media mobile
+function propostaD(){
+  const L=360, H=140, passo=L/7, largo=13, r=largo/2;
+  const max = Math.max(...PASSI.filter(v=>v!==null), OBIETTIVO)*1.05;
+  const y = v => H - (v/max)*H;
+  let s = `<line x1="0" x2="${L}" y1="${y(OBIETTIVO)}" y2="${y(OBIETTIVO)}"
+             stroke="var(--griglia)" stroke-dasharray="4 4"/>`;
+  const punti = PASSI.map((v,i)=> v===null?null:[passo*i+passo/2, y(v)]).filter(Boolean);
+  let d = punti.map((p,i)=> (i?"L":"M")+p[0]+" "+p[1]).join(" ");
+  s += `<path d="${d}" fill="none" stroke="var(--salute)" stroke-width="2.2"
+          stroke-linecap="round" stroke-linejoin="round" opacity=".55"/>`;
+  PASSI.forEach((v,i)=>{
+    const x = passo*i + passo/2 - largo/2;
+    if(v===null){
+      s += `<circle cx="${x+r}" cy="${H-4}" r="2.5" fill="var(--griglia)"/>`;
+    } else {
+      const alt = Math.max(H-y(v), largo);
+      s += `<rect x="${x}" y="${H-alt}" width="${largo}" height="${alt}" rx="${r}"
+              fill="var(--salute)" opacity="${i===OGGI?1:.35}"/>`;
+      s += `<circle cx="${x+r}" cy="${y(v)}" r="3.4"
+              fill="${v>=OBIETTIVO?"var(--accento)":"var(--salute)"}"/>`;
+    }
+    s += `<text x="${x+r}" y="${H+20}" text-anchor="middle" font-size="11.5"
+            fill="${i===OGGI?"var(--testo)":"var(--testo2)"}"
+            font-weight="${i===OGGI?700:500}">${GIORNI[i]}</text>`;
+  });
+  return cornice("Passi","settimana scorsa","settimana ▾",
+    miglia(1120),"passi oggi",
+    "media 5.835 · la linea è l'andamento della settimana",
+    `<svg viewBox="-6 -20 372 174">${s}</svg>`,
+    `<b>La forma della settimana.</b> Barre sottili e una linea che le unisce:
+     si vede il disegno dei giorni invece dei singoli numeri. Il giorno di oggi
+     è pieno, gli altri sbiaditi. Buono quando guardi tante settimane di fila,
+     meno quando vuoi il numero preciso di martedì.`, "D");
+}
+
+// ============================================ e il sonno con la forma scelta
+function sonno(){
+  const L=360, H=140, passo=L/7, largo=24, r=largo/2;
+  const META = 8;
+  const max = 10;
+  const y = v => H - (v/max)*H;
+  let s = `<line x1="0" x2="${L}" y1="${y(META)}" y2="${y(META)}"
+             stroke="var(--accento)" stroke-width="1.5" stroke-dasharray="5 5"/>
+           <text x="${L}" y="${y(META)-7}" text-anchor="end" font-size="10.5"
+             fill="var(--accento)" font-weight="650">8 ore</text>`;
+  SONNO.forEach((v,i)=>{
+    const x = passo*i + passo/2 - largo/2;
+    if(v===null){
+      s += `<circle cx="${x+r}" cy="${H-4}" r="3" fill="var(--griglia)"/>`;
+    } else {
+      const alt = Math.max(H-y(v), largo);
+      s += `<rect x="${x}" y="${H-alt}" width="${largo}" height="${alt}" rx="${r}"
+              fill="var(--sonno)" opacity="${i===OGGI?1:.8}"/>
+            <text x="${x+r}" y="${H-alt+16}" text-anchor="middle" font-size="10"
+              font-weight="700" fill="#fff" opacity=".9">${Math.floor(v)}</text>`;
+    }
+    s += `<text x="${x+r}" y="${H+20}" text-anchor="middle" font-size="11.5"
+            fill="${i===OGGI?"var(--testo)":"var(--testo2)"}"
+            font-weight="${i===OGGI?700:500}">${GIORNI[i]}</text>`;
+  });
+  return cornice("Sonno","settimana scorsa","settimana ▾",
+    "7h36","di media su 6 notti",
+    "la notte più lunga 9h12 · la più corta 6h12",
+    `<svg viewBox="-6 -20 372 174">${s}</svg>`,
+    `<b>Il sonno con la stessa forma della B.</b> Scala fino a dieci ore
+     (non fino all'obiettivo), riga tratteggiata sulle otto, e le ore scritte
+     dentro la candela quando ci stanno. Qualunque proposta scegli per i passi,
+     il sonno la segue: due riquadri uguali si leggono con lo stesso colpo
+     d'occhio.`, "sonno");
+}
+
+document.getElementById("griglia").innerHTML =
+  propostaA() + propostaB() + propostaC() + propostaD() + sonno();
+</script>
+</body>
+</html>
