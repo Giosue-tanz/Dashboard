@@ -85,6 +85,7 @@ class VistaAccademica(VistaSezioni):
         self.g_studio = GraficoBarre(self.c)
         self.g_studio.formato = lambda v: ore(v, 0)
         self.g_studio.evidenzia_ultima = True
+        self.nav_studio.scorri_con_rotella(self.g_studio)
         lay.addWidget(self.g_studio, 1)
         self.aggiungi("studio", contenuto)
 

@@ -7,6 +7,7 @@ from PySide6.QtCore import (QDate, QEasingCurve, QEvent, QModelIndex, QObject,
 from PySide6.QtGui import (QColor, QFont, QFontMetrics, QKeySequence, QPainter,
                            QPainterPath, QPen, QShortcut)
 from PySide6.QtWidgets import (QCheckBox, QDateEdit, QFrame, QHBoxLayout, QLabel,
+                               QMenu,
                                QLayout, QProgressBar, QPushButton, QSizePolicy,
                                QSlider, QSpinBox, QVBoxLayout, QWidget)
 
@@ -875,14 +876,20 @@ def binario(voci: dict, scelto: str, al_clic) -> tuple[QWidget, dict]:
 
 
 class NavigatorePeriodo(QWidget):
-    """Il comando per sfogliare i dati: giorni, settimane o mesi, avanti e indietro.
+    """Il comando per sfogliare i dati, alto una riga sola.
 
-    Una riga sola: le tre pastiglie del modo, le frecce, e in mezzo il nome
-    dell'intervallo che stai guardando («oggi», «questa settimana», «ott 26»).
-    Quando non sei sul presente compare «Oggi» per tornare.
+    A sinistra le frecce con in mezzo l'intervallo che stai guardando — in
+    «Giorni» è una settimana intera, e le frecce la fanno scorrere da una
+    settimana all'altra. A destra la pastiglia del modo (giorni, settimane,
+    mesi) e «Oggi», che compare solo quando ti sei allontanato dal presente.
+
+    Prima erano tre pastiglie più le frecce su due righe: ottanta pixel di
+    comando sopra un grafico che ne aveva centoventi. Adesso trentaquattro.
 
     Chi lo usa ascolta `cambiato` e ridisegna, leggendo `modo`, `scarto` e
-    `finestre()` — che sono già gli intervalli pronti da interrogare.
+    `finestre()` — che sono già gli intervalli pronti da interrogare. Con
+    `scorri_con_rotella(grafico)` la rotellina del mouse sul grafico scorre
+    i periodi.
     """
 
     cambiato = Signal()
@@ -896,23 +903,16 @@ class NavigatorePeriodo(QWidget):
         self.scarto = 0
         self.quanti = dict(QUANTI_PREDEFINITI if quanti is None else quanti)
 
-        # i due gruppi vanno a capo da soli: in un riquadro stretto il
-        # «quando» scende sotto il binario invece di schiacciarlo
-        lay = DisposizioneFluida(self, 0, 8)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(8)
 
-        # ---- a sinistra il modo, in un binario solo: giorni | settimane | mesi
-        self.binario, self.pastiglie = binario(MODI_PERIODO, modo,
-                                               self.imposta_modo)
-        self.binario.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        lay.addWidget(self.binario)
-
-        # ---- a destra il quando, frecce e scritta in un gruppo unico, così
-        #      sta in riga con le pastiglie del periodo degli altri riquadri
+        # ---- le frecce col nome in mezzo: un gruppo solo
         self.gruppo = QWidget()
         self.gruppo.setObjectName("Segmentato")
-        fianco = QHBoxLayout(self.gruppo)
-        fianco.setContentsMargins(3, 3, 3, 3)
-        fianco.setSpacing(2)
+        dentro = QHBoxLayout(self.gruppo)
+        dentro.setContentsMargins(2, 2, 2, 2)
+        dentro.setSpacing(2)
         self.b_prima = QPushButton("‹")
         self.b_dopo = QPushButton("›")
         for freccia, passo in ((self.b_prima, 1), (self.b_dopo, -1)):
@@ -920,16 +920,25 @@ class NavigatorePeriodo(QWidget):
             freccia.setCursor(Qt.PointingHandCursor)
             freccia.setFocusPolicy(Qt.NoFocus)
             freccia.clicked.connect(lambda _=False, p=passo: self.scorri(p))
-        self.b_prima.setToolTip("Indietro")
-        self.b_dopo.setToolTip("Avanti")
+        self.b_prima.setToolTip("Il periodo prima  (rotellina giù)")
+        self.b_dopo.setToolTip("Il periodo dopo  (rotellina su)")
         self.et_quando = QLabel("")
         self.et_quando.setObjectName("Quando")
         self.et_quando.setAlignment(Qt.AlignCenter)
-        fianco.addWidget(self.b_prima)
-        fianco.addWidget(self.et_quando, 1)
-        fianco.addWidget(self.b_dopo)
-        self.gruppo.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        dentro.addWidget(self.b_prima)
+        dentro.addWidget(self.et_quando, 1)
+        dentro.addWidget(self.b_dopo)
         lay.addWidget(self.gruppo)
+        lay.addStretch(1)
+
+        # ---- il modo, in una pastiglia come i periodi degli altri riquadri
+        self.b_modo = QPushButton("")
+        self.b_modo.setObjectName("Periodo")
+        self.b_modo.setCursor(Qt.PointingHandCursor)
+        self.b_modo.setFocusPolicy(Qt.NoFocus)
+        self.b_modo.setToolTip("Guarda per giorni, settimane o mesi")
+        self.b_modo.clicked.connect(self._menu_modo)
+        lay.addWidget(self.b_modo)
 
         self.b_oggi = QPushButton("Oggi")
         self.b_oggi.setObjectName("Segmento")
@@ -941,21 +950,26 @@ class NavigatorePeriodo(QWidget):
         self._mostra()
         self._misura()
 
+    # ------------------------------------------------------------- misure
     def _misura(self) -> None:
-        """Altezze e larghezze dal carattere: col testo grande cresce tutto.
+        """Tutto segue il carattere: col testo grande cresce, senza tagliarsi.
 
-        La scritta del «quando» si tiene una larghezza minima: senza, il
-        gruppo ballerebbe a ogni freccia («oggi» è corto, «27 ott – 2 nov» no).
+        La scritta del «quando» si tiene una larghezza minima, se no il
+        gruppo ballerebbe a ogni freccia («oggi» è corto, «27/10 – 2/11» no).
         """
-        for widget in (*self.pastiglie.values(), self.b_prima, self.b_dopo,
-                       self.et_quando, self.b_oggi):
+        for widget in (self.b_prima, self.b_dopo, self.et_quando, self.b_modo,
+                       self.b_oggi):
             widget.ensurePolished()
-        riga = max(w.sizeHint().height() for w in self.pastiglie.values())
-        lato = max(24, riga)
+        lato = max(24, self.b_modo.sizeHint().height())
         for freccia in (self.b_prima, self.b_dopo):
             freccia.setFixedSize(lato, lato)
         misura = QFontMetrics(self.et_quando.font())
-        self.et_quando.setMinimumWidth(misura.horizontalAdvance("30 set – 6 ott") + 8)
+        # la più larga fra le frasi che possono comparire: così il gruppo non
+        # balla a ogni freccia e nessuna scritta resta tagliata
+        larga = max(misura.horizontalAdvance(t) for t in
+                    ("questa settimana", "settimana scorsa", "30/09 – 06/10",
+                     "questo mese", "mese scorso"))
+        self.et_quando.setMinimumWidth(larga + 12)
 
     def showEvent(self, ev):
         super().showEvent(ev)
@@ -968,12 +982,21 @@ class NavigatorePeriodo(QWidget):
             self._misura()
 
     # ------------------------------------------------------------- comandi
+    def _menu_modo(self) -> None:
+        menu = QMenu(self)
+        for chiave, nome in MODI_PERIODO.items():
+            azione = menu.addAction(nome)
+            azione.setCheckable(True)
+            azione.setChecked(chiave == self.modo)
+            azione.triggered.connect(
+                lambda _=False, k=chiave: self.imposta_modo(k))
+        menu.exec(self.b_modo.mapToGlobal(
+            QPoint(0, self.b_modo.height() + 2)))
+
     def imposta_modo(self, modo: str) -> None:
-        if modo not in MODI_PERIODO:
+        if modo not in MODI_PERIODO or modo == self.modo:
             return
         self.modo, self.scarto = modo, 0      # cambiando modo si torna a oggi
-        for chiave, b in self.pastiglie.items():
-            b.setChecked(chiave == modo)
         self._mostra()
         self.cambiato.emit()
 
@@ -991,6 +1014,28 @@ class NavigatorePeriodo(QWidget):
             self._mostra()
             self.cambiato.emit()
 
+    # --------------------------------------------------------- la rotellina
+    def wheelEvent(self, ev):
+        self._rotella(ev)
+
+    def scorri_con_rotella(self, *widget) -> None:
+        """La rotellina su questi widget scorre i periodi: di solito il grafico."""
+        for w in widget:
+            w.installEventFilter(self)
+
+    def eventFilter(self, oggetto, evento):
+        if evento.type() == QEvent.Wheel:
+            self._rotella(evento)
+            return True
+        return super().eventFilter(oggetto, evento)
+
+    def _rotella(self, evento) -> None:
+        """Rotella giù: indietro nel tempo. Su: avanti, fino a oggi."""
+        passi = evento.angleDelta().y()
+        if passi:
+            self.scorri(-1 if passi > 0 else 1)
+            evento.accept()
+
     # --------------------------------------------------------------- dati
     def finestre(self) -> list[tuple[str, str, str]]:
         """Gli intervalli da disegnare: (etichetta, dal, al)."""
@@ -1001,12 +1046,19 @@ class NavigatorePeriodo(QWidget):
         finestre = self.finestre()
         return (finestre[-1][1], finestre[-1][2]) if finestre else ("", "")
 
+    def esteso(self) -> tuple[str, str]:
+        """Tutto quello che si vede: dal primo giorno all'ultimo."""
+        finestre = self.finestre()
+        return (finestre[0][1], finestre[-1][2]) if finestre else ("", "")
+
     def nome(self) -> str:
-        dal, al = self.scelto()
+        # in «giorni» il nome è quello di tutta la settimana, non dell'ultimo
+        dal, al = self.esteso() if self.modo == "giorni" else self.scelto()
         return nome_intervallo(self.modo, dal, al, self.scarto) if dal else ""
 
     def _mostra(self) -> None:
         self.et_quando.setText(self.nome())
+        self.b_modo.setText(f"{MODI_PERIODO[self.modo].lower()}  \u25be")
         self.b_dopo.setEnabled(self.scarto > 0)
         self.b_oggi.setVisible(self.scarto > 0)
 

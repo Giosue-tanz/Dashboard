@@ -159,6 +159,8 @@ class VistaSalute(VistaSezioni):
         self.g_passi.formato = lambda v: numero(v, 0)
         self.g_passi.evidenzia_ultima = True
         self._apribile(self.g_passi, "passi")
+        # la rotellina sul grafico scorre le settimane
+        self.nav_passi.scorri_con_rotella(self.g_passi)
         lay.addWidget(self.g_passi, 1)
         self.aggiungi("passi", contenuto)
 
@@ -188,6 +190,7 @@ class VistaSalute(VistaSezioni):
         self.g_sonno.evidenzia_ultima = True
         self.g_sonno.setMinimumHeight(74)
         self._apribile(self.g_sonno, "sonno")
+        self.nav_sonno.scorri_con_rotella(self.g_sonno)
         lay.addWidget(self.g_sonno, 1)
         # in poco spazio i pezzi si ritirano uno alla volta: meglio di un taglio
         self.lay_sonno = lay

@@ -244,7 +244,13 @@ class GraficoBarre(BaseGrafico):
 
         presenti = [x for _, v in self.dati for x in v if x is not None]
         massimo = max(presenti) if presenti else 0
-        if self.riferimento:
+        # L'obiettivo alza la scala solo se è a portata. Con 10.000 passi di
+        # obiettivo e giornate da tremila, tenerlo in cima schiacciava tutte
+        # le candele nel quinto basso: in quel caso comanda il dato, e
+        # l'obiettivo resta una riga tratteggiata appena sopra.
+        self._fuori_scala = bool(self.riferimento and massimo
+                                 and self.riferimento > massimo * 2)
+        if self.riferimento and not self._fuori_scala:
             massimo = max(massimo, self.riferimento)
         massimo = (massimo or 1) * 1.15
         f = QFont(); f.setPointSize(8); p.setFont(f)
@@ -275,10 +281,18 @@ class GraficoBarre(BaseGrafico):
                 x += 13 + largo + 18
 
         if self.riferimento:
-            y = area.bottom() - (self.riferimento / massimo) * area.height()
+            fuori = getattr(self, "_fuori_scala", False)
+            y = (area.top() + 1 if fuori else
+                 area.bottom() - (self.riferimento / massimo) * area.height())
             penna = QPen(QColor(self.c["testo2"]), 1, Qt.DashLine)
             p.setPen(penna)
             p.drawLine(QPointF(area.left(), y), QPointF(area.right(), y))
+            if fuori:
+                # l'obiettivo è lontano: lo si dice, invece di fingere la scala
+                p.setPen(QColor(self.c["testo2"]))
+                p.drawText(QRectF(area.right() - 150, y + 2, 150, 14),
+                           Qt.AlignRight | Qt.AlignVCenter,
+                           f"obiettivo {self.formato(self.riferimento)} ↑")
 
         n_gruppi = len(self.dati)
         n_serie = max(1, len(self.serie))

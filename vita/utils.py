@@ -221,7 +221,9 @@ def intervallo_precedente(periodo: str) -> tuple[str, str]:
 # settimana, mese per mese. `scarto` dice di quanti passi si è tornati
 # indietro: 0 è adesso.
 MODI_PERIODO = {"giorni": "Giorni", "settimane": "Settimane", "mesi": "Mesi"}
-QUANTI_PREDEFINITI = {"giorni": 14, "settimane": 12, "mesi": 12}
+# in «giorni» la finestra è una settimana: sette candele larghe, e le
+# frecce scorrono da una settimana all'altra invece che da un giorno
+QUANTI_PREDEFINITI = {"giorni": 7, "settimane": 12, "mesi": 12}
 
 
 def intervalli(modo: str = "giorni", quanti: int = 0,
@@ -235,9 +237,12 @@ def intervalli(modo: str = "giorni", quanti: int = 0,
     finestre: list[tuple[str, str, str]] = []
     oggi = date.today()
     if modo == "giorni":
-        ultimo = oggi - timedelta(days=scarto)
-        for i in range(quanti - 1, -1, -1):
-            giorno = ultimo - timedelta(days=i)
+        # la settimana del calendario, da lunedì: così «indietro» vuol dire
+        # «la settimana prima», non «un giorno prima»
+        lunedi = (oggi - timedelta(days=oggi.weekday())
+                  - timedelta(weeks=scarto))
+        for i in range(quanti):
+            giorno = lunedi + timedelta(days=i)
             finestre.append((data_it(giorno.isoformat())[:5],
                              giorno.isoformat(), giorno.isoformat()))
     elif modo == "settimane":
@@ -260,9 +265,7 @@ def intervalli(modo: str = "giorni", quanti: int = 0,
 
 def nome_intervallo(modo: str, dal: str, al: str, scarto: int = 0) -> str:
     """Come si chiama l'intervallo scelto: «oggi», «questa settimana», o le date."""
-    if modo == "giorni":
-        return relativa(dal)
-    if modo == "settimane":
+    if modo in ("giorni", "settimane"):
         if scarto == 0:
             return "questa settimana"
         if scarto == 1:

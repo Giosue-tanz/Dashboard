@@ -127,6 +127,30 @@ stato scaricato ma non ancora letto, lo recupera
 python3 strumenti/importa_lotti.py --scrivi
 ```
 
+## Sfogliare le settimane
+
+Nei riquadri che si sfogliano — **Passi**, **Sonno**, **Ore di studio** — il
+comando del tempo è alto una riga sola: le frecce col nome in mezzo
+(`‹ questa settimana ›`), la pastiglia del modo (`giorni ▾`) e «Oggi», che
+compare solo quando ti sei allontanato dal presente. Prima erano tre pastiglie
+più le frecce su due righe: ottanta pixel di comando sopra un grafico che ne
+aveva centoventi. Adesso il comando ne prende trentotto e il grafico
+centosettanta.
+
+In modo **giorni** la finestra è la settimana del calendario, da lunedì a
+domenica: sette candele larghe invece di quattordici sottili, e le frecce
+scorrono **da una settimana all'altra**. Scorre anche la rotellina del mouse
+quando il puntatore sta sul grafico.
+
+**L'obiettivo non schiaccia più le candele.** La riga dell'obiettivo alzava la
+scala: con 10.000 passi di traguardo e giornate da tremila, le candele
+finivano tutte nel quinto basso. Adesso l'obiettivo alza la scala solo se è a
+portata (meno del doppio del giorno migliore); altrimenti comanda il dato e
+l'obiettivo resta una riga tratteggiata in cima, con scritto quant'è.
+
+In `mockup/grafici-settimana.html` ci sono quattro forme alternative per le
+candele, se un giorno si vorrà cambiare disegno.
+
 ## Scegliere il periodo
 
 Il tempo si cambia in un modo solo, uguale dappertutto.
