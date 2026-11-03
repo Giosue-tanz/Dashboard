@@ -152,9 +152,10 @@ class VistaSalute(VistaSezioni):
 
         # ------------------------------------------------------------ passi
         contenuto, lay = self.colonna(6)
+        # il navigatore sta sulla riga del titolo, non qui dentro: quei
+        # quaranta pixel sono altezza che il grafico si tiene
         self.nav_passi = NavigatorePeriodo(self.c, "giorni")
         self.nav_passi.cambiato.connect(self._aggiorna_passi)
-        lay.addWidget(self.nav_passi)
         self.g_passi = GraficoBarre(self.c)
         self.g_passi.formato = lambda v: numero(v, 0)
         self.g_passi.evidenzia_ultima = True
@@ -162,7 +163,7 @@ class VistaSalute(VistaSezioni):
         # la rotellina sul grafico scorre le settimane
         self.nav_passi.scorri_con_rotella(self.g_passi)
         lay.addWidget(self.g_passi, 1)
-        self.aggiungi("passi", contenuto)
+        self.aggiungi("passi", contenuto, comando=self.nav_passi)
 
         # ------------------------------------------------------------ sonno
         contenuto, lay = self.colonna(8)
@@ -179,7 +180,6 @@ class VistaSalute(VistaSezioni):
         lay.addLayout(testa)
         self.nav_sonno = NavigatorePeriodo(self.c, "giorni")
         self.nav_sonno.cambiato.connect(self._aggiorna_sonno)
-        lay.addWidget(self.nav_sonno)
         self.fasi = BarraFasi(self.c)
         lay.addWidget(self.fasi)
         self.et_fasi = etichetta("", "NotaScheda")
@@ -198,7 +198,7 @@ class VistaSalute(VistaSezioni):
         self.sez_sonno = None       # arriva con aggiungi(), poco sotto
         contenuto.resizeEvent = lambda ev: self._adatta_sonno(
             ev.size().width(), ev.size().height())
-        self.aggiungi("sonno", contenuto)
+        self.aggiungi("sonno", contenuto, comando=self.nav_sonno)
         self.sez_sonno = self.contenitore.sezioni["sonno"]
 
         # ---------------------------------------------------------- battito

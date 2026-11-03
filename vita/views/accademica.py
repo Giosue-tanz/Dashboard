@@ -77,17 +77,16 @@ class VistaAccademica(VistaSezioni):
         lay.addWidget(self.et_studio_nota)
 
         # giorni, settimane o mesi, avanti e indietro: lo stesso comando che
-        # sta nei riquadri di Salute
+        # sta nei riquadri di Salute, e come là vive sulla riga del titolo
         self.nav_studio = NavigatorePeriodo(self.c, "settimane")
         self.nav_studio.cambiato.connect(self._aggiorna_studio)
-        lay.addWidget(self.nav_studio)
 
         self.g_studio = GraficoBarre(self.c)
         self.g_studio.formato = lambda v: ore(v, 0)
         self.g_studio.evidenzia_ultima = True
         self.nav_studio.scorri_con_rotella(self.g_studio)
         lay.addWidget(self.g_studio, 1)
-        self.aggiungi("studio", contenuto)
+        self.aggiungi("studio", contenuto, comando=self.nav_studio)
 
         # ---------------------------------------------------------- materie
         self.g_materie = GraficoCiambella(self.c)

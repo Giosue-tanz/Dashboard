@@ -126,8 +126,13 @@ class VistaSezioni(VistaBase):
         self.b_sezioni.setMenu(self.menu_sezioni)
         self.azioni_intestazione = [self.b_sezioni]
 
-    def aggiungi(self, chiave: str, contenuto: QWidget, stile: str = "Sezione") -> QWidget:
-        sezione = Sezione(chiave, self.SEZIONI.get(chiave, chiave), contenuto, stile)
+    def aggiungi(self, chiave: str, contenuto: QWidget, stile: str = "Sezione",
+                 comando: QWidget | None = None) -> QWidget:
+        """Registra un riquadro. `comando` finisce sulla riga del titolo:
+        è lì che vive il navigatore dei periodi, per lasciare al grafico
+        tutta l'altezza del riquadro."""
+        sezione = Sezione(chiave, self.SEZIONI.get(chiave, chiave), contenuto,
+                          stile, comando)
         sezione.chiusura_richiesta.connect(lambda k: self.azioni[k].setChecked(False))
         sezione.periodo_richiesto.connect(self._menu_periodo)
         sezione.menu_richiesto.connect(self._menu_sezione)

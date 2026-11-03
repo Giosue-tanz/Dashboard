@@ -31,6 +31,8 @@ class Intestazione(QWidget):
     chiusura_richiesta = Signal()
     periodo_richiesto = Signal(QPoint)
     menu_richiesto = Signal(QPoint)
+    # «qui non ci sta»: il comando va rimesso sotto il titolo
+    comando_fuori = Signal(bool)
 
     ALTEZZA_MINIMA = 24
 
@@ -74,8 +76,40 @@ class Intestazione(QWidget):
         lay.addStretch(1)
         lay.addWidget(self.periodo)
         lay.addWidget(self.azioni)
+        self.lay = lay
+        # il comando del riquadro (il navigatore dei periodi), se ce l'ha:
+        # sta qui sulla riga del titolo, e sono pixel che restano al grafico
+        self.comando: QWidget | None = None
+        self._comando_dentro = True
+        self._sta_sistemando = False
         self._premuto: QPoint | None = None
         self._adatta_altezza()
+
+    # -------------------------------------------------------------- comando
+    def imposta_comando(self, widget: QWidget) -> None:
+        """Mette un comando in fondo alla riga del titolo."""
+        self.comando = widget
+        self.aggancia_comando()
+
+    def aggancia_comando(self) -> None:
+        """(Ri)mette il comando nella barra, prima del periodo e dei «⋯»."""
+        if self.comando is None:
+            return
+        self.lay.insertWidget(self.lay.indexOf(self.periodo), self.comando)
+        self.comando.show()
+        self._comando_dentro = True
+        self._adatta_altezza()
+        self._accorcia()
+
+    def _spazio_comando(self) -> tuple[int, int]:
+        """Quanto chiede il comando: (il minimo, il massimo)."""
+        if self.comando is None:
+            return 0, 0
+        if hasattr(self.comando, "larghezza_necessaria"):
+            return (self.comando.larghezza_necessaria(),
+                    self.comando.spazio_massimo())
+        largo = self.comando.sizeHint().width()
+        return largo, largo
 
     # -------------------------------------------------------------- aspetto
     def _adatta_altezza(self) -> None:
@@ -84,10 +118,12 @@ class Intestazione(QWidget):
         Con il testo molto grande una barra alta 24 px tagliava le code delle
         lettere: la «g» di «Oggi», di «Progetti», di «Prossimi impegni».
         """
-        for widget in (self.titolo, self.nota, self.periodo, self.azioni):
+        pezzi = [self.titolo, self.nota, self.periodo, self.azioni]
+        if self.comando is not None and self._comando_dentro:
+            pezzi.append(self.comando)
+        for widget in pezzi:
             widget.ensurePolished()
-        alto = max(w.sizeHint().height()
-                   for w in (self.titolo, self.nota, self.periodo, self.azioni))
+        alto = max(w.sizeHint().height() for w in pezzi)
         self.setFixedHeight(max(self.ALTEZZA_MINIMA, alto + 2))
 
     def _accorcia(self) -> None:
@@ -99,6 +135,16 @@ class Intestazione(QWidget):
         carattere: il grassetto del foglio di stile occupa più di quanto dica
         la metrica, e il titolo finirebbe tagliato.
         """
+        if self._sta_sistemando:
+            # spostare il comando rimette in moto il layout: una volta sola
+            return
+        self._sta_sistemando = True
+        try:
+            self._sistema()
+        finally:
+            self._sta_sistemando = False
+
+    def _sistema(self) -> None:
         spazio = max(0, self.width() - 28)        # il posto dei «⋯»
         for widget in (self.titolo, self.nota):
             widget.setMinimumWidth(0)
@@ -115,11 +161,14 @@ class Intestazione(QWidget):
             self.titolo.setToolTip(self._titolo_pieno)
             self.nota.setVisible(False)
             self.periodo.setVisible(False)
+            self._posto_al_comando(0)
             return
         self.titolo.setToolTip("")
         # larghezza fissa: così nota e periodo non gli rubano spazio dal layout
         self.titolo.setFixedWidth(largo_titolo)
         resto = spazio - largo_titolo - 12
+        # il comando viene prima della nota: la nota racconta, il comando si usa
+        resto = self._posto_al_comando(resto)
 
         # la pastiglia del periodo, se questo riquadro ne ha uno
         if self._periodo_pieno:
@@ -136,9 +185,15 @@ class Intestazione(QWidget):
             return
         intera = self._misura(self.nota, self._nota_piena)
         # o ci sta tutta, o ne resta abbastanza da dire qualcosa: un moncone
-        # come «6/28 centr…» non serve a nessuno, meglio niente
-        if resto < min(intera, 70):
+        # come «6/28 centr…» non serve a nessuno, meglio niente. Dove c'è
+        # anche un comando la nota la si vuole intera o niente: accanto a una
+        # pastiglia un troncone è solo disordine
+        intera_o_niente = self.comando is not None and self._comando_dentro
+        if resto < (intera if intera_o_niente else min(intera, 70)):
             self.nota.setVisible(False)
+            # non è persa: dove il comando le ha preso il posto, la nota si
+            # legge passando sul titolo
+            self.titolo.setToolTip(self._nota_piena)
             return
         self.nota.setVisible(True)
         testo = self.nota.fontMetrics().elidedText(
@@ -147,6 +202,28 @@ class Intestazione(QWidget):
             testo = testo[:-2] + "…"
         self.nota.setFixedWidth(min(resto, self.nota.sizeHint().width()))
         self.nota.setToolTip(self._nota_piena)
+
+    def _posto_al_comando(self, resto: int) -> int:
+        """Il comando ci sta accanto al titolo? Se no lo si manda sotto.
+
+        La misura non dipende da dove sta adesso il comando — è sempre la
+        larghezza che chiede — quindi la decisione non può oscillare fra una
+        sistemata e l'altra.
+        """
+        if self.comando is None:
+            return resto
+        serve, pieno = self._spazio_comando()
+        dentro = resto >= serve
+        if dentro != self._comando_dentro:
+            self._comando_dentro = dentro
+            self.comando_fuori.emit(not dentro)
+        if not dentro:
+            return resto
+        if hasattr(self.comando, "adatta_a"):
+            self.comando.adatta_a(resto)
+        # si riserva il massimo solo dove il massimo ci sta: così la nota non
+        # si prende lo spazio che fra una scorsa e l'altra servirà a «Oggi»
+        return resto - (pieno if resto >= pieno else serve) - 10
 
     def _misura(self, etichetta: QLabel, testo: str) -> int:
         """Scrive il testo e torna quanto spazio chiede davvero."""
@@ -252,7 +329,8 @@ class Sezione(QFrame):
     menu_richiesto = Signal(str, QPoint)
 
     def __init__(self, chiave: str, titolo: str, contenuto: QWidget,
-                 stile_titolo: str = "Sezione", parent=None):
+                 stile_titolo: str = "Sezione", comando: QWidget | None = None,
+                 parent=None):
         super().__init__(parent)
         self.setObjectName("Scheda")
         self.chiave = chiave
@@ -271,7 +349,35 @@ class Sezione(QFrame):
         self.intestazione.menu_richiesto.connect(
             lambda punto: self.menu_richiesto.emit(self.chiave, punto))
         lay.addWidget(self.intestazione)
+
+        # il posto di ripiego del comando: quando il riquadro è così stretto
+        # che accanto al titolo non ci sta, torna qui sotto invece di tagliarsi
+        self.riga_comando = QWidget(self)
+        self.riga_comando.setObjectName("ContenutoSezione")
+        ripiego = QHBoxLayout(self.riga_comando)
+        ripiego.setContentsMargins(0, 0, 0, 0)
+        ripiego.addStretch(1)
+        self.riga_comando.hide()
+        lay.addWidget(self.riga_comando)
         lay.addWidget(contenuto, 1)
+
+        self.comando = comando
+        if comando is not None:
+            self.intestazione.comando_fuori.connect(self._sposta_comando)
+            self.intestazione.imposta_comando(comando)
+
+    # --------------------------------------------------------- il comando
+    def _sposta_comando(self, fuori: bool) -> None:
+        """Lo porta sotto il titolo, o se lo riprende quando torna il posto."""
+        if self.comando is None:
+            return
+        if fuori:
+            self.riga_comando.layout().addWidget(self.comando)
+            self.riga_comando.show()
+            self.intestazione._adatta_altezza()
+        else:
+            self.riga_comando.hide()
+            self.intestazione.aggancia_comando()
 
     def imposta_nota(self, testo: str) -> None:
         self.intestazione.imposta_nota(testo)

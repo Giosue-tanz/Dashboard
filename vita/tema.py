@@ -167,6 +167,10 @@ def foglio_stile(c: dict, scala: float = 1.0,
         """Dimensione in pixel adattata alla scala del testo."""
         return f"{px * scala:.1f}px"
 
+    def q(px: float) -> str:
+        """Come `p`, ma intera: raggi e spessori Qt li vuole senza virgola."""
+        return f"{round(px * scala)}px"
+
     chiaro = luminosita(c["fondo"]) > 0.5
     # una regola per ogni voce della barra: il suo colore al passaggio del
     # mouse, la pastiglia piena del suo colore quando la pagina è aperta
@@ -573,6 +577,48 @@ def foglio_stile(c: dict, scala: float = 1.0,
     QLabel#Quando {{
         color: {c['testo']}; font-size: {p(12)}; font-weight: 650;
         background: transparent; padding: 0 2px;
+    }}
+
+    /* ------------------------------------------- il navigatore dei periodi */
+    /* Sta sulla riga del titolo, dove One UI mette le frecce dei grafici:
+       una pastiglia piena con le frecce tonde agli estremi e il periodo in
+       mezzo, poi il modo e «Oggi». Niente cornici: si distingue per tinta. */
+    QWidget#NavPeriodo {{
+        background: {c['pannello2']}; border: none; border-radius: {q(19)};
+    }}
+    QWidget#NavPeriodo QPushButton#NavFreccia {{
+        background: transparent; border: none; border-radius: {q(17)};
+        padding: 0; color: {c['testo2']}; font-size: {p(14)}; font-weight: 700;
+    }}
+    QWidget#NavPeriodo QPushButton#NavFreccia:hover {{
+        background: {trasparente(c['accento'], 0.18)}; color: {c['accento']};
+    }}
+    QWidget#NavPeriodo QPushButton#NavFreccia:pressed {{
+        background: {trasparente(c['accento'], 0.30)};
+    }}
+    QWidget#NavPeriodo QPushButton#NavFreccia:disabled {{ color: {c['bordo']}; }}
+    QLabel#NavQuando {{
+        color: {c['testo']}; font-size: {p(11.5)}; font-weight: 650;
+        background: transparent; padding: 0 2px;
+    }}
+    /* il modo è l'unico pezzo che apre qualcosa: la punta in giù lo dice */
+    QPushButton#NavModo {{
+        background: transparent; border: none; border-radius: {q(16)};
+        padding: {q(5)} {q(10)}; color: {c['testo2']}; font-size: {p(11.5)};
+        font-weight: 650;
+    }}
+    QPushButton#NavModo:hover {{
+        background: {trasparente(c['accento'], 0.16)}; color: {c['accento']};
+    }}
+    QPushButton#NavModo:pressed {{ background: {c['pannello2']}; }}
+    /* «Oggi» compare solo se te ne sei andato: è un invito, e si vede */
+    QPushButton#NavOggi {{
+        background: {trasparente(c['accento'], 0.16)}; border: none;
+        border-radius: {q(16)}; padding: {q(5)} {q(11)};
+        color: {c['accento']}; font-size: {p(11.5)}; font-weight: 700;
+    }}
+    QPushButton#NavOggi:hover {{
+        background: {trasparente(c['accento'], 0.28)};
     }}
 
     QPushButton#Segmento {{

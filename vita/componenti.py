@@ -875,16 +875,56 @@ def binario(voci: dict, scelto: str, al_clic) -> tuple[QWidget, dict]:
     return contenitore, pulsanti
 
 
+class _NomePeriodo(QLabel):
+    """Il nome del periodo, fra le due frecce.
+
+    Chiede sempre lo stesso posto — quello della frase più lunga che può
+    capitare — così il gruppo non balla a ogni freccia. Ma se il riquadro è
+    stretto si lascia stringere e accorcia il testo coi puntini: «30/09 – 0…»
+    si legge ancora, una pastiglia tagliata a metà no.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.riserva = 100
+        self.pieno = ""
+
+    def imposta(self, testo: str) -> None:
+        self.pieno = testo
+        self._scrivi()
+
+    def _scrivi(self) -> None:
+        corto = self.fontMetrics().elidedText(
+            self.pieno, Qt.ElideRight, max(10, self.width() - 4))
+        self.setText(corto)
+        self.setToolTip(self.pieno if corto != self.pieno else "")
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._scrivi()
+
+    def sizeHint(self) -> QSize:
+        chiesto = super().sizeHint()
+        return QSize(max(self.riserva, chiesto.width()), chiesto.height())
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(44, super().minimumSizeHint().height())
+
+
 class NavigatorePeriodo(QWidget):
-    """Il comando per sfogliare i dati, alto una riga sola.
+    """Il comando per sfogliare i dati: una riga sola, sopra al grafico.
 
     A sinistra le frecce con in mezzo l'intervallo che stai guardando — in
     «Giorni» è una settimana intera, e le frecce la fanno scorrere da una
-    settimana all'altra. A destra la pastiglia del modo (giorni, settimane,
+    settimana all'altra. Accanto la pastiglia del modo (giorni, settimane,
     mesi) e «Oggi», che compare solo quando ti sei allontanato dal presente.
 
-    Prima erano tre pastiglie più le frecce su due righe: ottanta pixel di
-    comando sopra un grafico che ne aveva centoventi. Adesso trentaquattro.
+    **Dove sta.** Non sotto il titolo, ma *sul* titolo: lo si consegna a
+    `aggiungi(..., comando=nav)` e va a finire in fondo all'intestazione del
+    riquadro, come le frecce dei grafici di One UI. Quei quaranta pixel di
+    comando tornano al disegno, che è quello che si guarda. Se il riquadro
+    diventa troppo stretto perché ci stia accanto al titolo, l'intestazione
+    lo rimette sotto da sola invece di tagliarlo (vedi `Sezione`).
 
     Chi lo usa ascolta `cambiato` e ridisegna, leggendo `modo`, `scarto` e
     `finestre()` — che sono già gli intervalli pronti da interrogare. Con
@@ -902,38 +942,42 @@ class NavigatorePeriodo(QWidget):
         self.modo = modo
         self.scarto = 0
         self.quanti = dict(QUANTI_PREDEFINITI if quanti is None else quanti)
+        # quanto posto gli hanno riservato: finché nessuno lo dice, tutto
+        self._posto = 1 << 20
+        # sulla riga del titolo occupa quello che gli serve e non un pixel
+        # di più: a spingerlo a destra ci pensa l'intestazione
+        self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(8)
+        lay.setSpacing(6)
 
         # ---- le frecce col nome in mezzo: un gruppo solo
         self.gruppo = QWidget()
-        self.gruppo.setObjectName("Segmentato")
+        self.gruppo.setObjectName("NavPeriodo")
         dentro = QHBoxLayout(self.gruppo)
         dentro.setContentsMargins(2, 2, 2, 2)
-        dentro.setSpacing(2)
+        dentro.setSpacing(0)
         self.b_prima = QPushButton("‹")
         self.b_dopo = QPushButton("›")
         for freccia, passo in ((self.b_prima, 1), (self.b_dopo, -1)):
-            freccia.setObjectName("Freccia")
+            freccia.setObjectName("NavFreccia")
             freccia.setCursor(Qt.PointingHandCursor)
             freccia.setFocusPolicy(Qt.NoFocus)
             freccia.clicked.connect(lambda _=False, p=passo: self.scorri(p))
         self.b_prima.setToolTip("Il periodo prima  (rotellina giù)")
         self.b_dopo.setToolTip("Il periodo dopo  (rotellina su)")
-        self.et_quando = QLabel("")
-        self.et_quando.setObjectName("Quando")
+        self.et_quando = _NomePeriodo()
+        self.et_quando.setObjectName("NavQuando")
         self.et_quando.setAlignment(Qt.AlignCenter)
         dentro.addWidget(self.b_prima)
         dentro.addWidget(self.et_quando, 1)
         dentro.addWidget(self.b_dopo)
         lay.addWidget(self.gruppo)
-        lay.addStretch(1)
 
-        # ---- il modo, in una pastiglia come i periodi degli altri riquadri
+        # ---- il modo, nella stessa pastiglia: giorni, settimane, mesi
         self.b_modo = QPushButton("")
-        self.b_modo.setObjectName("Periodo")
+        self.b_modo.setObjectName("NavModo")
         self.b_modo.setCursor(Qt.PointingHandCursor)
         self.b_modo.setFocusPolicy(Qt.NoFocus)
         self.b_modo.setToolTip("Guarda per giorni, settimane o mesi")
@@ -941,7 +985,7 @@ class NavigatorePeriodo(QWidget):
         lay.addWidget(self.b_modo)
 
         self.b_oggi = QPushButton("Oggi")
-        self.b_oggi.setObjectName("Segmento")
+        self.b_oggi.setObjectName("NavOggi")
         self.b_oggi.setCursor(Qt.PointingHandCursor)
         self.b_oggi.setFocusPolicy(Qt.NoFocus)
         self.b_oggi.setToolTip("Torna al presente")
@@ -956,20 +1000,68 @@ class NavigatorePeriodo(QWidget):
 
         La scritta del «quando» si tiene una larghezza minima, se no il
         gruppo ballerebbe a ogni freccia («oggi» è corto, «27/10 – 2/11» no).
+        Le frecce sono quadrate sulla stessa misura, così il foglio di stile
+        le arrotonda in cerchi.
         """
         for widget in (self.b_prima, self.b_dopo, self.et_quando, self.b_modo,
                        self.b_oggi):
             widget.ensurePolished()
-        lato = max(24, self.b_modo.sizeHint().height())
+        misura = QFontMetrics(self.et_quando.font())
+        lato = max(22, misura.height() + 5)
         for freccia in (self.b_prima, self.b_dopo):
             freccia.setFixedSize(lato, lato)
-        misura = QFontMetrics(self.et_quando.font())
-        # la più larga fra le frasi che possono comparire: così il gruppo non
-        # balla a ogni freccia e nessuna scritta resta tagliata
-        larga = max(misura.horizontalAdvance(t) for t in
-                    ("questa settimana", "settimana scorsa", "30/09 – 06/10",
-                     "questo mese", "mese scorso"))
-        self.et_quando.setMinimumWidth(larga + 12)
+        # Il raggio va dato qui, non nel foglio di stile: Qt un raggio più
+        # grande di mezza altezza non lo accorcia, lo butta via, e la
+        # pastiglia torna un rettangolo. L'altezza la sappiamo solo adesso,
+        # che il carattere è quello vero.
+        self._arrotonda(self.gruppo, lato + 4)
+        self._arrotonda(self.b_prima, lato)
+        self._arrotonda(self.b_dopo, lato)
+        for pastiglia in (self.b_modo, self.b_oggi):
+            self._arrotonda(pastiglia, pastiglia.sizeHint().height())
+        # la più larga fra le frasi che possono comparire **in questo modo**:
+        # così il gruppo non balla a ogni freccia, e non si porta dietro lo
+        # spazio di parole che qui non compariranno mai
+        frasi = (("questo mese", "mese scorso", "settembre 2026")
+                 if self.modo == "mesi" else
+                 ("questa settimana", "settimana scorsa", "30/09 – 06/10"))
+        self.et_quando.riserva = max(misura.horizontalAdvance(t)
+                                     for t in frasi) + 8
+        self.et_quando.updateGeometry()
+
+    @staticmethod
+    def _arrotonda(widget, altezza: int) -> None:
+        """Mezza altezza di raggio: la pastiglia tonda di One UI."""
+        regola = (f"{widget.metaObject().className()}#{widget.objectName()}"
+                  f" {{ border-radius: {max(2, altezza // 2)}px; }}")
+        if widget.styleSheet() != regola:      # se no si ripolisce all'infinito
+            widget.setStyleSheet(regola)
+
+    def larghezza_necessaria(self) -> int:
+        """Il minimo per esserci: le frecce col nome e la pastiglia del modo."""
+        self._misura()
+        return (self.gruppo.sizeHint().width() + self.layout().spacing()
+                + self.b_modo.sizeHint().width())
+
+    def spazio_massimo(self) -> int:
+        """Quanto chiede con «Oggi» fuori, che compare quando ti allontani."""
+        return (self.larghezza_necessaria() + self.layout().spacing()
+                + self.b_oggi.sizeHint().width())
+
+    def adatta_a(self, larghezza: int) -> None:
+        """Dice al navigatore quanto posto gli è stato riservato.
+
+        Serve per «Oggi»: dove c'è spazio compare appena ti allontani dal
+        presente, dove non ce n'è non compare mai — e allora la riga del
+        titolo non si riassetta sotto le mani a metà di una scorsa. Indietro
+        ci si torna comunque con la freccia «›».
+        """
+        self._posto = larghezza
+        self._mostra_oggi()
+
+    def _mostra_oggi(self) -> None:
+        self.b_oggi.setVisible(self.scarto > 0
+                               and self._posto >= self.spazio_massimo())
 
     def showEvent(self, ev):
         super().showEvent(ev)
@@ -1057,10 +1149,10 @@ class NavigatorePeriodo(QWidget):
         return nome_intervallo(self.modo, dal, al, self.scarto) if dal else ""
 
     def _mostra(self) -> None:
-        self.et_quando.setText(self.nome())
+        self.et_quando.imposta(self.nome())
         self.b_modo.setText(f"{MODI_PERIODO[self.modo].lower()}  \u25be")
         self.b_dopo.setEnabled(self.scarto > 0)
-        self.b_oggi.setVisible(self.scarto > 0)
+        self._mostra_oggi()
 
     def aggiorna_tema(self, colori: dict) -> None:
         self.c = colori
