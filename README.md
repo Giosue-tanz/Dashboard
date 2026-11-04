@@ -100,6 +100,28 @@ Se Tess sta altrove, il percorso si cambia con l'impostazione `percorso_tess`
 nell'archivio; di suo cerca `~/Scrivania/WORK/AI-Locale` e ne legge
 `config/env` per sapere indirizzo del motore e nome del modello.
 
+## Salute, in tre righe
+
+La pagina risponde a tre domande, dall'immediato al lento.
+
+**La giornata** — *Oggi*, *Sonno*, *Battito*. Il riquadro **Oggi** è il
+sommario: l'anello dell'obiettivo dei passi e sei numeri. Sopra quello che hai
+fatto — passi, calorie attive, distanza — sotto quello che il corpo dice di sé:
+**sonno, battito e stress**. I primi tre si contano oggi e basta; gli altri tre
+li consegna il braccialetto quando gli pare, e se oggi non è ancora arrivato
+niente il riquadro mostra l'ultimo valore che c'è scrivendo di quando è
+(«battito · 01/11»), perché un trattino non direbbe niente. Doppio clic su un
+numero apre l'andamento di quel dato.
+
+**Nel tempo** — *Passi*, *Costanza*, *Indicatori*: la settimana che si sfoglia,
+i quadretti dei giorni centrati, le misure col loro scarto dall'obiettivo.
+
+**Il corpo** — *Composizione*, *Peso*, *Allenamenti*, *Braccialetto*: quello
+che cambia lentamente, e in fondo chi lo misura.
+
+I riquadri restano trascinabili: questa è solo la disposizione di partenza, e
+«Riquadri → Ripristina disposizione predefinita» ci riporta.
+
 ## Il battito, ora per ora
 
 Il braccialetto non manda un numero al giorno: di **ogni ora** manda la media,
@@ -116,9 +138,9 @@ oggi il braccialetto non ha ancora misurato niente — la mattina presto capita
 vuoto. Il numero grande è sempre il **battito a riposo**: il più basso della
 giornata, o la media dei più bassi nel periodo.
 
-Accanto c'è **Indicatori**: battito a riposo, variabilità (HRV), acqua e
-stress, con la media del periodo e quanto sei lontano dall'obiettivo. Lo stesso
-riquadro sta sia in Salute sia nel cruscotto.
+Nella riga di mezzo c'è **Indicatori**: battito a riposo, variabilità (HRV),
+acqua e stress, con la media del periodo e quanto sei lontano dall'obiettivo.
+Lo stesso riquadro sta sia in Salute sia nel cruscotto.
 
 Le ore arrivano con la sincronizzazione del braccialetto. Se un lotto è già
 stato scaricato ma non ancora letto, lo recupera
@@ -130,12 +152,17 @@ python3 strumenti/importa_lotti.py --scrivi
 ## Sfogliare le settimane
 
 Nei riquadri che si sfogliano — **Passi**, **Sonno**, **Ore di studio** — il
-comando del tempo è alto una riga sola: le frecce col nome in mezzo
+comando del tempo non ha una riga sua: sta **sulla riga del titolo**, in
+fondo, dove One UI mette le frecce dei grafici. Le frecce col nome in mezzo
 (`‹ questa settimana ›`), la pastiglia del modo (`giorni ▾`) e «Oggi», che
-compare solo quando ti sei allontanato dal presente. Prima erano tre pastiglie
-più le frecce su due righe: ottanta pixel di comando sopra un grafico che ne
-aveva centoventi. Adesso il comando ne prende trentotto e il grafico
-centosettanta.
+compare solo quando ti sei allontanato dal presente — e solo dove c'è posto
+anche per lui, se no la riga si riassetterebbe a metà di una scorsa. Quei
+quaranta pixel tornano al disegno: il grafico dei passi è passato da 200 a
+238 pixel, quello del sonno da 114 a 154, le ore di studio da 120 a 158.
+
+Dove il riquadro è stretto il nome del periodo si accorcia coi puntini (per
+intero nel suggerimento); dove è strettissimo il comando torna sotto al
+titolo da solo, invece di farsi tagliare.
 
 In modo **giorni** la finestra è la settimana del calendario, da lunedì a
 domenica: sette candele larghe invece di quattordici sottili, e le frecce

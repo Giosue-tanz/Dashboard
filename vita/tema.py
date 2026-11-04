@@ -248,6 +248,9 @@ def foglio_stile(c: dict, scala: float = 1.0,
                               font-weight: 700; letter-spacing: 1px; }}
     QLabel#ValoreScheda {{ font-size: {p(26)}; font-weight: 780; }}
     QLabel#NotaScheda {{ color: {c['testo2']}; font-size: {p(11.5)}; }}
+    /* i numeri della giornata nel riquadro «Oggi»: il colore glielo dà chi
+       li scrive, la misura la dà qui, così cresce col resto del testo */
+    QLabel#NumeroOggi {{ font-size: {p(18)}; font-weight: 750; }}
     QLabel#TitoloRiga {{ font-size: {p(13)}; font-weight: 650; }}
     QLabel#ValoreRiga {{ font-size: {p(14)}; font-weight: 780; }}
     QLabel#Sezione {{ font-size: {p(15)}; font-weight: 700; padding: 2px 0; }}

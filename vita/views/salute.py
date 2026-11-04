@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QHeaderView, QLabel,
                                QMenu, QPushButton, QTableWidget, QTableWidgetItem,
-                               QWidget)
+                               QVBoxLayout, QWidget)
 
 from ..braccialetto import RiquadroBraccialetto
 from ..componenti import (COLORE_BATTITO, EtichettaACapo, EtichettaAlta,
@@ -34,7 +34,7 @@ class VistaSalute(VistaSezioni):
     nome_nuovo = "+  Allenamento"
 
     chiave_vista = "salute"
-    versione_layout = 5
+    versione_layout = 6
 
     SEZIONI = {
         "oggi": "Oggi",
@@ -48,13 +48,18 @@ class VistaSalute(VistaSezioni):
         "peso": "Peso",
         "braccialetto": "Braccialetto",
     }
-    DISPOSIZIONE = [["oggi", "corpo", "costanza"], ["passi", "sonno", "battito"],
-                    ["indicatori", "allenamenti", "peso", "braccialetto"]]
-    # la riga di mezzo tiene tre grafici con il loro navigatore: le serve
-    # più aria delle altre
-    ALTEZZE_PREDEFINITE = (0.31, 0.35, 0.34)
-    LARGHEZZE_PREDEFINITE = ((), (0.34, 0.34, 0.32),
-                             (0.24, 0.26, 0.22, 0.28))
+    # Tre righe, tre domande, dall'immediato al lento:
+    #   la giornata  — com'è andata oggi: movimento, riposo, cuore
+    #   nel tempo    — come va la settimana: passi, costanza, indicatori
+    #   il corpo     — peso e composizione, allenamenti, e chi li misura
+    DISPOSIZIONE = [["oggi", "sonno", "battito"],
+                    ["passi", "costanza", "indicatori"],
+                    ["corpo", "peso", "allenamenti", "braccialetto"]]
+    # l'ultima riga tiene la tabella e il braccialetto, che hanno più roba
+    # dentro: un filo più alta delle altre due
+    ALTEZZE_PREDEFINITE = (0.33, 0.32, 0.35)
+    LARGHEZZE_PREDEFINITE = ((0.36, 0.34, 0.30), (0.34, 0.33, 0.33),
+                             (0.25, 0.23, 0.26, 0.26))
     PERIODI_SEZIONE = {
         "peso": ({"30": "30 giorni", "90": "90 giorni", "180": "6 mesi",
                   "365": "un anno", "730": "due anni"}, "90"),
@@ -101,23 +106,35 @@ class VistaSalute(VistaSezioni):
         self.setAcceptDrops(True)      # si può lasciar cadere lo zip sulla pagina
 
         # ------------------------------------------------------------- oggi
+        # L'anello dell'obiettivo a sinistra, i sei numeri della giornata a
+        # destra: sopra quello che hai fatto (passi, calorie, distanza),
+        # sotto quello che il corpo dice di sé (sonno, battito, stress).
         contenuto, lay = self.colonna(10)
+        fila = QHBoxLayout()
+        fila.setSpacing(14)
         self.anello = Anello(self.c, self.c["accento"])
-        self.anello.setMinimumHeight(120)
-        lay.addWidget(self.anello, 1)
+        self.anello.setMinimumSize(104, 104)
+        self._apribile(self.anello, "passi")
+        fila.addWidget(self.anello, 2)
         self.riquadro_numeri = QWidget()
         self.riquadro_numeri.setObjectName("ContenutoSezione")
         self.lay_numeri = QGridLayout(self.riquadro_numeri)
         self.lay_numeri.setContentsMargins(0, 0, 0, 0)
-        self.lay_numeri.setSpacing(6)
-        lay.addWidget(self.riquadro_numeri)
+        self.lay_numeri.setHorizontalSpacing(8)
+        self.lay_numeri.setVerticalSpacing(12)
+        for colonna in range(3):
+            self.lay_numeri.setColumnStretch(colonna, 1)
+        # i sei numeri stanno insieme al centro, non spiaccicati agli angoli
+        fila.addWidget(self.riquadro_numeri, 5, Qt.AlignVCenter)
+        lay.addLayout(fila, 1)
         self.aggiungi("oggi", contenuto)
 
         # ------------------------------------------ composizione corporea
         contenuto, lay = self.colonna(8)
         self.et_peso = EtichettaAlta("—")
         self.et_peso.setObjectName("ValoreScheda")
-        self.et_peso_nota = etichetta("", "NotaScheda")
+        self.et_peso_nota = EtichettaACapo("")
+        self.et_peso_nota.setObjectName("NotaScheda")
         lay.addWidget(self.et_peso)
         lay.addWidget(self.et_peso_nota)
         self.barra_corpo = BarraFasi(self.c)
@@ -362,32 +379,87 @@ class VistaSalute(VistaSezioni):
         self._aggiorna_battito()
         self._aggiorna_peso()
 
-    def _numero(self, valore: str, nota: str, colore: str, colonna: int) -> None:
-        v = QLabel(valore)
+    def _numero(self, campo: str, valore: str, nota: str, colore: str,
+                riga: int, colonna: int, spiega: str = "") -> None:
+        """Un numero della giornata: grande e colorato, con sotto cos'è."""
+        cella = QWidget()
+        cella.setObjectName("ContenutoSezione")
+        dentro = QVBoxLayout(cella)
+        dentro.setContentsMargins(0, 0, 0, 0)
+        dentro.setSpacing(1)
+        v = EtichettaAlta(valore)
+        v.setObjectName("NumeroOggi")
         v.setAlignment(Qt.AlignCenter)
-        v.setStyleSheet(f"color: {colore}; font-size: 17px; font-weight: 700;")
-        n = QLabel(nota)
+        # il colore qui, la misura nel foglio di stile: così cresce anche lui
+        # quando ingrandisci il testo
+        v.setStyleSheet(f"color: {colore if valore != '—' else self.c['testo2']};")
+        # «bpm a riposo · 01/11» col testo grande non sta su una riga sola:
+        # va a capo invece di farsi tagliare
+        n = EtichettaACapo(nota)
         n.setObjectName("NotaScheda")
         n.setAlignment(Qt.AlignCenter)
-        self.lay_numeri.addWidget(v, 0, colonna)
-        self.lay_numeri.addWidget(n, 1, colonna)
+        dentro.addWidget(v)
+        dentro.addWidget(n)
+        if campo:
+            cella.setToolTip((spiega + "\n" if spiega else "")
+                             + "Doppio clic per scorrere l'andamento di questo dato.")
+            self._apribile(cella, campo)
+        self.lay_numeri.addWidget(cella, riga, colonna)
+
+    def _recente(self, dati: dict, elenco: list[str], campo: str) -> tuple[float, str]:
+        """L'ultimo valore scritto per questo dato, e di che giorno è.
+
+        Passi e calorie si contano oggi e basta. Sonno, battito e stress no:
+        il braccialetto li consegna quando gli pare, e un trattino al posto
+        del battito di ieri sera non dice niente a nessuno. Meglio il numero
+        vero con scritto di quando è.
+        """
+        for giorno in reversed(elenco):
+            riga = dati.get(giorno)
+            if riga is not None and riga[campo]:
+                return float(riga[campo]), giorno
+        return 0.0, ""
+
+    @staticmethod
+    def _quando(giorno: str) -> str:
+        """«ieri», o la data breve: sta accanto al nome del dato, dev'essere corta."""
+        scarto = (date.today() - date.fromisoformat(giorno)).days
+        return "ieri" if scarto == 1 else data_it(giorno)[:5]
 
     def _aggiorna_oggi(self) -> None:
-        while self.lay_numeri.count():
-            w = self.lay_numeri.takeAt(0).widget()
-            if w is not None:
-                w.hide(); w.setParent(None); w.deleteLater()
+        self.svuota(self.lay_numeri)
         oggi = date.today().isoformat()
-        r = self.db.salute_giorno(oggi)
+        elenco = ultimi_giorni(7)
+        dati = self.db.giorni_salute(elenco[0], elenco[-1])
+        r = dati.get(oggi)
         obiettivo = self.db.leggi_num("obiettivo_passi", PREDEFINITI["obiettivo_passi"])
-        passi = int(r["passi"]) if r else 0
+        passi = float(r["passi"]) if r and r["passi"] else 0.0
         quota = passi / obiettivo if obiettivo else 0
         self.anello.imposta(quota, f"{quota * 100:.0f}%" if passi else "—",
                             "dell'obiettivo" if passi else "nessun dato")
-        self._numero(numero(passi, 0) if passi else "—", "passi", self.c["accento"], 0)
-        self._numero(numero(r["kcal"], 0) if r and r["kcal"] else "—",
-                     "kcal attive", "#f7913a", 1)
-        self._numero(numero(r["km"], 1) if r and r["km"] else "—", "km", "#35c4d7", 2)
+
+        # la riga di sopra: quello che hai fatto oggi, che oggi si conta
+        for colonna, (campo, nota, colore, decimali) in enumerate(
+                (("passi", "passi", self.c["accento"], 0),
+                 ("kcal", "kcal attive", "#f7913a", 0),
+                 ("km", "km", "#35c4d7", 1))):
+            valore = float(r[campo]) if r and r[campo] else 0.0
+            self._numero(campo, numero(valore, decimali) if valore else "—",
+                         nota, colore, 0, colonna)
+
+        # la riga di sotto: quello che il corpo dice di sé, anche di ieri
+        for colonna, (campo, nota, colore, forma, spiega) in enumerate(
+                (("sonno", "sonno", "#6c8cff", durata, "Quanto hai dormito"),
+                 ("battito", "battito", COLORE_BATTITO, lambda v: numero(v, 0),
+                  "Battito a riposo, in bpm"),
+                 ("stress", "stress", "#f0b429", lambda v: numero(v, 0),
+                  "Stress medio della giornata, da 0 a 100"))):
+            valore, giorno = self._recente(dati, elenco, campo)
+            quando = f"{nota} · {self._quando(giorno)}" if giorno and giorno != oggi \
+                else nota
+            self._numero(campo, forma(valore) if valore else "—",
+                         quando, colore, 1, colonna, spiega)
+
         self.contenitore.sezioni["oggi"].imposta_nota(
             f"obiettivo {numero(obiettivo, 0)} passi")
 
@@ -601,6 +673,11 @@ class VistaSalute(VistaSezioni):
         restano sempre. In orizzontale sparisce la nota accanto al totale.
         """
         def alto(widget) -> int:
+            # chi va a capo si misura alla larghezza che ha davvero: il
+            # suggerimento di un'etichetta a capo vale per una colonna
+            # stretta, e la legenda delle fasi sembrava alta il doppio
+            if isinstance(widget, QLabel) and widget.wordWrap():
+                return widget.heightForWidth(max(1, larghezza))
             # la barra delle fasi ha un'altezza fissa e nessun suggerimento
             return max(widget.sizeHint().height(), widget.minimumHeight(), 0)
 
@@ -629,7 +706,12 @@ class VistaSalute(VistaSezioni):
         scelto_dal, scelto_al = self.nav_sonno.scelto()
         notti = [r for g, r in sorted(dati.items())
                  if scelto_dal <= g <= scelto_al and r["sonno"]]
-        ultimo = notti[-1] if notti else None
+        # Nel periodo scelto può non esserci niente: in «giorni» quel periodo
+        # è l'ultimo giorno della settimana, che a metà settimana deve ancora
+        # arrivare. Dire «nessuna notte registrata» sopra un grafico pieno di
+        # notti è falso: si racconta l'ultima che c'è, dicendo di quando è.
+        viste = [r for g, r in sorted(dati.items()) if r["sonno"]]
+        ultimo = notti[-1] if notti else (viste[-1] if viste else None)
         tutte = [float(r["sonno"]) for r in dati.values() if r["sonno"]]
 
         if ultimo is None:
@@ -641,7 +723,7 @@ class VistaSalute(VistaSezioni):
             return
 
         totale = int(ultimo["sonno"])
-        if self.nav_sonno.modo == "giorni":
+        if self.nav_sonno.modo == "giorni" or not notti:
             grande, nota_quando = totale, relativa(ultimo["data"])
         else:
             # su settimane e mesi il numero grande è la media per notte
@@ -651,9 +733,14 @@ class VistaSalute(VistaSezioni):
             nota_quando = f"media di {len(dentro)} notti"
         self.et_sonno.setText(durata(grande))
         scostamento = grande - media(tutte)
-        segno = "+" if scostamento >= 0 else "−"
-        self.et_sonno_nota.setText(
-            f"{nota_quando} · {segno}{durata(abs(scostamento))} sulla media")
+        # con una notte sola lo scarto dalla media è zero: scrivere «+— sulla
+        # media» non è un'informazione, è un rumore
+        if len(tutte) > 1 and abs(scostamento) >= 1:
+            segno = "+" if scostamento >= 0 else "−"
+            self.et_sonno_nota.setText(
+                f"{nota_quando} · {segno}{durata(abs(scostamento))} sulla media")
+        else:
+            self.et_sonno_nota.setText(nota_quando)
 
         dettagliate = (int(ultimo["sonno_profondo"]) + int(ultimo["sonno_rem"])
                        + int(ultimo["sonno_sveglio"]))
