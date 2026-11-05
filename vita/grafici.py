@@ -655,10 +655,22 @@ class BarraFasi(QWidget):
 
 
 class MappaCalore(QWidget):
-    """Calendario a quadretti: un colore per giorno (umore, abitudini, ore)."""
+    """Calendario a quadretti: un colore per giorno (umore, abitudini, ore).
+
+    I quadretti si ridisegnano alla misura che c'è: il lato, lo spazio fra
+    l'uno e l'altro, gli angoli e le lettere dei giorni seguono tutti la
+    stessa proporzione, così il calendario ha la stessa faccia in un riquadro
+    piccolo e in uno grande, col testo normale e col testo molto grande.
+
+    Il riempimento va **a gradini**, non a sfumatura continua: fra il 40% e
+    il 45% dell'obiettivo, in un quadretto di dieci pixel, non vedrebbe la
+    differenza nessuno; fra un gradino e l'altro sì.
+    """
 
     giorno_scelto = Signal(str)
-    LATO_MASSIMO = 46.0        # oltre, i quadretti diventano mattoni
+    LATO_MASSIMO = 44.0        # oltre, i quadretti diventano mattoni
+    SOGLIE = (0.08, 0.3, 0.55, 0.8)                 # i gradini
+    OPACITA = (0.20, 0.40, 0.62, 0.82, 1.0)         # quanto tinge ognuno
 
     def __init__(self, colori: dict, parent=None):
         super().__init__(parent)
@@ -694,7 +706,12 @@ class MappaCalore(QWidget):
 
         salto = _date.fromisoformat(self.giorni[0]).weekday()
         settimane = math.ceil((len(self.giorni) + salto) / 7)
-        intestazione = 16 if self.etichette else 0
+        # le lettere dei giorni seguono il carattere dell'applicazione: col
+        # testo grande crescono anche loro, invece di restare otto punti
+        carattere = QFont(self.font())
+        carattere.setBold(True)
+        misura = QFontMetrics(carattere)
+        intestazione = (misura.height() + 3) if self.etichette else 0
 
         # Due modi di posare lo stesso calendario: i giorni in colonna (sette
         # colonne, una riga per settimana) o le settimane in colonna (sette
@@ -710,16 +727,22 @@ class MappaCalore(QWidget):
 
         utile = max(12.0, self.height() - intestazione)
         naturale = min(self.width() / colonne, utile / max(1, righe))
-        lato = max(6.0, min(naturale * 0.86, self.LATO_MASSIMO))
-        # con quadretti grandi le colonne si allargano a riempire il riquadro;
-        # con quadretti piccoli restano strette e il blocco si centra
-        passo_x = min(self.width() / colonne, lato * 1.45)
-        passo_y = min(utile / max(1, righe), lato * 1.45)
+        lato = max(6.0, min(naturale * 0.88, self.LATO_MASSIMO))
+        # lo spazio fra un quadretto e l'altro è un quinto del quadretto, mai
+        # meno di tre pixel: a quadretti grandi non diventa un corridoio, a
+        # quadretti piccoli non spariscono i confini
+        stacco = max(3.0, lato * 0.2)
+        passo_x = min(self.width() / colonne, lato + stacco)
+        passo_y = min(utile / max(1, righe), lato + stacco)
         sinistra = (self.width() - passo_x * colonne) / 2
         alto = intestazione + max(0.0, (utile - passo_y * righe) / 2)
+        raggio = lato * 0.3
 
-        if self.etichette and not disteso:
-            f = QFont(); f.setPointSize(8); f.setBold(True); p.setFont(f)
+        # con le colonne strette la lettera non ci sta: meglio nessuna lettera
+        # che sette lettere appiccicate
+        if (self.etichette and not disteso
+                and misura.horizontalAdvance("M") <= passo_x - 2):
+            p.setFont(carattere)
             p.setPen(QColor(self.c["testo2"]))
             for i, nome in enumerate("LMMGVSD"):
                 p.drawText(QRectF(sinistra + i * passo_x, 0, passo_x, intestazione),
@@ -740,14 +763,20 @@ class MappaCalore(QWidget):
                 p.setBrush(QColor(self.c["griglia"]))
             else:
                 col = QColor(colore)
-                col.setAlpha(int(70 + 185 * max(0.0, min(1.0, quota))))
+                gradino = sum(1 for s in self.SOGLIE if quota > s)
+                col.setAlphaF(self.OPACITA[gradino])
                 p.setBrush(col)
-            p.drawRoundedRect(rect, lato * 0.34, lato * 0.34)
+            p.drawRoundedRect(rect, raggio, raggio)
             if giorno == _date.today().isoformat():
+                # il contorno di oggi sta **dentro** il quadretto: fuori,
+                # sul bordo del riquadro, veniva tagliato
                 p.setBrush(Qt.NoBrush)
-                p.setPen(QPen(QColor(self.c["testo"]), max(1.2, lato * 0.07)))
-                p.drawRoundedRect(rect.adjusted(-2, -2, 2, 2),
-                                  lato * 0.32, lato * 0.32)
+                spessore = max(1.4, lato * 0.1)
+                p.setPen(QPen(QColor(self.c["testo"]), spessore))
+                p.drawRoundedRect(
+                    rect.adjusted(spessore / 2, spessore / 2,
+                                  -spessore / 2, -spessore / 2),
+                    raggio, raggio)
             self._celle.append((rect, giorno))
 
     def mouseMoveEvent(self, ev):

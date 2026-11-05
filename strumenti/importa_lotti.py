@@ -10,8 +10,13 @@ prossima sincronizzazione, basta rileggere quello che c'è già.
 
     python3 strumenti/importa_lotti.py            fa vedere cosa farebbe
     python3 strumenti/importa_lotti.py --scrivi   e li scrive davvero
+    python3 strumenti/importa_lotti.py --scrivi --sovrascrivi
+                                                  rifà anche i giorni già scritti
 
 Scrive solo dove non c'è già un valore: quello che hai messo a mano vince.
+Con `--sovrascrivi` invece rimette i valori che vengono dai lotti anche dove
+qualcosa c'è già — serve quando impariamo a leggere meglio un campo e quello
+scritto prima era peggio. I giorni toccati li elenca, così si vede cosa cambia.
 """
 from __future__ import annotations
 
@@ -47,6 +52,8 @@ def raccogli() -> list[bytes]:
 def main() -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument("--scrivi", action="store_true")
+    argomenti.add_argument("--sovrascrivi", action="store_true",
+                           help="rifà anche i valori già presenti")
     opzioni = argomenti.parse_args()
 
     lotti = raccogli()
@@ -71,10 +78,12 @@ def main() -> int:
     for giorno, misure in sorted(giorni.items()):
         riga = db.salute_giorno(giorno)
         valori = dict(riga) if riga else {}
-        nuovi = {c: v for c, v in misure.items() if v and not (valori.get(c) or 0)}
+        nuovi = {c: v for c, v in misure.items()
+                 if v and (opzioni.sovrascrivi or not (valori.get(c) or 0))}
         gia = {c: valori.get(c) for c in misure if valori.get(c)}
         print(f"  {giorno}: {nuovi or 'niente di nuovo'}"
-              + (f"   (già scritto: {gia})" if gia else ""))
+              + (f"   ({'prima' if opzioni.sovrascrivi else 'già scritto'}: "
+                 f"{gia})" if gia else ""))
         if opzioni.scrivi and nuovi:
             valori.update(nuovi)
             valori.update({"data": giorno, "note": valori.get("note", "")})

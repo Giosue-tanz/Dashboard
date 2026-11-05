@@ -8,12 +8,13 @@ from PySide6.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QMenu,
                                QProgressBar, QPushButton, QScrollArea,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from ..componenti import abilita_deselezione, etichetta, riga, stile_tabella
+from ..componenti import (NavigatorePeriodo, abilita_deselezione, etichetta,
+                          riga, stile_tabella)
 from ..db import STATI_PROGETTO
 from ..dialoghi import DialogoIncasso, DialogoLavoro, DialogoProgetto, DialogoScadenza
 from ..grafici import GraficoBarre, GraficoCiambella
 from ..utils import (data_it, durata, euro, media, numero, ore, relativa,
-                     settimana_corrente, anno_corrente, mese_corrente)
+                     anno_corrente, mese_corrente)
 from . import VistaSezioni
 
 
@@ -83,8 +84,6 @@ class VistaCarriera(VistaSezioni):
     DISPOSIZIONE = [["lavagna"], ["ore", "soldi"], ["registro", "incassi", "scadenze"]]
     ALTEZZE_PREDEFINITE = (0.40, 0.30, 0.30)
     PERIODI_SEZIONE = {
-        "ore": ({"8": "8 settimane", "12": "12 settimane", "26": "26 settimane",
-                 "52": "un anno", "104": "due anni"}, "8"),
         "soldi": ({"mese": "Mese corrente", "tre_mesi": "Ultimi 3 mesi",
                    "anno": "Anno corrente", "anno_scorso": "Anno scorso",
                    "tutto": "Tutto"}, "anno"),
@@ -147,8 +146,13 @@ class VistaCarriera(VistaSezioni):
         self.g_ore = GraficoBarre(self.c)
         self.g_ore.formato = lambda v: ore(v, 0)
         self.g_ore.evidenzia_ultima = True
+        # giorno per giorno, settimana per settimana o mese per mese: lo
+        # stesso comando dei passi e delle ore di studio, sulla riga del titolo
+        self.nav_ore = NavigatorePeriodo(self.c, "settimane")
+        self.nav_ore.cambiato.connect(self._aggiorna_ore)
+        self.nav_ore.scorri_con_rotella(self.g_ore)
         lay.addWidget(self.g_ore, 1)
-        self.aggiungi("ore", contenuto)
+        self.aggiungi("ore", contenuto, comando=self.nav_ore)
 
         # ------------------------------------------------------------ soldi
         self.g_soldi = GraficoCiambella(self.c)
@@ -363,24 +367,29 @@ class VistaCarriera(VistaSezioni):
                        for k, nome in STATI_PROGETTO.items()))
 
     def _aggiorna_ore(self) -> None:
-        settimane = int(self.periodo("ore"))
-        oggi = date.today()
-        lunedi = oggi - timedelta(days=oggi.weekday())
+        """Le ore di lavoro nel modo scelto: un giorno, una settimana o un
+        mese per barra.
+
+        Prima si potevano guardare solo a settimane: per sapere quanto avevi
+        lavorato *martedì* bisognava andare nella tabella qui sotto.
+        """
+        finestre = self.nav_ore.finestre()
         dati, totali = [], []
-        for i in range(settimane - 1, -1, -1):
-            inizio = lunedi - timedelta(weeks=i)
-            fine = inizio + timedelta(days=6)
-            minuti = self.db.minuti_lavoro(inizio.isoformat(), fine.isoformat())
+        for nome_barra, dal, al in finestre:
+            minuti = self.db.minuti_lavoro(dal, al)
             totali.append(minuti)
-            dati.append((data_it(inizio.isoformat())[:5], [float(minuti)]))
+            dati.append((nome_barra, [float(minuti)]))
         self.g_ore.imposta_dati(dati, [("ore", "#6c8cff")])
 
-        dal, al = settimana_corrente()
-        questa = self.db.minuti_lavoro(dal, al)
-        self.et_ore.setText(durata(questa))
+        # in «giorni» la finestra è la settimana intera: il numero grande è
+        # quello della settimana, come dice il nome del periodo
+        dal, al = (self.nav_ore.esteso() if self.nav_ore.modo == "giorni"
+                   else self.nav_ore.scelto())
+        unita = {"giorni": "giorno", "settimane": "settimana",
+                 "mesi": "mese"}[self.nav_ore.modo]
+        self.et_ore.setText(durata(self.db.minuti_lavoro(dal, al)))
         self.et_ore_nota.setText(
-            f"lavorate questa settimana · media {durata(media(totali))} "
-            f"nelle ultime {settimane} settimane")
+            f"{self.nav_ore.nome()} · media {durata(media(totali))} per {unita}")
         dal_anno, al_anno = anno_corrente()
         minuti_anno = self.db.minuti_lavoro(dal_anno, al_anno)
         incassi_anno = self.db.totale_incassi(dal_anno, al_anno)
@@ -392,7 +401,8 @@ class VistaCarriera(VistaSezioni):
         else:
             self.et_tariffa.setText("—")
             self.et_tariffa.setToolTip("registra le ore per vedere la tariffa reale")
-        self.contenitore.sezioni["ore"].imposta_nota(f"{settimane} settimane")
+        self.contenitore.sezioni["ore"].imposta_nota(
+            f"{len(finestre)} {self.nav_ore.modo}")
 
     def _aggiorna_soldi(self) -> None:
         periodo = self.periodo("soldi")

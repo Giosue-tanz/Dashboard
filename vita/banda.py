@@ -119,6 +119,9 @@ class Braccialetto(QObject):
         self._ultima_notifica = ("", b"", 0.0)
         self._raccolti: list[bytes] = []      # i lotti di questa sincronizzazione
         self._pezzi: dict[int, bytes] = {}    # i frammenti di un lotto grande
+        self._mappa_pezzi: list[tuple] = []   # com'erano fatti i pezzi
+        self._arrivi: list[tuple] = []        # e in che ordine sono arrivati
+        self._buchi = 0                       # quanti byte mancano all'appello
         # il braccialetto chiude il collegamento se nessuno gli parla: il
         # telefono lo tiene sveglio chiedendogli cose ogni tanto, e qui si fa
         # lo stesso. Senza, cade dopo qualche minuto.
@@ -358,6 +361,14 @@ class Braccialetto(QObject):
 
         Lo stato dice a che punto siamo — 8 il primo, 9 quelli in mezzo, 10
         l'ultimo. Finché non arriva l'ultimo non c'è niente da leggere.
+
+        **L'indice a volte è il numero del pezzo, a volte lo scostamento in
+        byte.** Se è uno scostamento i pezzi si posano al loro posto, e dove
+        manca qualcosa resta un buco di zeri invece di far scivolare tutto il
+        resto: così i record dopo il buco restano allineati e si possono
+        ancora leggere (`vita/lotti.py` sa saltare la parte rovinata). La
+        mappa dei pezzi finisce accanto al lotto, per capirci qualcosa di più
+        la prossima volta.
         """
         if len(messaggio) < 6:
             return None
@@ -365,12 +376,38 @@ class Braccialetto(QObject):
         indice = int.from_bytes(messaggio[2:6], "little")
         if stato == 0x08:                      # primo pezzo: si ricomincia
             self._pezzi = {}
-        self._pezzi[indice] = messaggio[6:]
+            self._arrivi = []
+        pezzo = messaggio[6:]
+        if indice in self._pezzi:
+            # due pezzi con lo stesso numero: il secondo non deve cancellare
+            # il primo, o sparisce mezzo lotto
+            indice = max(self._pezzi) + 1
+        self._pezzi[indice] = pezzo
+        # testa e coda di ogni pezzo: servono a capire se l'uno continua
+        # davvero l'altro, o se per strada si perde qualcosa
+        self._arrivi.append((stato, indice, len(pezzo),
+                             pezzo[:12].hex(), pezzo[-12:].hex()))
         if stato != 0x0A:                      # non è l'ultimo: si aspetta
             return None
-        intero = b"".join(self._pezzi[i] for i in sorted(self._pezzi))
+        ordinati = sorted(self._pezzi.items())
         self._pezzi = {}
-        return intero
+        self._mappa_pezzi = list(self._arrivi)
+        self._arrivi = []
+        primo = ordinati[0]
+        # scostamenti o numeri d'ordine? se il secondo indice è grande quanto
+        # il primo pezzo, sono scostamenti
+        scostamenti = len(ordinati) > 1 and ordinati[1][0] >= len(primo[1]) - 16
+        if not scostamenti:
+            return b"".join(p for _, p in ordinati)
+        intero = bytearray()
+        self._buchi = 0
+        for dove, pezzo in ordinati:
+            dove = min(dove, 4 * 1024 * 1024)   # un indice assurdo non alloca
+            if dove > len(intero):
+                self._buchi += dove - len(intero)
+                intero.extend(b"\x00" * (dove - len(intero)))
+            intero[dove:dove + len(pezzo)] = pezzo
+        return bytes(intero)
 
     def _messaggio(self, trama) -> None:
         if trama.servizio == sap.SERVIZI["avvio"]:
@@ -489,6 +526,15 @@ class Braccialetto(QObject):
             nome = datetime.now().strftime("lotto-%Y%m%d-%H%M%S-%f.bin")
             with open(os.path.join(CARTELLA_LOTTI, nome), "wb") as f:
                 f.write(messaggio)
+            if self._mappa_pezzi:
+                # com'era spezzettato: indici e lunghezze, più i byte mancanti
+                with open(os.path.join(CARTELLA_LOTTI,
+                                       nome[:-4] + ".pezzi.txt"), "w") as f:
+                    f.write(f"buchi {self._buchi}\n")
+                    f.write("stato indice lunghezza testa coda\n")
+                    for voce in self._mappa_pezzi:
+                        f.write(" ".join(str(x) for x in voce) + "\n")
+                self._mappa_pezzi, self._buchi = [], 0
         except OSError:
             pass
 

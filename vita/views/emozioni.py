@@ -81,8 +81,13 @@ class VistaEmozioni(VistaSezioni):
                         "anno_scorso": "Anno scorso"}, "trenta"),
         "andamento": (PERIODI, "trenta"),
         "frequenze": (PERIODI, "trenta"),
-        "correlazioni": ({"tre_mesi": "Ultimi 3 mesi", "anno": "Anno corrente",
-                          "tutto": "Tutto"}, "tre_mesi"),
+        # anche a periodi corti: con due settimane i confronti sono fragili,
+        # ma servono a vedere come stai andando *adesso*, non in media da
+        # gennaio. Quanti giorni stanno dietro a ogni riga lo dice la riga.
+        "correlazioni": ({"quattordici": "Ultimi 14 giorni",
+                          "trenta": "Ultimi 30 giorni",
+                          "tre_mesi": "Ultimi 3 mesi", "anno": "Anno corrente",
+                          "tutto": "Tutto"}, "trenta"),
         "elenco": (PERIODI, "trenta"),
     }
 
@@ -296,8 +301,31 @@ class VistaEmozioni(VistaSezioni):
         self.mappa.imposta_dati(elenco, dati, suggerimenti)
 
     def _aggiorna_andamento(self) -> None:
+        """Come sono andati umore, energia e stress.
+
+        Di norma un punto per giorno, con la media delle voci di quel giorno.
+        Ma dentro una giornata sola la media nasconde proprio quello che si
+        vuole vedere — se la mattina è andata diversa dalla sera — e allora
+        si disegnano le voci **una per una, all'ora in cui le hai scritte**.
+        """
         dal, al = intervallo(self.periodo("andamento"))
+        dentro_un_giorno = dal == al
+        if dentro_un_giorno:
+            voci = sorted(self.db.voci(dal, al), key=lambda v: v["ora"])
+            if len(voci) >= 2:
+                def a_ore(campo):
+                    return [(v["ora"][:5], float(v[campo])) for v in voci]
+                self.g_andamento.imposta_serie([
+                    ("umore", a_ore("umore"), self.c["accento"]),
+                    ("energia", a_ore("energia"), "#35c4d7"),
+                    ("stress", a_ore("stress"), "#f7913a"),
+                ])
+                self.contenitore.sezioni["andamento"].imposta_nota(
+                    f"{len(voci)} voci, ora per ora")
+                return
         righe = self.db.medie_giorno(dal, al)
+        self.contenitore.sezioni["andamento"].imposta_nota(
+            "una sola voce" if dentro_un_giorno and righe else "")
         if not righe:
             self.g_andamento.imposta_serie([])
             return
@@ -356,7 +384,8 @@ class VistaEmozioni(VistaSezioni):
                 (dentro if esito else fuori).append(float(r[campo]))
             if len(dentro) < 3 or len(fuori) < 3:
                 return None
-            return nome, campo, media(dentro) - media(fuori), len(dentro)
+            return (nome, campo, media(dentro) - media(fuori),
+                    len(dentro), len(dentro) + len(fuori))
 
         def misura(campo: str):
             """Valore di salute del giorno, oppure None se non è stato registrato."""
@@ -384,27 +413,45 @@ class VistaEmozioni(VistaSezioni):
             confronta("Quando studi più di 3 ore", "stress",
                       lambda g: studio.get(g, 0) > 180),
         ]
-        prove = [p for p in prove if p and abs(p[2]) >= 0.25]
+        # «tentate» sono i confronti che si potevano fare davvero; fra quelli
+        # si tengono solo gli scostamenti abbastanza netti
+        tentate = [p for p in prove if p]
+        prove = [p for p in tentate if abs(p[2]) >= 0.25]
         prove.sort(key=lambda p: -abs(p[2]))
         if not prove:
-            self.lay_corr.addWidget(etichetta(
-                "Nessuno scostamento degno di nota in questo periodo.", "NotaScheda"))
+            if not tentate:
+                spiegazione = (
+                    f"Con {len(medie)} giorni di diario qui dentro non c'è "
+                    "ancora un confronto da fare: ogni riga vuole almeno tre "
+                    "giorni da una parte e tre dall'altra (per esempio tre "
+                    "notti corte e tre normali). Prova con un periodo più lungo.")
+            else:
+                massimo = max(abs(p[2]) for p in tentate)
+                spiegazione = (
+                    f"Niente di netto: su {len(medie)} giorni la differenza "
+                    f"più grande è di {numero(massimo, 1)} punti su dieci, "
+                    "troppo poca per darle un peso.")
+            nota_vuota = etichetta(spiegazione, "NotaScheda")
+            nota_vuota.setWordWrap(True)
+            self.lay_corr.addWidget(nota_vuota)
             self.lay_corr.addStretch(1)
             return
 
-        for nome, chiave, scostamento, quanti in prove:
+        for nome, chiave, scostamento, quanti, su_quanti in prove:
             buono = scostamento > 0 if chiave != "stress" else scostamento < 0
             colore = self.c["entrata"] if buono else self.c["uscita"]
             segno = "+" if scostamento > 0 else "−"
             testo = QLabel(
                 f"{nome}  <span style='color:{colore}; font-weight:700'>"
                 f"{chiave} {segno}{numero(abs(scostamento), 1)}</span>"
-                f" <span style='color:{self.c['testo2']}'>· {quanti} giorni</span>")
+                f" <span style='color:{self.c['testo2']}'>· {quanti} giorni "
+                f"su {su_quanti}</span>")
             testo.setTextFormat(Qt.RichText)
             testo.setWordWrap(True)
             self.lay_corr.addWidget(testo)
-        nota = etichetta("Sono confronti fra medie, non cause: dicono dove guardare.",
-                         "NotaScheda")
+        nota = etichetta("Sono confronti fra medie, non cause: dicono dove "
+                         "guardare. Più corto è il periodo, meno giorni stanno "
+                         "dietro a ogni riga.", "NotaScheda")
         nota.setWordWrap(True)
         self.lay_corr.addWidget(nota)
         self.lay_corr.addStretch(1)

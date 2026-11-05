@@ -116,11 +116,44 @@ numero apre l'andamento di quel dato.
 **Nel tempo** — *Passi*, *Costanza*, *Indicatori*: la settimana che si sfoglia,
 i quadretti dei giorni centrati, le misure col loro scarto dall'obiettivo.
 
-**Il corpo** — *Composizione*, *Peso*, *Allenamenti*, *Braccialetto*: quello
-che cambia lentamente, e in fondo chi lo misura.
+**Il corpo** — *Composizione*, *Allenamenti*, *Braccialetto*: quello che
+cambia lentamente, e in fondo chi lo misura. **Composizione** tiene dentro
+anche la curva del peso, che prima era un riquadro a parte: senza la massa
+grassa quel riquadro mostrava un numero e una barra finta tutta di un colore,
+e non diceva niente. Adesso c'è il peso, di quanto si è mosso nel periodo, la
+curva, e — quando la massa grassa c'è — la barra di com'è diviso il peso con
+la sua legenda.
+
+In **Costanza** i tre dati si scelgono con tre segni sulla riga del titolo
+(👟 passi, 🌙 sonno, 💪 allenamenti): il nome per esteso è nel suggerimento, e
+il riassunto sta sotto i quadretti. I quadretti si ridisegnano alla misura che
+trovano — lato, distanze, angoli e lettere dei giorni seguono tutti la stessa
+proporzione — e si riempiono a gradini invece che a sfumatura: fra il 40% e il
+45% dell'obiettivo, in dieci pixel, non vedrebbe la differenza nessuno.
 
 I riquadri restano trascinabili: questa è solo la disposizione di partenza, e
 «Riquadri → Ripristina disposizione predefinita» ci riporta.
+
+## Il sonno, dal braccialetto
+
+Il braccialetto manda la notte in due pezzi: la **sessione** (da quando ti sei
+addormentato a quando ti sei alzato) e le **fasi** in cui l'ha divisa —
+leggero, profondo, REM, sveglio, con gli stessi codici che usa Samsung Health
+(40001…40004). I due lotti portano lo stesso identificatore di sessione, ed è
+così che si rimettono insieme. **La notte vale per il giorno in cui ti
+svegli**, come nell'importazione dal telefono.
+
+Arrivano anche l'ora in cui sei andato a letto e quella della sveglia, che
+finiscono nei campi di «Inserimento dati».
+
+**Le fasi si scrivono solo se coprono quasi tutta la notte.** I lotti grandi
+arrivano a pezzi e un pezzo ogni tanto si perde per strada: con metà delle
+fasi la divisione che ne verrebbe fuori sarebbe falsa, e allora si tiene la
+sola durata. Dove un pezzo manca, il lettore non butta via il resto: cerca il
+prossimo record credibile — un'ora che può essere vera, numeri dentro i
+limiti del possibile — e riprende da lì. Accanto a ogni lotto grezzo viene
+salvata la mappa dei pezzi (`.pezzi.txt`), per arrivare in fondo alla
+faccenda con i prossimi dati.
 
 ## Il battito, ora per ora
 
@@ -177,6 +210,47 @@ l'obiettivo resta una riga tratteggiata in cima, con scritto quant'è.
 
 In `mockup/grafici-settimana.html` ci sono quattro forme alternative per le
 candele, se un giorno si vorrà cambiare disegno.
+
+## «Cosa ti muove l'umore»
+
+Il riquadro in Emozioni non cerca correlazioni statistiche: fa una cosa sola,
+e la fa in chiaro. Per ogni domanda («nei giorni in cui ti alleni…») divide i
+giorni del periodo in **due mucchi** — quelli in cui la cosa è successa e
+quelli in cui non è successa — e confronta la **media** di umore, energia o
+stress fra i due. La differenza è quello che vedi scritto.
+
+Tre regole tengono lontane le sciocchezze:
+
+* i giorni **senza quel dato** restano fuori da tutti e due i mucchi: un
+  giorno in cui il sonno non è registrato non è un giorno in cui hai dormito
+  poco;
+* servono **almeno tre giorni da una parte e tre dall'altra**, se no la riga
+  non compare;
+* la differenza dev'essere di almeno **0,25 punti su dieci**.
+
+Quando non esce niente, il riquadro dice perché: se i mucchi sono troppo
+piccoli lo scrive, e se le differenze sono tutte piccole dice qual è la più
+grande. Il periodo adesso scende fino a **14 giorni**: più è corto, meno
+giorni stanno dietro a ogni riga — e infatti ogni riga finisce con «5 giorni
+su 14», così si vede su quanto poggia.
+
+Sono confronti fra medie, non cause: dicono dove guardare.
+
+## Giorno per giorno, dove serve
+
+Ogni riquadro che mostra un andamento lascia scendere fino al giorno singolo:
+Passi, Sonno e Ore di studio col navigatore, Battito con le ore di oggi e di
+ieri, Costanza con un quadretto per giorno, Emozioni e Finanza con «Oggi» fra
+i periodi, Abitudini con la griglia dei giorni.
+
+**Ore di lavoro** era l'unico rimasto a sole settimane: per sapere quanto
+avevi lavorato *martedì* bisognava andare nella tabella sotto. Adesso ha lo
+stesso navigatore degli altri — giorni, settimane, mesi.
+
+E dentro una giornata sola, in **Andamento** delle Emozioni, non si fa più la
+media delle voci: si disegnano una per una, all'ora in cui le hai scritte. La
+media nascondeva proprio quello che interessa, cioè se la mattina è andata
+diversa dalla sera.
 
 ## Scegliere il periodo
 

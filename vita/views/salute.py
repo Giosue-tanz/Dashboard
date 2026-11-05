@@ -34,7 +34,7 @@ class VistaSalute(VistaSezioni):
     nome_nuovo = "+  Allenamento"
 
     chiave_vista = "salute"
-    versione_layout = 6
+    versione_layout = 7
 
     SEZIONI = {
         "oggi": "Oggi",
@@ -45,7 +45,6 @@ class VistaSalute(VistaSezioni):
         "battito": "Battito",
         "indicatori": "Indicatori",
         "allenamenti": "Allenamenti",
-        "peso": "Peso",
         "braccialetto": "Braccialetto",
     }
     # Tre righe, tre domande, dall'immediato al lento:
@@ -54,15 +53,13 @@ class VistaSalute(VistaSezioni):
     #   il corpo     — peso e composizione, allenamenti, e chi li misura
     DISPOSIZIONE = [["oggi", "sonno", "battito"],
                     ["passi", "costanza", "indicatori"],
-                    ["corpo", "peso", "allenamenti", "braccialetto"]]
+                    ["corpo", "allenamenti", "braccialetto"]]
     # l'ultima riga tiene la tabella e il braccialetto, che hanno più roba
     # dentro: un filo più alta delle altre due
     ALTEZZE_PREDEFINITE = (0.33, 0.32, 0.35)
     LARGHEZZE_PREDEFINITE = ((0.36, 0.34, 0.30), (0.34, 0.33, 0.33),
-                             (0.25, 0.23, 0.26, 0.26))
+                             (0.38, 0.32, 0.30))
     PERIODI_SEZIONE = {
-        "peso": ({"30": "30 giorni", "90": "90 giorni", "180": "6 mesi",
-                  "365": "un anno", "730": "due anni"}, "90"),
         "corpo": ({"30": "30 giorni", "90": "90 giorni", "180": "6 mesi",
                    "365": "un anno", "730": "due anni"}, "90"),
         "costanza": ({"2": "2 settimane", "4": "4 settimane", "8": "8 settimane",
@@ -77,11 +74,13 @@ class VistaSalute(VistaSezioni):
         "allenamenti": ({"7": "questa settimana", "30": "30 giorni",
                          "90": "90 giorni", "365": "un anno"}, "30"),
     }
-    # ogni dato della costanza ha la sua tinta e il suo modo di dirsi
+    # ogni dato della costanza ha il suo segno, la sua tinta e il suo modo
+    # di dirsi: il segno sta sulla riga del titolo, il nome nel suggerimento
+    # e nella nota accanto al titolo
     COSTANZA = {
-        "passi": ("Passi", "", "giorni camminati"),
-        "sonno": ("Sonno", "#3d7bfd", "notti registrate"),
-        "allenamenti": ("Allenamenti", "#ff9f45", "giorni di allenamento"),
+        "passi": ("Passi", "", "giorni camminati", "👟"),
+        "sonno": ("Sonno", "#3d7bfd", "notti registrate", "🌙"),
+        "allenamenti": ("Allenamenti", "#ff9f45", "giorni di allenamento", "💪"),
     }
 
     def crea_sezioni(self) -> None:
@@ -130,42 +129,61 @@ class VistaSalute(VistaSezioni):
         self.aggiungi("oggi", contenuto)
 
         # ------------------------------------------ composizione corporea
-        contenuto, lay = self.colonna(8)
+        # Il peso, come si muove, e di che cosa è fatto. La curva sta qui
+        # dentro invece che in un riquadro a parte: senza massa grassa la
+        # composizione non ha niente da dire, e un riquadro con dentro un
+        # numero solo e una barra finta non serviva a nessuno.
+        contenuto, lay = self.colonna(7)
         self.et_peso = EtichettaAlta("—")
         self.et_peso.setObjectName("ValoreScheda")
+        self.et_peso_scarto = etichetta("", "NotaScheda")
+        self.et_peso_scarto.setAlignment(Qt.AlignRight | Qt.AlignBottom)
+        testa = QHBoxLayout()
+        testa.setSpacing(10)
+        testa.addWidget(self.et_peso)
+        testa.addStretch(1)
+        testa.addWidget(self.et_peso_scarto)
+        lay.addLayout(testa)
         self.et_peso_nota = EtichettaACapo("")
         self.et_peso_nota.setObjectName("NotaScheda")
-        lay.addWidget(self.et_peso)
         lay.addWidget(self.et_peso_nota)
+
+        self.g_peso = GraficoLinea(self.c)
+        self.g_peso.formato = lambda v: numero(v, 1)
+        self.g_peso.setMinimumHeight(78)
+        self._apribile(self.g_peso, "peso")
+        lay.addWidget(self.g_peso, 1)
+
         self.barra_corpo = BarraFasi(self.c)
         lay.addWidget(self.barra_corpo)
-        # compare solo quando manca qualcosa: le righe sotto dicono già tutto
+        # la legenda dei pezzi, come quella delle fasi del sonno
         self.et_corpo_nota = EtichettaACapo("")
         self.et_corpo_nota.setObjectName("NotaScheda")
-        self.et_corpo_nota.hide()
         lay.addWidget(self.et_corpo_nota)
         self.cont_corpo, self.lay_corpo = self.colonna(7)
-        lay.addWidget(self.scorrevole(self.cont_corpo), 1)
+        self.area_corpo = self.scorrevole(self.cont_corpo)
+        lay.addWidget(self.area_corpo, 1)
         self.aggiungi("corpo", contenuto)
 
         # -------------------------------------------------------- costanza
         contenuto, lay = self.colonna(10)
-        quale, self.pastiglie = binario(
-            {k: nome for k, (nome, _, _) in self.COSTANZA.items()},
-            next(iter(self.COSTANZA)), self._scegli_costanza)
-        scelta = QHBoxLayout()
-        scelta.setContentsMargins(0, 0, 0, 0)
-        scelta.addWidget(quale)
-        scelta.addStretch(1)
-        lay.addLayout(scelta)
-
+        self.quale_costanza, self.pastiglie = binario(
+            {k: segno for k, (_, _, _, segno) in self.COSTANZA.items()},
+            next(iter(self.COSTANZA)), self._scegli_costanza,
+            {k: nome for k, (nome, _, _, _) in self.COSTANZA.items()})
         self.mappa = MappaCalore(self.c)
         self.mappa.giorno_scelto.connect(self.apri_dati)
         self.mappa.setToolTip("Un quadretto per giorno: più è pieno, più sei andato "
                               "vicino all'obiettivo.\nClicca un giorno per scriverne "
                               "i dati.")
         lay.addWidget(self.mappa, 1)
-        self.aggiungi("costanza", contenuto)
+        # il riassunto sta sotto la mappa, non accanto al titolo: lassù ci
+        # sono già i tre segni e il periodo, e la riga non basterebbe per tutti
+        self.et_costanza = etichetta("", "NotaScheda")
+        self.et_costanza.setAlignment(Qt.AlignCenter)
+        self.et_costanza.setWordWrap(True)
+        lay.addWidget(self.et_costanza)
+        self.aggiungi("costanza", contenuto, comando=self.quale_costanza)
 
         # ------------------------------------------------------------ passi
         contenuto, lay = self.colonna(6)
@@ -256,11 +274,6 @@ class VistaSalute(VistaSezioni):
         stile_tabella(self.tab)
         self.aggiungi("allenamenti", self.tab)
 
-        # ------------------------------------------------------------- peso
-        self.g_peso = GraficoLinea(self.c)
-        self.g_peso.formato = lambda v: numero(v, 1)
-        self._apribile(self.g_peso, "peso")
-        self.aggiungi("peso", self.g_peso)
         self._crea_braccialetto()
 
         self.grafici = [self.g_passi, self.g_sonno, self.g_peso, self.anello,
@@ -377,7 +390,6 @@ class VistaSalute(VistaSezioni):
         self._aggiorna_indicatori()
         self._aggiorna_allenamenti()
         self._aggiorna_battito()
-        self._aggiorna_peso()
 
     def _numero(self, campo: str, valore: str, nota: str, colore: str,
                 riga: int, colonna: int, spiega: str = "") -> None:
@@ -476,11 +488,14 @@ class VistaSalute(VistaSezioni):
                     if g in dati and dati[g][campo]]
 
         pesi, grassi, muscoli = serie("peso"), serie("grasso"), serie("muscolo")
+        self.g_peso.imposta_dati([(data_it(g)[:5], v) for g, v in pesi],
+                                 "#35c4d7", "peso")
+        self.g_peso.setVisible(len(pesi) >= 2)
         if not pesi and not grassi and not muscoli:
             self.et_peso.setText("—")
+            self.et_peso_scarto.setText("")
             self.et_peso_nota.setText("nessuna misura in questo periodo")
-            self.barra_corpo.imposta_dati([])
-            self.barra_corpo.setToolTip("")
+            self.barra_corpo.hide()
             self.et_corpo_nota.hide()
             self.lay_corpo.addWidget(etichetta(
                 "Peso, massa grassa e massa muscolare si scrivono nella finestra "
@@ -489,6 +504,7 @@ class VistaSalute(VistaSezioni):
             invito.clicked.connect(lambda: self.apri_dati())
             self.lay_corpo.addWidget(invito)
             self.lay_corpo.addStretch(1)
+            self.area_corpo.show()
             return
 
         peso = pesi[-1][1] if pesi else 0.0
@@ -507,34 +523,53 @@ class VistaSalute(VistaSezioni):
 
         ultima = (pesi or grassi or muscoli)[-1][0]
         self.et_peso.setText(f"{numero(peso, 1)} kg" if peso else f"{numero(grasso, 1)} %")
-        if pesi:
-            coda = (f" · min {numero(min(v for _, v in pesi), 1)} · "
-                    f"max {numero(max(v for _, v in pesi), 1)} kg"
-                    if len(pesi) > 1 else "")
+        # quanto si è mosso, grande e colorato accanto al numero: è la cosa
+        # che si guarda per prima
+        if len(pesi) > 1:
+            scostamento = pesi[-1][1] - pesi[0][1]
+            segno = "+" if scostamento > 0 else "−"
+            tinta = self.c["uscita"] if scostamento > 0 else self.c["entrata"]
+            self.et_peso_scarto.setText(
+                f"{segno}{numero(abs(scostamento), 1)} kg")
+            self.et_peso_scarto.setStyleSheet(
+                f"color: {tinta}; font-weight: 700;")
             self.et_peso_nota.setText(
-                f"{relativa(ultima)} · {variazione(pesi, 'kg')}{coda}")
+                f"{relativa(ultima)} · in {quanti} giorni · "
+                f"min {numero(min(v for _, v in pesi), 1)} · "
+                f"max {numero(max(v for _, v in pesi), 1)} kg")
         else:
+            self.et_peso_scarto.setText("")
             self.et_peso_nota.setText(relativa(ultima))
 
-        # la barra: com'è diviso il peso, non quanto pesa
+        # la barra: com'è diviso il peso, non quanto pesa. Senza massa grassa
+        # non si disegna una barra finta — non c'è niente da dividere
         if peso and (grasso or muscolo):
             resto = max(0.0, peso - kg_grassa - kg_muscolo)
             fette = [("grassa", kg_grassa, "#f7913a"),
                      ("muscolare", kg_muscolo, "#6c8cff"),
                      ("resto", resto, self.c["griglia"])]
-            self.barra_corpo.imposta_dati([f for f in fette if f[1] > 0])
+            vive = [f for f in fette if f[1] > 0]
+            self.barra_corpo.imposta_dati(vive)
             self.barra_corpo.setToolTip("   ·   ".join(
-                f"massa {n}: {numero(v, 1)} kg" for n, v, _ in fette if v > 0))
-            self.et_corpo_nota.hide()
+                f"massa {n}: {numero(v, 1)} kg" for n, v, _ in vive))
+            self.barra_corpo.show()
+            self.et_corpo_nota.setText("   ".join(
+                f"<span style='color:{col}'>●</span> {nome} {numero(v, 1)} kg"
+                for nome, v, col in vive
+                if nome != "resto" or v > 0.1))
+            self.et_corpo_nota.setTextFormat(Qt.RichText)
+            self.et_corpo_nota.show()
         else:
-            self.barra_corpo.imposta_dati([("peso", max(peso, 1.0), self.c["accento"])])
-            self.barra_corpo.setToolTip("")
+            self.barra_corpo.hide()
+            self.et_corpo_nota.setTextFormat(Qt.PlainText)
             self.et_corpo_nota.setText(
                 "senza massa grassa il peso resta un numero solo: scrivila in "
                 "«Inserimento dati».")
             self.et_corpo_nota.show()
 
+        righe = 0
         if grassi:
+            righe += 1
             riga_corpo = RigaMisura(
                 self.c, "◍", "Massa grassa",
                 f"{numero(kg_grassa, 1)} kg del peso" if peso else "percentuale",
@@ -543,6 +578,7 @@ class VistaSalute(VistaSezioni):
             self._apribile(riga_corpo, "grasso")
             self.lay_corpo.addWidget(riga_corpo)
         if muscoli:
+            righe += 1
             riga_corpo = RigaMisura(
                 self.c, "⟡", "Massa muscolare",
                 f"{numero(kg_muscolo, 1)} kg del peso" if peso else "percentuale",
@@ -551,6 +587,7 @@ class VistaSalute(VistaSezioni):
             self._apribile(riga_corpo, "muscolo")
             self.lay_corpo.addWidget(riga_corpo)
         if pesi and grassi:
+            righe += 1
             riga_corpo = RigaMisura(
                 self.c, "◆", "Massa secca", "il peso meno la massa grassa",
                 f"{numero(secca, 1)} kg", f"{numero(100 - grasso, 1)} % del peso",
@@ -558,6 +595,8 @@ class VistaSalute(VistaSezioni):
             self._apribile(riga_corpo, "peso")
             self.lay_corpo.addWidget(riga_corpo)
         self.lay_corpo.addStretch(1)
+        # senza righe l'area che scorre non serve: lo spazio va alla curva
+        self.area_corpo.setVisible(righe > 0)
 
     # ------------------------------------------------------------ costanza
     def dato_costanza(self) -> str:
@@ -574,7 +613,7 @@ class VistaSalute(VistaSezioni):
         dato = self.dato_costanza()
         for chiave, b in self.pastiglie.items():
             b.setChecked(chiave == dato)
-        nome, tinta, cosa = self.COSTANZA[dato]
+        nome, tinta, cosa, _segno = self.COSTANZA[dato]
         colore = tinta or self.c["accento"]
 
         settimane = int(self.periodo("costanza"))
@@ -623,6 +662,8 @@ class VistaSalute(VistaSezioni):
         if not valori:
             riassunto = f"nessun dato di {nome.lower()}"
         else:
+            # il nome del dato lo dice il segno acceso là sopra: qui bastano
+            # i numeri, e così la nota ci sta accanto al titolo
             riassunto = (f"{raggiunti}/{len(elenco)} centrati · "
                          f"media {misura(media(list(valori.values())))}")
             if attuale > 1:
@@ -633,7 +674,7 @@ class VistaSalute(VistaSezioni):
             f"meglio {migliore} di fila.\n"
             "Più il quadretto è pieno, più sei andato vicino all'obiettivo: "
             "clicca un giorno per scriverne i dati.")
-        self.contenitore.sezioni["costanza"].imposta_nota(riassunto)
+        self.et_costanza.setText(riassunto)
 
     def _aggiorna_passi(self) -> None:
         """I passi nel modo scelto: un giorno per barra, o una settimana, o un mese."""
@@ -856,17 +897,3 @@ class VistaSalute(VistaSezioni):
         self.contenitore.sezioni["allenamenti"].imposta_nota(
             f"{questa} su {obiettivo:.0f} questa settimana · {durata(minuti)} in totale")
 
-    def _aggiorna_peso(self) -> None:
-        quanti = int(self.periodo("peso"))
-        elenco = ultimi_giorni(quanti)
-        serie = self.db.serie_salute("peso", elenco[0], elenco[-1])
-        self.g_peso.imposta_dati([(data_it(g)[:5], v) for g, v in serie],
-                                 "#35c4d7", "peso")
-        if len(serie) >= 2:
-            scostamento = serie[-1][1] - serie[0][1]
-            segno = "+" if scostamento > 0 else "−"
-            self.contenitore.sezioni["peso"].imposta_nota(
-                f"{numero(serie[-1][1], 1)} kg · {segno}{numero(abs(scostamento), 1)} "
-                f"in {quanti} giorni")
-        else:
-            self.contenitore.sezioni["peso"].imposta_nota(f"{quanti} giorni")

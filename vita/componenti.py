@@ -848,13 +848,18 @@ def righe_indicatori(db, colori: dict, quanti: int) -> list[tuple[str, QWidget]]
     return fatte
 
 
-def binario(voci: dict, scelto: str, al_clic) -> tuple[QWidget, dict]:
+def binario(voci: dict, scelto: str, al_clic,
+            spiegazioni: dict | None = None) -> tuple[QWidget, dict]:
     """Un interruttore segmentato: le scelte dentro un unico fondo.
 
     È la forma che One UI dà alle scelte brevi — tre o quattro voci che si
     escludono — ed è quella che usa tutta l'applicazione per il tempo: giorni
     o settimane o mesi, sette o trenta giorni. Torna il binario e i pulsanti,
     perché chi lo usa possa riaccenderli quando cambia la scelta.
+
+    Le voci possono essere simboli invece che parole: in quel caso si passa
+    `spiegazioni` col nome per esteso, che finisce nel suggerimento — un
+    segno senza nome è un indovinello.
     """
     contenitore = QWidget()
     contenitore.setObjectName("Segmentato")
@@ -869,6 +874,8 @@ def binario(voci: dict, scelto: str, al_clic) -> tuple[QWidget, dict]:
         b.setChecked(chiave == scelto)
         b.setCursor(Qt.PointingHandCursor)
         b.setFocusPolicy(Qt.NoFocus)
+        if spiegazioni and chiave in spiegazioni:
+            b.setToolTip(spiegazioni[chiave])
         b.clicked.connect(lambda _=False, k=chiave: al_clic(k))
         pulsanti[chiave] = b
         lay.addWidget(b)
