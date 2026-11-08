@@ -1165,6 +1165,70 @@ class NavigatorePeriodo(QWidget):
         self.c = colori
 
 
+class BottonePannello(QPushButton):
+    """Apre e chiude la colonna delle conversazioni.
+
+    Disegna l'icona invece di scrivere «‹» o «›»: un rettangolo con la
+    colonna piena da una parte, come nelle app di chat. Si capisce al volo
+    da che parte sta il pannello, e cresce col testo invece di restare un
+    carattere perso in mezzo al bottone.
+    """
+
+    def __init__(self, colori: dict, aperta: bool = True, parent=None):
+        super().__init__(parent)
+        self.c = colori
+        self.aperta = aperta
+        self.setObjectName("BottonePannello")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.NoFocus)
+        self._misura()
+
+    def _misura(self) -> None:
+        self.ensurePolished()
+        lato = max(28, QFontMetrics(self.font()).height() + 12)
+        self.setFixedSize(lato, lato)
+
+    def imposta(self, aperta: bool) -> None:
+        self.aperta = aperta
+        self.setToolTip("Chiudi l'elenco delle conversazioni" if aperta
+                        else "Mostra le conversazioni")
+        self.update()
+
+    def changeEvent(self, ev):
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.StyleChange, QEvent.FontChange,
+                         QEvent.ApplicationFontChange):
+            self._misura()
+
+    def aggiorna_tema(self, colori: dict) -> None:
+        self.c = colori
+        self.update()
+
+    def paintEvent(self, ev):
+        super().paintEvent(ev)            # lo sfondo lo mette il foglio di stile
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        lato = min(self.width(), self.height())
+        riquadro = QRectF(0, 0, lato * 0.52, lato * 0.42)
+        riquadro.moveCenter(QRectF(self.rect()).center())
+        colore = QColor(self.c["testo2"] if not self.underMouse()
+                        else self.c["accento"])
+        p.setPen(QPen(colore, max(1.2, lato * 0.055)))
+        p.setBrush(Qt.NoBrush)
+        raggio = lato * 0.09
+        p.drawRoundedRect(riquadro, raggio, raggio)
+        # la colonna piena: a sinistra quando è aperta, a destra quando no
+        larga = riquadro.width() * 0.34
+        x = riquadro.left() if self.aperta else riquadro.right() - larga
+        colonna = QRectF(x, riquadro.top(), larga, riquadro.height())
+        p.setPen(Qt.NoPen)
+        p.setBrush(colore)
+        percorso = QPainterPath()
+        percorso.addRoundedRect(riquadro, raggio, raggio)
+        p.setClipPath(percorso)
+        p.drawRect(colonna)
+
+
 class BarraAttesa(QWidget):
     """Barra di caricamento che non sa quanto manca: un segmento che scorre.
 

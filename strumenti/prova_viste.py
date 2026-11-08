@@ -148,6 +148,30 @@ def main() -> int:
         assert riga["titolo"] == "Sonno di ottobre", riga["titolo"]
     prova("Tess: rinomino una chat", rinomina)
 
+    def leggere_i_dati():
+        """Il riassunto che Tess riceve deve costruirsi, sempre.
+
+        Un errore qui non si vede da nessuna parte se non nella chat, dove
+        Tess dice «non sono riuscita a leggere i tuoi dati»: ed è successo
+        per giorni per una riga sbagliata.
+        """
+        from vita.tess import aree_scelte, contesto
+        testo = contesto(db, None, aree_scelte(db), "quanti passi ho fatto ieri?")
+        assert len(testo) > 80, f"riassunto troppo corto: {testo!r}"
+        assert "Dati veri" in testo, testo[:120]
+    prova("Tess: il riassunto dei dati si costruisce", leggere_i_dati)
+
+    def elimina():
+        prima = len(db.conversazioni_tess())
+        usa_e_getta = "2020-01-01T00:00:00"
+        db.salva_messaggio_tess(usa_e_getta, "user", "prova")
+        r.aggiorna_elenco()
+        assert usa_e_getta in r.voci, "la conversazione non è nell'elenco"
+        r._elimina_chat(usa_e_getta)
+        assert len(db.conversazioni_tess()) == prima, "non l'ha eliminata"
+        assert usa_e_getta not in r.voci, "resta nell'elenco"
+    prova("Tess: elimino una chat", elimina)
+
     def colonna():
         r.piega_colonna(False); posa(120)
         assert not r.colonna_chat.isVisible(), "colonna ancora aperta"

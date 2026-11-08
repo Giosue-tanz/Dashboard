@@ -444,38 +444,90 @@ def foglio_stile(c: dict, scala: float = 1.0,
     QListWidget#ElencoChat {{
         background: transparent; border: none; outline: none;
     }}
+    /* le voci sono widget nostri: qui resta solo il fondo che le accoglie */
     QListWidget#ElencoChat::item {{
-        background: {c['pannello2']}; border-radius: 14px;
-        padding: 9px 12px; margin-bottom: 6px; color: {c['testo2']};
+        background: transparent; border-radius: 14px; margin-bottom: 4px;
+        color: {c['testo2']};
     }}
-    QListWidget#ElencoChat::item:hover {{ background: {tocco}; color: {c['testo']}; }}
-    QListWidget#ElencoChat::item:selected {{
-        background: {trasparente(c['accento'], 0.18)}; color: {c['testo']};
+    QListWidget#ElencoChat::item:selected {{ background: transparent; }}
+    /* i titoletti «OGGI», «IERI»…: non si cliccano, si leggono */
+    QListWidget#ElencoChat::item:disabled {{
+        color: {c['testo2']}; font-size: {p(10.5)}; font-weight: 700;
+        padding: 10px 10px 2px 10px; background: transparent;
+    }}
+    QWidget#VoceChat {{ background: {c['pannello2']}; border-radius: 14px; }}
+    QWidget#VoceChat:hover {{ background: {tocco}; }}
+    QWidget#VoceChat[aperta="si"] {{
+        background: {trasparente(c['accento'], 0.18)};
+    }}
+    QWidget#VoceChat[aperta="si"] QLabel#NomeChat {{
+        color: {c['testo']}; font-weight: 650;
+    }}
+    QLabel#NomeChat {{ color: {c['testo2']}; font-size: {p(12.5)}; }}
+    QWidget#VoceChat:hover QLabel#NomeChat {{ color: {c['testo']}; }}
+    QLabel#QuandoChat {{ color: {c['testo2']}; font-size: {p(10.5)}; }}
+    QPushButton#MenuChat {{
+        background: transparent; border: none; border-radius: {q(11)};
+        padding: 0; color: {c['testo2']}; font-size: {p(14)}; font-weight: 700;
+    }}
+    QPushButton#MenuChat:hover {{
+        background: {trasparente(c['accento'], 0.18)}; color: {c['accento']};
     }}
     /* la casella che compare quando rinomini una conversazione */
-    QListWidget#ElencoChat QLineEdit {{
+    QLineEdit#RinominaChat {{
         background: {c['pannello']}; border: 1px solid {c['accento']};
-        border-radius: 12px; padding: 4px 10px; color: {c['testo']};
+        border-radius: 10px; padding: 2px 8px; color: {c['testo']};
         font-size: {p(12.5)}; selection-background-color: {c['accento']};
         selection-color: {su_accento};
     }}
-    /* le linguette che chiudono e riaprono l'elenco */
-    QPushButton#Linguetta {{
-        background: {c['pannello2']}; border: none; border-radius: 14px;
-        padding: 0; color: {c['testo2']}; font-size: {p(14)}; font-weight: 700;
+    /* il bottone che apre e chiude la colonna: l'icona la disegna lui */
+    QPushButton#BottonePannello {{
+        background: transparent; border: none; border-radius: {q(10)};
     }}
-    QPushButton#Linguetta:hover {{ background: {tocco}; color: {c['testo']}; }}
-    QPushButton#LinguettaLato {{
-        background: {c['pannello2']}; border: none; border-radius: 11px;
-        padding: 0; color: {c['testo2']}; font-size: {p(14)}; font-weight: 700;
+    QPushButton#BottonePannello:hover {{
+        background: {trasparente(c['accento'], 0.14)};
     }}
-    QPushButton#LinguettaLato:hover {{ background: {tocco}; color: {c['testo']}; }}
+    QLabel#TitoloChat {{ font-size: {p(13.5)}; font-weight: 650; }}
 
-    QLineEdit#CampoTess {{
-        background: {c['pannello2']}; border: 1px solid transparent;
-        border-radius: 19px; padding: 9px 16px; font-size: {p(13)};
+    /* ---------------------------------------------------- i messaggi */
+    /* Tess senza bolla: il tondo col suo nome e il testo largo quanto la
+       pagina. Quello che scrivi tu in una bolla a destra. */
+    QLabel#SegnoTess {{
+        background: {c['accento']}; color: {su_accento};
+        font-size: {p(12)}; font-weight: 750;
     }}
-    QLineEdit#CampoTess:focus {{ border: 1px solid {c['accento']}; }}
+    QLabel#NomeTess {{
+        color: {c['testo2']}; font-size: {p(11)}; font-weight: 700;
+    }}
+    QLabel#TestoTess {{
+        background: transparent; color: {c['testo']}; font-size: {p(13)};
+        padding: 1px 0 2px 0;
+    }}
+    QPushButton#AzioneMessaggio {{
+        background: transparent; border: none; border-radius: {q(9)};
+        padding: 1px 8px; color: {c['testo2']}; font-size: {p(10.5)};
+    }}
+    QPushButton#AzioneMessaggio:hover {{
+        background: {tocco}; color: {c['testo']};
+    }}
+
+    /* la barra in fondo: una pastiglia sola che tiene tutto */
+    QWidget#BarraTess {{
+        background: {c['pannello2']}; border: 1px solid transparent;
+        border-radius: {q(25)};
+    }}
+    QLineEdit#CampoTess {{
+        background: transparent; border: none; padding: 4px 10px;
+        font-size: {p(13)};
+    }}
+    QPushButton#InviaTondo {{
+        background: {c['accento']}; border: none; color: {su_accento};
+        font-size: {p(15)}; font-weight: 700; padding: 0;
+    }}
+    QPushButton#InviaTondo:hover {{ background: {scurisci(c['accento'], 0.88)}; }}
+    QPushButton#InviaTondo:disabled {{
+        background: {c['bordo']}; color: {c['testo2']};
+    }}
 
     QPlainTextEdit#CampoDiario {{
         background: {c['pannello2']}; border: 1px solid transparent;

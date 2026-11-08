@@ -22,14 +22,16 @@ import urllib.error
 import urllib.request
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import QRect, QSize, QThread, QTimer, Qt, Signal
+from PySide6.QtCore import (QEvent, QPoint, QRect, QSize, QThread, QTimer, Qt,
+                            Signal)
 from PySide6.QtGui import QFontMetrics
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QMenu, QPushButton, QScrollArea,
-                               QSizePolicy, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QLineEdit,
+                               QListWidget, QListWidgetItem, QMenu, QMessageBox,
+                               QPushButton, QScrollArea, QSizePolicy,
+                               QVBoxLayout, QWidget)
 
 from . import punteggi as calcolo
-from .componenti import BarraAttesa, Interruttore
+from .componenti import BarraAttesa, BottonePannello, Interruttore
 from .utils import (GIORNI, MESI, data_it, data_lunga, durata, euro, media,
                     numero, relativa, settimana_corrente, ultimi_giorni)
 
@@ -39,6 +41,7 @@ SERVIZIO = "ai-locale.service"
 # il nome mostrato di una conversazione, tenuto da parte sulla voce: serve
 # quando si rinomina, per far ricomparire nell'editor quello che si legge
 RUOLO_NOME = Qt.UserRole + 1
+RUOLO_GRUPPO = Qt.UserRole + 2      # «OGGI», «IERI»… sono titoletti, non chat
 
 
 def base(db) -> str:
@@ -524,8 +527,10 @@ def contesto(db, fonte, aree: set[str] | None = None,
         salute_righe.append(f"battito a riposo {numero(battito, 0)} bpm")
     dal, al = settimana_corrente()
     allenamenti = len(db.allenamenti(dal, al))
-    stress = medio("stress")
-    if stress:
+    # `medio` torna (media, quanti giorni): prenderlo come un numero solo
+    # faceva saltare tutto il riassunto, e Tess restava senza dati
+    stress, n_stress = medio("stress")
+    if n_stress:
         salute_righe.append(f"stress medio {numero(stress, 0)} su 100")
     salute_righe.append(f"{allenamenti} allenamenti questa settimana")
     righe.append("SALUTE (7 giorni): " + " · ".join(salute_righe))
@@ -674,6 +679,223 @@ def istruzioni(db) -> str:
     return " ".join(pezzi)
 
 
+# ----------------------------------------------------------- pezzi della chat
+class Messaggio(QWidget):
+    """Un messaggio in pagina.
+
+    Tess parla **senza bolla**: il tondo con la sua iniziale, il nome, e poi
+    il testo largo quanto la pagina — una risposta lunga si legge come un
+    testo, non come un cartello. Quello che scrivi tu resta in una bolla a
+    destra, e l'occhio capisce subito di chi è la riga. È il modo in cui lo
+    fa l'app di Tess, ed è anche il modo in cui si legge meglio.
+
+    Sotto, al passaggio del mouse, compare «Copia»: il posto è già suo anche
+    quando non si vede, così la chat non salta su e giù.
+    """
+
+    def __init__(self, chi: str, testo: str, colori: dict, parent=None):
+        super().__init__(parent)
+        self.chi = chi
+        self.c = colori
+        self.setObjectName("ContenutoSezione")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        self.testo = QLabel(testo)
+        self.testo.setWordWrap(True)
+        self.testo.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.testo.setObjectName("BollaTu" if chi == "tu" else "TestoTess")
+        self.testo.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+
+        riga = QHBoxLayout()
+        riga.setContentsMargins(0, 0, 0, 0)
+        riga.setSpacing(10)
+        if chi == "tu":
+            riga.addStretch(1)
+            riga.addWidget(self.testo)
+        else:
+            self.segno = QLabel("T")
+            self.segno.setObjectName("SegnoTess")
+            self.segno.setAlignment(Qt.AlignCenter)
+            colonna = QVBoxLayout()
+            colonna.setContentsMargins(0, 0, 0, 0)
+            colonna.setSpacing(2)
+            self.et_nome = QLabel("Tess")
+            self.et_nome.setObjectName("NomeTess")
+            colonna.addWidget(self.et_nome)
+            colonna.addWidget(self.testo)
+            riga.addWidget(self.segno, 0, Qt.AlignTop)
+            riga.addLayout(colonna, 1)
+        lay.addLayout(riga)
+
+        self.b_copia = QPushButton("Copia")
+        self.b_copia.setObjectName("AzioneMessaggio")
+        self.b_copia.setCursor(Qt.PointingHandCursor)
+        self.b_copia.setFocusPolicy(Qt.NoFocus)
+        self.b_copia.clicked.connect(self._copia)
+        self.b_copia.setVisible(False)
+        fila = QHBoxLayout()
+        fila.setContentsMargins(40 if chi != "tu" else 0, 0, 0, 0)
+        fila.setSpacing(6)
+        if chi == "tu":
+            fila.addStretch(1)
+        fila.addWidget(self.b_copia)
+        if chi != "tu":
+            fila.addStretch(1)
+        lay.addLayout(fila)
+        self._misura()
+
+    def _misura(self) -> None:
+        """Il tondo e la riga delle azioni seguono il carattere."""
+        self.b_copia.ensurePolished()
+        alto = max(18, QFontMetrics(self.b_copia.font()).height() + 4)
+        self.b_copia.setFixedHeight(alto)
+        # il posto della riga resta occupato anche a bottone nascosto
+        self.layout().itemAt(1).layout().setContentsMargins(
+            40 if self.chi != "tu" else 0, 0, 0, 0)
+        if self.chi != "tu":
+            lato = max(26, QFontMetrics(self.et_nome.font()).height() + 12)
+            self.segno.setFixedSize(lato, lato)
+            self.segno.setStyleSheet(f"border-radius: {lato // 2}px;")
+
+    def _copia(self) -> None:
+        QApplication.clipboard().setText(self.testo.text())
+        self.b_copia.setText("Copiato")
+        QTimer.singleShot(1200, lambda: self.b_copia.setText("Copia"))
+
+    def enterEvent(self, ev):
+        super().enterEvent(ev)
+        self.b_copia.setVisible(bool(self.testo.text().strip()))
+
+    def leaveEvent(self, ev):
+        super().leaveEvent(ev)
+        self.b_copia.setVisible(False)
+
+    def changeEvent(self, ev):
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.StyleChange, QEvent.FontChange,
+                         QEvent.ApplicationFontChange):
+            self._misura()
+
+    def minimumSizeHint(self) -> QSize:
+        chiesto = super().minimumSizeHint()
+        return QSize(60, chiesto.height())
+
+
+class VoceChat(QWidget):
+    """Una conversazione nell'elenco: il nome, quando, e il «⋯».
+
+    Il menu prima stava solo sul tasto destro, e infatti nessuno lo trovava:
+    eliminare una chat era impossibile senza saperlo. Adesso c'è un bottone
+    che si vede — al passaggio del mouse, e sempre su quella aperta.
+    """
+
+    scelta = Signal(str)
+    menu_chiesto = Signal(str, object)
+    rinominata = Signal(str, str)
+
+    def __init__(self, chat_id: str, nome: str, quando: str, colori: dict,
+                 parent=None):
+        super().__init__(parent)
+        self.chat_id = chat_id
+        self.nome = nome
+        self.c = colori
+        self.aperta = False
+        self.setObjectName("VoceChat")
+        # un QWidget nostro il fondo del foglio di stile non lo disegna da sé
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(10, 7, 6, 7)
+        lay.setSpacing(6)
+        self.et_nome = QLabel(nome)
+        self.et_nome.setObjectName("NomeChat")
+        self.et_nome.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.et_quando = QLabel(quando)
+        self.et_quando.setObjectName("QuandoChat")
+        # la casella per rinominare nasce solo quando serve: una per riga,
+        # sempre lì, sarebbe un widget nascosto per ogni conversazione
+        self.campo: QLineEdit | None = None
+        self.b_menu = QPushButton("⋯")
+        self.b_menu.setObjectName("MenuChat")
+        self.b_menu.setCursor(Qt.PointingHandCursor)
+        self.b_menu.setFocusPolicy(Qt.NoFocus)
+        self.b_menu.setToolTip("Rinomina o elimina questa conversazione")
+        self.b_menu.clicked.connect(
+            lambda: self.menu_chiesto.emit(
+                self.chat_id, self.b_menu.mapToGlobal(
+                    QPoint(0, self.b_menu.height()))))
+        self.b_menu.setVisible(False)
+        lay.addWidget(self.et_nome, 1)
+        lay.addWidget(self.et_quando)
+        lay.addWidget(self.b_menu)
+        self._misura()
+
+    def _misura(self) -> None:
+        self.b_menu.ensurePolished()
+        lato = max(22, QFontMetrics(self.b_menu.font()).height() + 4)
+        self.b_menu.setFixedSize(lato, lato)
+
+    def accendi(self, acceso: bool) -> None:
+        """La conversazione aperta si vede: tinta d'accento e «⋯» sempre lì."""
+        self.aperta = acceso
+        self.b_menu.setVisible(acceso)
+        self.setProperty("aperta", "si" if acceso else "no")
+        self.style().unpolish(self)      # senza, la proprietà non si vede
+        self.style().polish(self)
+
+    def _scrivi_nome(self) -> None:
+        """Il nome accorciato coi puntini, alla larghezza che c'è adesso."""
+        posto = max(40, self.et_nome.width())
+        self.et_nome.setText(QFontMetrics(self.et_nome.font()).elidedText(
+            self.nome, Qt.ElideRight, posto))
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._scrivi_nome()
+
+    def modifica(self) -> None:
+        """Il nome si riscrive lì dove sta, non in una finestrella."""
+        if self.campo is not None:
+            return
+        self.campo = QLineEdit(self.nome, self)
+        self.campo.setObjectName("RinominaChat")
+        self.campo.returnPressed.connect(self._confermato)
+        self.campo.editingFinished.connect(self._confermato)
+        self.layout().insertWidget(0, self.campo, 1)
+        self.et_nome.hide()
+        self.et_quando.hide()
+        self.campo.show()
+        self.campo.setFocus()
+        self.campo.selectAll()
+
+    def _confermato(self) -> None:
+        if self.campo is None:
+            return
+        nuovo = self.campo.text().strip()
+        casella, self.campo = self.campo, None
+        casella.hide()
+        casella.deleteLater()
+        self.et_nome.show()
+        self.et_quando.show()
+        if nuovo != self.nome:
+            self.rinominata.emit(self.chat_id, nuovo)
+
+    def enterEvent(self, ev):
+        super().enterEvent(ev)
+        self.b_menu.setVisible(True)
+
+    def leaveEvent(self, ev):
+        super().leaveEvent(ev)
+        self.b_menu.setVisible(self.aperta)
+
+    def mousePressEvent(self, ev):
+        super().mousePressEvent(ev)
+        if ev.button() == Qt.LeftButton and self.campo is None:
+            self.scelta.emit(self.chat_id)
+
+
 # ------------------------------------------------------------------ il widget
 class RiquadroTess(QWidget):
     """Il riquadro di Tess nel cruscotto: si accende a richiesta, poi è una chat.
@@ -695,7 +917,7 @@ class RiquadroTess(QWidget):
         self.chat_id = db.ultima_conversazione_tess()
         # la colonna dei nomi si può chiudere: la scelta resta fra due avvii
         self.colonna_aperta = db.leggi("tess_colonna", "1") == "1"
-        self._rinominando = ""
+        self.voci: dict[str, VoceChat] = {}     # le righe dell'elenco, per chat
         self.conversazione: Risposta | None = None
         self.accensione: Accensione | None = None
         self.pronta = False
@@ -751,9 +973,21 @@ class RiquadroTess(QWidget):
         dentro.setObjectName("ContenutoSezione")
         self.lay_chat = QVBoxLayout(dentro)
         self.lay_chat.setContentsMargins(2, 2, 8, 2)
-        self.lay_chat.setSpacing(8)
+        self.lay_chat.setSpacing(4)
         self.lay_chat.addStretch(1)
-        self.chat.setWidget(dentro)
+        # la conversazione sta in una colonna larga al massimo novecento
+        # pixel, in mezzo alla pagina: una riga di testo lunga due schermi
+        # non si legge, si scansiona
+        self.colonna_testo = dentro
+        dentro.setMaximumWidth(900)
+        centro = QWidget()
+        centro.setObjectName("ContenutoSezione")
+        fila_centro = QHBoxLayout(centro)
+        fila_centro.setContentsMargins(0, 0, 0, 0)
+        fila_centro.addStretch(1)
+        fila_centro.addWidget(dentro, 20)
+        fila_centro.addStretch(1)
+        self.chat.setWidget(centro)
         self.bolle: list[QLabel] = []
 
         # a sinistra le conversazioni di prima: un clic e torni lì
@@ -767,10 +1001,8 @@ class RiquadroTess(QWidget):
         riga_cima.setSpacing(6)
         intestazione = QLabel("CONVERSAZIONI")
         intestazione.setObjectName("EtichettaScheda")
-        self.b_piega = QPushButton("‹")
-        self.b_piega.setObjectName("Linguetta")
-        self.b_piega.setFixedSize(28, 28)
-        self.b_piega.setToolTip("Chiudi l'elenco: resta solo la chat.")
+        self.b_piega = BottonePannello(colori, True)
+        self.b_piega.imposta(True)
         self.b_piega.clicked.connect(lambda: self.piega_colonna(False))
         riga_cima.addWidget(intestazione)
         riga_cima.addStretch(1)
@@ -791,32 +1023,52 @@ class RiquadroTess(QWidget):
         # si rinomina a mano, non per sbaglio: nessun avvio automatico
         self.elenco.setEditTriggers(QListWidget.NoEditTriggers)
         self.elenco.itemDoubleClicked.connect(self.rinomina_chat)
-        self.elenco.itemChanged.connect(self._nome_scritto)
-        delegato = self.elenco.itemDelegate()
-        if delegato is not None:
-            # chiusa la casella (con Invio o con Esc) la voce torna a due righe
-            delegato.closeEditor.connect(self._fine_rinomina)
+        self.elenco.setSelectionMode(QListWidget.SingleSelection)
         self.elenco.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.elenco.customContextMenuRequested.connect(self._menu_chat)
+        self.elenco.customContextMenuRequested.connect(self._menu_da_elenco)
         lato.addLayout(riga_cima)
         lato.addWidget(self.b_nuova)
         lato.addWidget(self.elenco, 1)
         self.colonna_chat.setFixedWidth(232)
 
-        # a colonna chiusa resta questa linguetta, per riaprirla
-        self.linguetta = QPushButton("›")
-        self.linguetta.setObjectName("LinguettaLato")
-        self.linguetta.setFixedSize(22, 64)
-        self.linguetta.setToolTip("Mostra le conversazioni di prima.")
+        # a colonna chiusa il bottone si sposta in cima alla chat, dove sta
+        # nelle app: lì si capisce che riapre il pannello
+        self.linguetta = BottonePannello(colori, False)
+        self.linguetta.imposta(False)
         self.linguetta.clicked.connect(lambda: self.piega_colonna(True))
         self.linguetta.hide()
 
+        # la testa della conversazione aperta: nome e «⋯», come nell'app
+        self.testa_chat = QWidget()
+        self.testa_chat.setObjectName("ContenutoSezione")
+        testa = QHBoxLayout(self.testa_chat)
+        testa.setContentsMargins(0, 0, 0, 0)
+        testa.setSpacing(8)
+        self.et_chat = QLabel("")
+        self.et_chat.setObjectName("TitoloChat")
+        self.b_chat = QPushButton("⋯")
+        self.b_chat.setObjectName("MenuChat")
+        self.b_chat.setFixedSize(26, 26)
+        self.b_chat.setCursor(Qt.PointingHandCursor)
+        self.b_chat.setFocusPolicy(Qt.NoFocus)
+        self.b_chat.setToolTip("Rinomina o elimina questa conversazione")
+        self.b_chat.clicked.connect(self._menu_questa_chat)
+        testa.addWidget(self.linguetta)
+        testa.addWidget(self.et_chat, 1)
+        testa.addWidget(self.b_chat)
+
+        colonna_destra = QVBoxLayout()
+        colonna_destra.setContentsMargins(0, 0, 0, 0)
+        colonna_destra.setSpacing(6)
+        colonna_destra.addWidget(self.testa_chat)
+        colonna_destra.addWidget(self.chat, 1)
+        self.colonna_destra = colonna_destra
+
         fianco = QHBoxLayout()
         fianco.setContentsMargins(0, 0, 0, 0)
-        fianco.setSpacing(8)
+        fianco.setSpacing(12)
         fianco.addWidget(self.colonna_chat)
-        fianco.addWidget(self.linguetta, 0, Qt.AlignTop)
-        fianco.addWidget(self.chat, 1)
+        fianco.addLayout(colonna_destra, 1)
         self.riga_chat = QWidget()
         self.riga_chat.setObjectName("ContenutoSezione")
         self.riga_chat.setLayout(fianco)
@@ -828,9 +1080,10 @@ class RiquadroTess(QWidget):
         self.campo.setPlaceholderText("Chiedi a Tess dei tuoi dati…")
         self.campo.setMinimumHeight(38)
         self.campo.returnPressed.connect(self.invia)
-        self.b_invia = QPushButton("Invia")
-        self.b_invia.setObjectName("Primario")
-        self.b_invia.setMinimumHeight(38)
+        self.b_invia = QPushButton("↑")
+        self.b_invia.setObjectName("InviaTondo")
+        self.b_invia.setCursor(Qt.PointingHandCursor)
+        self.b_invia.setToolTip("Manda la domanda  (Invio)")
         self.b_invia.clicked.connect(self.invia)
         self.b_attiva = QPushButton("Attiva Tess")
         self.b_attiva.setObjectName("Primario")
@@ -856,24 +1109,45 @@ class RiquadroTess(QWidget):
             lambda acceso: db.imposta("tess_dati", "1" if acceso else "0"))
         fila_dati.addWidget(et_dati)
         fila_dati.addWidget(self.b_dati)
+        # Tutto dentro una sola pastiglia, come nell'app: il campo, il
+        # comando dei dati e il tondo per mandare. Prima erano tre cose
+        # separate in fila, e la riga sembrava una barra di strumenti.
         self.barra = QHBoxLayout()
+        self.barra.setContentsMargins(8, 6, 8, 6)
         self.barra.setSpacing(8)
         self.barra.addWidget(self.campo, 1)
         self.barra.addWidget(self.dati)
         self.barra.addWidget(self.b_invia)
         self.riga_barra = QWidget()
-        self.riga_barra.setObjectName("ContenutoSezione")
+        self.riga_barra.setObjectName("BarraTess")
         self.riga_barra.setLayout(self.barra)
-        lay.addWidget(self.riga_barra)
+        self.riga_barra.setMaximumWidth(900)
+        # sotto alla colonna della conversazione, non più larga di lei
+        self.sotto = QWidget()
+        self.sotto.setObjectName("ContenutoSezione")
+        fila_sotto = QHBoxLayout(self.sotto)
+        fila_sotto.setContentsMargins(0, 0, 0, 0)
+        fila_sotto.addStretch(1)
+        fila_sotto.addWidget(self.riga_barra, 20)
+        fila_sotto.addStretch(1)
+        lay.addWidget(self.sotto)
 
+        self._misura_barra()
         self._mostra_stato(False)
 
     # ---------------------------------------------------------- aspetto
+    def _misura_barra(self) -> None:
+        """Il tondo dell'invio è alto quanto il campo, e tondo davvero."""
+        for widget in (self.campo, self.b_invia):
+            widget.ensurePolished()
+        lato = max(34, self.campo.minimumHeight())
+        self.b_invia.setFixedSize(lato, lato)
+        self.b_invia.setStyleSheet(f"border-radius: {lato // 2}px;")
     def _mostra_stato(self, pronta: bool, messaggio: str = "") -> None:
         self.pronta = pronta
         self.benvenuto.setVisible(not pronta)
         self.riga_chat.setVisible(pronta)
-        self.riga_barra.setVisible(pronta)
+        self.sotto.setVisible(pronta)
         if pronta:
             self.aggiorna_elenco()
         self.et_stato.setText(messaggio or (
@@ -977,23 +1251,59 @@ class RiquadroTess(QWidget):
             self._scrivi("tu" if riga["ruolo"] == "user" else "tess", riga["testo"])
         self.aggiorna_elenco()
 
+    @staticmethod
+    def _gruppo(giorno: str) -> str:
+        """Sotto che titoletto va una conversazione di quel giorno."""
+        try:
+            scarto = (date.today() - date.fromisoformat(giorno)).days
+        except ValueError:
+            return "PRIMA"
+        if scarto <= 0:
+            return "OGGI"
+        if scarto == 1:
+            return "IERI"
+        if scarto <= 7:
+            return "ULTIMI 7 GIORNI"
+        if scarto <= 30:
+            return "ULTIMI 30 GIORNI"
+        return "PRIMA"
+
     def aggiorna_elenco(self) -> None:
-        """Riempie la colonna di sinistra con le conversazioni già fatte."""
+        """Riempie la colonna di sinistra con le conversazioni già fatte.
+
+        Raggruppate per quando sono state fatte, e ognuna col suo «⋯»: il
+        menu sul tasto destro c'era già, ma non lo trovava nessuno.
+        """
         self.elenco.blockSignals(True)
         self.elenco.clear()
+        self.voci: dict[str, VoceChat] = {}
+        gruppo_corrente = ""
         for r in self.db.conversazioni_tess():
             chat_id = r["conversazione"]
-            quando = relativa(chat_id[:10])
-            ora = chat_id[11:16]
+            gruppo = self._gruppo(chat_id[:10])
+            if gruppo != gruppo_corrente:
+                gruppo_corrente = gruppo
+                titoletto = QListWidgetItem(gruppo)
+                titoletto.setFlags(Qt.NoItemFlags)
+                titoletto.setData(RUOLO_GRUPPO, True)
+                self.elenco.addItem(titoletto)
             apertura = (r["apertura"] or "conversazione").strip()
             # il nome che le hai dato; se non glielo hai dato, la prima domanda
             nome = ((r["titolo"] or "").strip() or apertura[:44])[:60] or "conversazione"
-            voce = QListWidgetItem(f"{quando} · {ora}\n{nome}")
+            voce = QListWidgetItem()
             voce.setData(Qt.UserRole, chat_id)
             voce.setData(RUOLO_NOME, nome)
-            voce.setToolTip(f"{r['messaggi']} messaggi · {apertura[:160]}\n"
-                            "Doppio clic per rinominare")
             self.elenco.addItem(voce)
+            riga = VoceChat(chat_id, nome, chat_id[11:16], self.c)
+            riga.setToolTip(f"{r['messaggi']} messaggi · "
+                            f"{relativa(chat_id[:10])} alle {chat_id[11:16]}\n"
+                            f"{apertura[:160]}")
+            riga.scelta.connect(self._apri_chat)
+            riga.menu_chiesto.connect(self._menu_chat)
+            riga.rinominata.connect(self._rinominata)
+            riga.accendi(chat_id == self.chat_id)
+            self.elenco.setItemWidget(voce, riga)
+            self.voci[chat_id] = riga
             if chat_id == self.chat_id:
                 self.elenco.setCurrentItem(voce)
         self.elenco.blockSignals(False)
@@ -1001,23 +1311,24 @@ class RiquadroTess(QWidget):
         self.elenco.setVisible(not vuoto)
         self._misura_voci()
         self._sistema_colonna()
+        self.et_chat.setText(self._nome_chat_aperta())
+        self.b_chat.setVisible(bool(self.chat_id))
 
     def _misura_voci(self) -> None:
-        """Dà a ogni voce la larghezza della colonna e l'altezza che le serve.
-
-        Lasciata a sé, una voce appena più larga della colonna viene tagliata
-        con i puntini invece di andare a capo: la misura si fa a mano.
-        """
+        """Dà a ogni voce la larghezza della colonna e l'altezza che le serve."""
         if self.elenco.count() == 0:
             return
         self.elenco.ensurePolished()
         largo = max(140, self.elenco.viewport().width() - 2)
-        metriche = QFontMetrics(self.elenco.font())
+        alto_titolo = QFontMetrics(self.elenco.font()).height() + 14
         for i in range(self.elenco.count()):
             voce = self.elenco.item(i)
-            riquadro = metriche.boundingRect(QRect(0, 0, largo - 34, 10000),
-                                             Qt.TextWordWrap, voce.text())
-            voce.setSizeHint(QSize(largo, riquadro.height() + 26))
+            riga = self.elenco.itemWidget(voce)
+            if riga is None:                     # è un titoletto di gruppo
+                voce.setSizeHint(QSize(largo, alto_titolo))
+                continue
+            riga.setFixedWidth(largo)
+            voce.setSizeHint(QSize(largo, riga.sizeHint().height()))
 
     # ------------------------------------------------- la colonna dei nomi
     def piega_colonna(self, aperta: bool) -> None:
@@ -1036,52 +1347,78 @@ class RiquadroTess(QWidget):
         aperta = larga and self.colonna_aperta
         self.colonna_chat.setVisible(aperta)
         self.linguetta.setVisible(larga and not aperta)
+        self.b_piega.imposta(True)
+        # la barra in fondo sta sotto alla conversazione, non sotto a tutto:
+        # con la colonna aperta si sposta di quanto è larga lei
+        scarto = (self.colonna_chat.width() + 12) if aperta else 0
+        self.sotto.layout().setContentsMargins(scarto, 0, 0, 0)
 
     # ---------------------------------------------------------- rinominare
-    def rinomina_chat(self, voce: QListWidgetItem) -> None:
-        """Fa riscrivere il nome sulla voce stessa, al posto suo."""
-        chat_id = voce.data(Qt.UserRole)
-        if not chat_id:
-            return
-        self._rinominando = chat_id
-        self.elenco.blockSignals(True)
-        # la riga resta alta com'è: senza questo si accorcerebbe a una riga
-        # sola appena le tolgo la data, e la casella verrebbe schiacciata
-        voce.setSizeHint(self.elenco.visualItemRect(voce).size())
-        voce.setText(voce.data(RUOLO_NOME) or "")   # nell'editor solo il nome
-        voce.setFlags(voce.flags() | Qt.ItemIsEditable)
-        self.elenco.blockSignals(False)
-        self.elenco.editItem(voce)
+    def rinomina_chat(self, voce) -> None:
+        """Fa riscrivere il nome sulla voce stessa, al posto suo.
 
-    def _nome_scritto(self, voce: QListWidgetItem) -> None:
-        """Confermato con Invio: il nome nuovo finisce nell'archivio.
-
-        Vuoto vale «nessun nome»: torna a farsi chiamare con la prima domanda.
+        Accetta la voce dell'elenco o direttamente l'identificativo della
+        conversazione: la pagina lo chiama in tutti e due i modi.
         """
-        if self._rinominando:
-            self.db.rinomina_conversazione_tess(self._rinominando, voce.text())
+        chat_id = voce.data(Qt.UserRole) if hasattr(voce, "data") else voce
+        riga = self.voci.get(chat_id)
+        if riga is not None:
+            riga.modifica()
 
-    def _fine_rinomina(self, *_) -> None:
-        self._rinominando = ""
-        self.aggiorna_elenco()      # la voce torna a due righe, col nome giusto
+    def _rinominata(self, chat_id: str, nome: str) -> None:
+        """Vuoto vale «nessun nome»: torna a farsi chiamare con la prima domanda."""
+        self.db.rinomina_conversazione_tess(chat_id, nome)
+        self.aggiorna_elenco()
+
+    def _apri_chat(self, chat_id: str) -> None:
+        if chat_id and chat_id != self.chat_id:
+            self.carica_chat(chat_id)
 
     def _scegli_chat(self, voce: QListWidgetItem) -> None:
         chat_id = voce.data(Qt.UserRole)
         if chat_id and chat_id != self.chat_id:
             self.carica_chat(chat_id)
 
-    def _menu_chat(self, punto) -> None:
+    def _menu_chat(self, chat_id: str, dove) -> None:
+        """Il menu di una conversazione: lo apre il «⋯», o il tasto destro."""
+        if not chat_id:
+            return
+        menu = QMenu(self)
+        menu.addAction("Riapri", lambda: self.carica_chat(chat_id))
+        menu.addAction("Rinomina…", lambda: self.rinomina_chat(chat_id))
+        menu.addSeparator()
+        menu.addAction("Elimina", lambda: self._chiedi_elimina(chat_id))
+        menu.exec(dove)
+
+    def _menu_da_elenco(self, punto) -> None:
         voce = self.elenco.itemAt(punto)
         if voce is None:
             return
-        chat_id = voce.data(Qt.UserRole)
-        menu = QMenu(self)
-        menu.addAction("Riapri", lambda: self.carica_chat(chat_id))
-        menu.addAction("Rinomina…", lambda: self.rinomina_chat(voce))
-        menu.addSeparator()
-        menu.addAction("Chiudi l'elenco", lambda: self.piega_colonna(False))
-        menu.addAction("Elimina", lambda: self._elimina_chat(chat_id))
-        menu.exec(self.elenco.viewport().mapToGlobal(punto))
+        self._menu_chat(voce.data(Qt.UserRole),
+                        self.elenco.viewport().mapToGlobal(punto))
+
+    def _menu_questa_chat(self) -> None:
+        """Il «⋯» in cima: agisce sulla conversazione che hai davanti."""
+        if not self.chat_id:
+            return
+        self._menu_chat(self.chat_id, self.b_chat.mapToGlobal(
+            QPoint(0, self.b_chat.height())))
+
+    def _nome_chat_aperta(self) -> str:
+        riga = self.voci.get(self.chat_id)
+        return riga.nome if riga is not None else "Conversazione nuova"
+
+    def _chiedi_elimina(self, chat_id: str) -> None:
+        """Una conversazione cancellata non torna: una domanda prima."""
+        riga = self.voci.get(chat_id)
+        nome = riga.nome if riga is not None else "questa conversazione"
+        risposta = QMessageBox.question(
+            self, "Eliminare la conversazione?",
+            f"«{nome}» verrà eliminata dall'archivio, con tutti i suoi "
+            "messaggi. Non si può tornare indietro.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if risposta == QMessageBox.Yes:
+            self._elimina_chat(chat_id)
 
     def _elimina_chat(self, chat_id: str) -> None:
         self.db.elimina_conversazione_tess(chat_id)
@@ -1094,14 +1431,9 @@ class RiquadroTess(QWidget):
         self.messaggi.clear()
         while self.lay_chat.count() > 1:
             voce = self.lay_chat.takeAt(0)
-            disposizione = voce.layout()
-            if disposizione is None:
-                continue
-            while disposizione.count():
-                w = disposizione.takeAt(0).widget()
-                if w is not None:
-                    w.hide(); w.setParent(None); w.deleteLater()
-            disposizione.deleteLater()
+            w = voce.widget()
+            if w is not None:
+                w.hide(); w.setParent(None); w.deleteLater()
         self.bolle.clear()
 
     def pulisci(self) -> None:
@@ -1174,32 +1506,32 @@ class RiquadroTess(QWidget):
 
     # ------------------------------------------------- disegno della chat
     def _scrivi(self, chi: str, testo: str) -> QLabel:
-        """Aggiunge una bolla: la sua, a destra; quella di Tess, a sinistra."""
-        bolla = QLabel(testo)
-        bolla.setObjectName("BollaTu" if chi == "tu" else "BollaTess")
-        bolla.setWordWrap(True)
-        bolla.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        bolla.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
-        fila = QHBoxLayout()
-        fila.setContentsMargins(0, 0, 0, 0)
-        if chi == "tu":
-            fila.addStretch(1)
-            fila.addWidget(bolla)
-        else:
-            fila.addWidget(bolla)
-            fila.addStretch(1)
-        self.lay_chat.insertLayout(self.lay_chat.count() - 1, fila)
-        self.bolle.append(bolla)
+        """Aggiunge un messaggio: il tuo in una bolla a destra, quello di
+        Tess senza bolla, col suo segno e il suo nome."""
+        messaggio = Messaggio(chi, testo, self.c)
+        self.lay_chat.insertWidget(self.lay_chat.count() - 1, messaggio)
+        self.bolle.append(messaggio.testo)
         self._larghezza_bolle()
         for ritardo in (0, 60):          # dopo che il riquadro si è assestato
             QTimer.singleShot(ritardo, self._in_fondo)
-        return bolla
+        return messaggio.testo
 
     def _larghezza_bolle(self) -> None:
-        """Ogni bolla larga quanto il suo testo, fino a tre quarti del riquadro."""
-        massimo = max(180, int(self.chat.viewport().width() * 0.74))
+        """La bolla veste il testo; quella di Tess invece non c'è.
+
+        Le tue domande sono corte e stanno bene in una bolla cucita addosso,
+        fino a tre quarti della pagina. Le risposte di Tess sono lunghe e si
+        prendono la riga intera: una colonna stretta di testo al centro dello
+        schermo si legge peggio, non meglio.
+        """
+        posto = min(self.colonna_testo.width() or 900, 900)
+        massimo = max(180, int(posto * 0.74))
         for bolla in self.bolle:
             bolla.ensurePolished()      # il carattere è quello del foglio di stile
+            if bolla.objectName() != "BollaTu":
+                bolla.setMinimumWidth(0)
+                bolla.setMaximumWidth(16777215)
+                continue
             metriche = QFontMetrics(bolla.font())
             naturale = max((metriche.horizontalAdvance(r)
                             for r in bolla.text().split("\n")), default=0) + 36

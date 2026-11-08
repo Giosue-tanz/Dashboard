@@ -134,6 +134,32 @@ proporzione — e si riempiono a gradini invece che a sfumatura: fra il 40% e il
 I riquadri restano trascinabili: questa è solo la disposizione di partenza, e
 «Riquadri → Ripristina disposizione predefinita» ci riporta.
 
+## La chat di Tess
+
+La pagina è fatta come l'app di Tess, con molto meno dentro.
+
+**I messaggi.** Tess parla senza bolla: il tondo con la sua iniziale, il
+nome, e il testo largo quanto la colonna — una risposta lunga si legge come
+un testo, non come un cartello. Le tue domande restano in una bolla a
+destra, così l'occhio capisce subito di chi è la riga. Al passaggio del
+mouse compare «Copia», e il posto è già suo anche quando non si vede: la
+chat non salta su e giù.
+
+**La conversazione sta in una colonna larga al massimo novecento pixel**, in
+mezzo alla pagina, con la barra in fondo allineata sotto: una riga di testo
+lunga due schermi non si legge, si scansiona.
+
+**L'elenco a sinistra** raggruppa le conversazioni per quando le hai fatte
+(oggi, ieri, ultimi 7 giorni, ultimi 30, prima) e ognuna ha il suo **«⋯»**:
+riapri, rinomina, elimina — con una domanda prima di eliminare, perché non
+si torna indietro. Il menu c'era anche prima, ma solo sul tasto destro, e
+non lo trovava nessuno. Il nome si riscrive lì dov'è, e quella aperta si
+riconosce dalla tinta.
+
+**Il bottone che apre e chiude l'elenco** disegna un pannello con la colonna
+piena da una parte: si capisce da che parte sta, e cresce col testo. A
+elenco chiuso si sposta in cima alla conversazione, dov'è il suo posto.
+
 ## Il sonno, dal braccialetto
 
 Il braccialetto manda la notte in due pezzi: la **sessione** (da quando ti sei
