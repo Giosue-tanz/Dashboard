@@ -218,6 +218,17 @@ CREATE TABLE IF NOT EXISTS battiti (
 );
 CREATE INDEX IF NOT EXISTS idx_battiti_data ON battiti(data);
 
+-- Che cosa ha scritto il braccialetto, e con che valore. Serve a distinguere
+-- i suoi numeri dai tuoi: i suoi si possono rifare quando la
+-- sincronizzazione dopo ne sa di più (i passi di oggi crescono fino a
+-- mezzanotte), i tuoi non si toccano mai.
+CREATE TABLE IF NOT EXISTS banda_scritti (
+    data TEXT NOT NULL,
+    campo TEXT NOT NULL,
+    valore TEXT NOT NULL,
+    PRIMARY KEY (data, campo)
+);
+
 CREATE INDEX IF NOT EXISTS idx_studio_data ON studio(data);
 CREATE INDEX IF NOT EXISTS idx_mov_data ON movimenti(data);
 """
@@ -286,8 +297,17 @@ class Database:
         self.percorso = percorso
         # chiavi tolte dall'ultima pulizia: le mostra la pagina Impostazioni
         self.impostazioni_tolte: list[str] = []
-        self.conn = sqlite3.connect(percorso)
+        # L'applicazione resta aperta e gli strumenti da riga di comando
+        # scrivono nello stesso archivio: col giornale a parte (WAL) possono
+        # stare insieme, e chi arriva secondo aspetta qualche secondo invece
+        # di rinunciare con «database is locked».
+        self.conn = sqlite3.connect(percorso, timeout=10.0)
         self.conn.row_factory = sqlite3.Row
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA busy_timeout=10000")
+        except sqlite3.DatabaseError:      # archivio su un disco che non lo fa
+            pass
         self.conn.executescript(SCHEMA)
         self._adegua_colonne()
         self._semina()
@@ -485,6 +505,72 @@ class Database:
             ", ".join(f"{c}=excluded.{c}" for c in campi),
             (d["data"],) + tuple(d.get(c) or ("" if c in testi else 0)
                                   for c in campi))
+
+    # --------------------------------------------- quello che porta la banda
+    # I conti di una giornata crescono fino a mezzanotte, e il braccialetto
+    # consegna a pezzi: la sincronizzazione di domani ne sa più di quella di
+    # oggi. Perciò un numero che viene da lui si può rifare — ma solo se
+    # nell'archivio c'è ancora quello che aveva scritto lui. Se è cambiato
+    # l'hai cambiato tu, e allora vince il tuo.
+    CRESCONO = ("passi", "km", "kcal", "sonno", "sonno_profondo",
+                "sonno_rem", "sonno_sveglio")
+
+    @staticmethod
+    def _stesso_valore(uno, altro) -> bool:
+        try:
+            return abs(float(uno) - float(altro)) < 0.005
+        except (TypeError, ValueError):
+            return str(uno) == str(altro)
+
+    def valori_banda(self, giorno: str) -> dict:
+        """Cosa aveva scritto il braccialetto per quel giorno."""
+        return {r["campo"]: r["valore"] for r in self.query(
+            "SELECT campo, valore FROM banda_scritti WHERE data=?", (giorno,))}
+
+    def scrivi_da_banda(self, giorni: dict, forza: bool = False) -> list[str]:
+        """Mette nell'archivio quello che ha misurato il braccialetto.
+
+        Torna i giorni cambiati davvero. Con `forza` riscrive tutto, anche
+        sopra a quello che hai messo a mano: serve solo quando lo chiedi tu
+        da riga di comando.
+        """
+        cambiati = []
+        for giorno, misure in sorted(giorni.items()):
+            riga = self.salute_giorno(giorno)
+            valori = dict(riga) if riga else {}
+            suoi = self.valori_banda(giorno)
+            nuovi: dict = {}
+            for campo, valore in misure.items():
+                if not valore:
+                    continue
+                attuale = valori.get(campo) or ("" if isinstance(valore, str) else 0)
+                tuo = bool(attuale) and campo in suoi and not self._stesso_valore(
+                    attuale, suoi[campo])
+                if attuale and not forza and (tuo or campo not in suoi):
+                    continue               # è roba tua: non si tocca
+                if campo in self.CRESCONO and not forza:
+                    try:                   # i conti di un giorno non tornano indietro
+                        valore = max(float(valore), float(attuale or 0))
+                        valore = int(valore) if campo != "km" else round(valore, 2)
+                    except (TypeError, ValueError):
+                        pass
+                if self._stesso_valore(attuale, valore):
+                    self.esegui("INSERT OR REPLACE INTO banda_scritti"
+                                "(data, campo, valore) VALUES(?,?,?)",
+                                (giorno, campo, str(valore)))
+                    continue
+                nuovi[campo] = valore
+            if not nuovi:
+                continue
+            valori.update(nuovi)
+            valori.update({"data": giorno, "note": valori.get("note", "")})
+            self.salva_salute(valori)
+            for campo, valore in nuovi.items():
+                self.esegui("INSERT OR REPLACE INTO banda_scritti"
+                            "(data, campo, valore) VALUES(?,?,?)",
+                            (giorno, campo, str(valore)))
+            cambiati.append(giorno)
+        return cambiati
 
     # ------------------------------------------------------------- battito
     def salva_battiti(self, misure) -> int:

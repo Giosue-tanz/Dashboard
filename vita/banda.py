@@ -447,10 +447,15 @@ class Braccialetto(QObject):
                         self.orologio.emit(quando.astimezone().strftime("%d/%m %H:%M"))
                 except Exception:
                     pass
+            # I lotti **non si buttano via qui**: il braccialetto risponde
+            # «ho finito» anche in mezzo a una consegna, e svuotando il
+            # cestino a ogni risposta i giorni arrivati prima si perdevano —
+            # è così che 6 e 7 novembre non sono mai entrati nell'archivio.
+            # Si ricontano tutti ogni volta: i totali possono solo crescere, e
+            # chi li scrive sa già come rifare i suoi numeri senza toccare i tuoi.
             giorni = decodifica.per_giorno(self._raccolti) if self._raccolti else {}
             ore = (decodifica.misure_battito(self._raccolti)
                    if self._raccolti else [])
-            self._raccolti = []
             if ore:
                 self.battiti_pronti.emit(ore)
             if giorni:

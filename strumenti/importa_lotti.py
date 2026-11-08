@@ -13,10 +13,13 @@ prossima sincronizzazione, basta rileggere quello che c'è già.
     python3 strumenti/importa_lotti.py --scrivi --sovrascrivi
                                                   rifà anche i giorni già scritti
 
-Scrive solo dove non c'è già un valore: quello che hai messo a mano vince.
-Con `--sovrascrivi` invece rimette i valori che vengono dai lotti anche dove
-qualcosa c'è già — serve quando impariamo a leggere meglio un campo e quello
-scritto prima era peggio. I giorni toccati li elenca, così si vede cosa cambia.
+Quello che hai scritto tu non si tocca mai. I numeri che aveva messo il
+braccialetto invece si rifanno, perché i conti di una giornata crescono fino
+a mezzanotte e la lettura di domani ne sa più di quella di oggi: l'archivio
+tiene nota di cosa ha scritto lui, e così sa distinguere i due casi.
+
+Con `--sovrascrivi` rimette i valori dei lotti **anche sopra ai tuoi**: serve
+solo quando lo chiedi tu. I giorni toccati li elenca, così si vede cosa cambia.
 """
 from __future__ import annotations
 
@@ -78,16 +81,13 @@ def main() -> int:
     for giorno, misure in sorted(giorni.items()):
         riga = db.salute_giorno(giorno)
         valori = dict(riga) if riga else {}
-        nuovi = {c: v for c, v in misure.items()
-                 if v and (opzioni.sovrascrivi or not (valori.get(c) or 0))}
         gia = {c: valori.get(c) for c in misure if valori.get(c)}
-        print(f"  {giorno}: {nuovi or 'niente di nuovo'}"
-              + (f"   ({'prima' if opzioni.sovrascrivi else 'già scritto'}: "
+        print(f"  {giorno}: {misure}"
+              + (f"   ({'prima' if opzioni.sovrascrivi else 'in archivio'}: "
                  f"{gia})" if gia else ""))
-        if opzioni.scrivi and nuovi:
-            valori.update(nuovi)
-            valori.update({"data": giorno, "note": valori.get("note", "")})
-            db.salva_salute(valori)
+    if opzioni.scrivi:
+        cambiati = db.scrivi_da_banda(giorni, forza=opzioni.sovrascrivi)
+        print(f"  giorni cambiati: {', '.join(cambiati) or 'nessuno'}")
     print("Scritti." if opzioni.scrivi else
           "Niente scritto: rilanciami con --scrivi.")
     return 0

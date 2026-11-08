@@ -167,23 +167,12 @@ class RiquadroBraccialetto(QWidget):
     def _scrivi_giorni(self, giorni: dict) -> None:
         """Quello che il braccialetto ha raccontato finisce nell'archivio.
 
-        Scrive solo i campi che ha misurato lui, e solo dove non c'è già un
-        valore scritto a mano: quello che hai messo tu vince sempre.
+        Quello che hai scritto tu non si tocca mai; i numeri che aveva messo
+        lui invece si rifanno, perché i conti di una giornata crescono fino a
+        mezzanotte e la sincronizzazione dopo ne sa di più (vedi
+        `Database.scrivi_da_banda`).
         """
-        scritti = []
-        for giorno, misure in sorted(giorni.items()):
-            riga = self.db.salute_giorno(giorno)
-            valori = dict(riga) if riga else {}
-            cambiato = False
-            for campo, valore in misure.items():
-                if valore and not (valori.get(campo) or 0):
-                    valori[campo] = valore
-                    cambiato = True
-            if not cambiato:
-                continue
-            valori.update({"data": giorno, "note": valori.get("note", "")})
-            self.db.salva_salute(valori)
-            scritti.append(giorno)
+        scritti = self.db.scrivi_da_banda(giorni)
         if scritti:
             self.et_stato.setText(
                 f"Scritti {len(scritti)} giorni: " +

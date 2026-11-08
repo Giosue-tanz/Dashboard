@@ -155,6 +155,22 @@ limiti del possibile — e riprende da lì. Accanto a ogni lotto grezzo viene
 salvata la mappa dei pezzi (`.pezzi.txt`), per arrivare in fondo alla
 faccenda con i prossimi dati.
 
+## Quello che scrive il braccialetto, e quello che scrivi tu
+
+Un giorno non è finito finché non è mezzanotte: i passi delle sei del
+pomeriggio non sono quelli delle undici di sera, e il braccialetto consegna a
+pezzi. Perciò un numero che viene da lui **si rifà** alla sincronizzazione
+dopo, mentre quello che hai scritto tu **non si tocca mai**. Per distinguerli
+l'archivio tiene nota di cosa ha scritto il braccialetto (tabella
+`banda_scritti`): se nella casella c'è ancora quel valore è suo e lo può
+aggiornare, se è cambiato l'hai cambiato tu e vince il tuo. I conti che
+crescono — passi, chilometri, calorie, minuti di sonno — non tornano mai
+indietro: fra il vecchio e il nuovo resta il più grande.
+
+Lo stesso vale per `strumenti/importa_lotti.py`, che rilegge i lotti già
+scaricati. Con `--sovrascrivi` passa sopra anche ai tuoi valori, ma solo se
+glielo chiedi.
+
 ## Il battito, ora per ora
 
 Il braccialetto non manda un numero al giorno: di **ogni ora** manda la media,

@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (QHBoxLayout, QHeaderView, QLabel, QMenu,
                                QProgressBar, QPushButton, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
@@ -29,6 +30,30 @@ MISURE = (("umore", "Umore", ""), ("energia", "Energia", "#35c4d7"),
           ("stress", "Stress", "#f7913a"), ("lucidita", "Lucidità", "#b07cff"))
 
 
+class _NomeMisura(QLabel):
+    """Il nome di una misura, largo quanto la parola più lunga.
+
+    Si rimisura quando cambia il foglio di stile, cioè quando cambi tema o
+    dimensione del testo: con sessantaquattro pixel fissi, col testo molto
+    grande, «Lucidità» restava tagliata.
+    """
+
+    def _adatta(self) -> None:
+        self.ensurePolished()
+        self.setFixedWidth(
+            max(64, QFontMetrics(self.font()).horizontalAdvance("Lucidità") + 6))
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        self._adatta()
+
+    def changeEvent(self, ev):
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.StyleChange, QEvent.FontChange,
+                         QEvent.ApplicationFontChange):
+            self._adatta()
+
+
 def _barra_voto(colori: dict, nome: str, valore: float, colore: str) -> QWidget:
     """Riga compatta: il nome, la barra piena fino al voto e il voto."""
     contenuto = QWidget()
@@ -36,8 +61,9 @@ def _barra_voto(colori: dict, nome: str, valore: float, colore: str) -> QWidget:
     lay = QHBoxLayout(contenuto)
     lay.setContentsMargins(0, 0, 0, 0)
     lay.setSpacing(10)
-    nome_et = etichetta(nome, "TitoloRiga")
-    nome_et.setFixedWidth(64)
+    # incolonnate tutte alla stessa misura, che segue il carattere
+    nome_et = _NomeMisura(nome)
+    nome_et.setObjectName("TitoloRiga")
     barra = QProgressBar()
     barra.setRange(0, 100)
     barra.setValue(int(max(0, min(100, round(valore * 10)))))
@@ -203,7 +229,10 @@ class VistaEmozioni(VistaSezioni):
         simbolo.setAlignment(Qt.AlignCenter)
         if voci:
             ora = voci[0]["ora"]
-            grande = etichetta(voto(medie["umore"]), "ValoreScheda")
+            # non si lascia schiacciare: quando il riquadro è basso il voto
+            # veniva tagliato a metà, e col testo grande anche la nota
+            grande = EtichettaAlta(voto(medie["umore"]))
+            grande.setObjectName("ValoreScheda")
             grande.setStyleSheet(f"color: {colore}; font-weight: 700;")
             nota = (f"umore · alle {ora}" if len(voci) == 1
                     else f"media di {len(voci)} voci · ultima alle {ora}")
@@ -216,7 +245,8 @@ class VistaEmozioni(VistaSezioni):
         testi.setContentsMargins(0, 0, 0, 0)
         testi.setSpacing(1)
         if voci:
-            et_nota = etichetta(nota, "NotaScheda")
+            et_nota = EtichettaAlta(nota)
+            et_nota.setObjectName("NotaScheda")
         else:
             # la frase d'invito va a capo: le serve l'altezza di tutte le righe
             et_nota = EtichettaACapo(nota)
