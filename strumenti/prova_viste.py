@@ -396,6 +396,53 @@ def main() -> int:
         assert banda._sgranatura.isActive() is False
     prova("Braccialetto: legge i lotti senza aspettare «ho finito»", senza_ho_finito)
 
+    def stress_senza_punteggio():
+        """«Ho misurato lo stress e nell'app non succede niente.»
+
+        A volte il braccialetto manda la misura col punteggio a zero. Zero
+        vorrebbe dire «sereno», quindi nell'archivio non ci va — ma il
+        silenzio sembra un guasto: la riga di stato lo deve dire.
+        """
+        from datetime import date as _d
+        riquadro = f.viste[i_salute].riquadro_banda
+        oggi = _d.today().isoformat()
+        riquadro._giorni_scritti, riquadro._ore_scritte = set(), 0
+        riquadro._stress_vuote = 0
+        riquadro._conta_stress([{"quando": f"{oggi}T18:31", "valore": 0},
+                                {"quando": f"{oggi}T22:22", "valore": 0},
+                                {"quando": "2020-01-01T10:00", "valore": 0},
+                                {"quando": f"{oggi}T09:00", "valore": 44}])
+        assert riquadro._stress_vuote == 2, riquadro._stress_vuote
+        riquadro._racconta(3, "fatto")
+        assert "senza punteggio" in riquadro.et_stato.text(), \
+            riquadro.et_stato.text()
+        assert riquadro.et_stato.toolTip(), "non spiega cosa è successo"
+        riquadro._stress_vuote = 0
+
+    prova("Braccialetto: lo stress a zero non resta in silenzio",
+          stress_senza_punteggio)
+
+    def pezzi_ricuciti():
+        """I pezzi di un lotto grande, rimessi insieme leggendoli da disco.
+
+        Le prime versioni li mettevano da parte uno per uno senza ricucirli:
+        dentro c'era una giornata intera di passi che nessuno aveva mai
+        letto.
+        """
+        from vita.lotti import cuci
+        # i pezzi veri sono da 484 byte, ed è su quella misura che si capisce
+        # se l'indice è uno scostamento o un numero d'ordine
+        a, b, c = b"A" * 484, b"B" * 484, b"C" * 484
+        intero, buchi = cuci([(0, a), (484, b)])
+        assert intero == a + b and buchi == 0, (len(intero), buchi)
+        # un pezzo mancante lascia un buco di zeri, non fa scivolare il resto
+        intero, buchi = cuci([(0, a), (968, c)])
+        assert intero == a + b"\x00" * 484 + c, len(intero)
+        assert buchi == 484, buchi
+        # numeri d'ordine invece che scostamenti: si incollano e basta
+        assert cuci([(0, a), (1, b), (2, c)])[0] == a + b + c
+    prova("Lotti: i pezzi si ricuciono", pezzi_ricuciti)
+
     def rete_su_disco():
         """«Cerca dati» rilegge prima quello che è già stato scaricato.
 

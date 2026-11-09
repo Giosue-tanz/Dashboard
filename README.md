@@ -238,6 +238,32 @@ non crea doppioni: è la rete che recupera quello che al primo colpo, per un
 motivo o per l'altro, nell'archivio non era entrato. Lo stesso fa a mano
 `python3 strumenti/importa_lotti.py --scrivi`.
 
+## Lo stress che arriva a zero
+
+Il braccialetto registra la misura appena la fai al polso, ma il **punteggio
+a volte è zero**: la sessione c'è, il numero no. Uno zero nell'archivio
+vorrebbe dire «sereno», che è il contrario di quello che è successo — quindi
+non ci va. Il guaio è che così misuri lo stress e nell'app non succede
+niente, e sembra un guasto.
+
+Adesso il riquadro del braccialetto lo dice: **«4 misure di stress senza
+punteggio»**, e il suggerimento sotto il mouse spiega cosa è successo. Perché
+il braccialetto certi giorni il punteggio lo manda (42, 24) e altri no, non
+lo sappiamo: la cosa da provare è ricollegarlo al telefono una volta, perché
+potrebbe essere Samsung Health a calcolarlo.
+
+## I pezzi dei lotti grandi, ricuciti anche dopo
+
+Un lotto grande arriva a pezzi da 484 byte, `3f <stato> <indice>`. Le prime
+versioni di Dashboard li mettevano da parte uno per uno **senza rimetterli
+insieme**: su disco c'erano ventuno pezzi che nessuno aveva mai letto, e
+dentro una giornata intera di passi. Adesso `lotti_salvati` li ricuce
+rileggendoli, con la stessa regola che usa il braccialetto mentre arrivano —
+una sola, in `lotti.cuci`, non due gemelle che prima o poi divergono.
+
+Così sono tornati i passi del 30 ottobre (4.226, erano zero) e sedici ore di
+battito.
+
 ## Quello che scrive il braccialetto, e quello che scrivi tu
 
 Un giorno non è finito finché non è mezzanotte: i passi delle sei del

@@ -98,6 +98,7 @@ class Braccialetto(QObject):
     lotto = Signal(int, bytes)            # dati di salute, ancora grezzi
     giorni_pronti = Signal(dict)          # i giorni già messi in ordine
     battiti_pronti = Signal(list)         # il battito ora per ora
+    stress_pronto = Signal(list)          # le misure di stress, punteggio o no
     firmware = Signal(str)                # che versione porta dentro
     adozione = Signal(str)                # a che punto è l'adozione
 
@@ -371,13 +372,11 @@ class Braccialetto(QObject):
         Lo stato dice a che punto siamo — 8 il primo, 9 quelli in mezzo, 10
         l'ultimo. Finché non arriva l'ultimo non c'è niente da leggere.
 
-        **L'indice a volte è il numero del pezzo, a volte lo scostamento in
-        byte.** Se è uno scostamento i pezzi si posano al loro posto, e dove
-        manca qualcosa resta un buco di zeri invece di far scivolare tutto il
-        resto: così i record dopo il buco restano allineati e si possono
-        ancora leggere (`vita/lotti.py` sa saltare la parte rovinata). La
-        mappa dei pezzi finisce accanto al lotto, per capirci qualcosa di più
-        la prossima volta.
+        A rimetterli insieme è `lotti.cuci`, che sa anche distinguere gli
+        indici-scostamento dai numeri d'ordine: è la stessa regola che usa
+        chi rilegge da disco i pezzi messi da parte. La mappa dei pezzi
+        finisce accanto al lotto, per capirci qualcosa di più la prossima
+        volta.
         """
         if len(messaggio) < 6:
             return None
@@ -398,25 +397,14 @@ class Braccialetto(QObject):
                              pezzo[:12].hex(), pezzo[-12:].hex()))
         if stato != 0x0A:                      # non è l'ultimo: si aspetta
             return None
-        ordinati = sorted(self._pezzi.items())
+        pezzi = list(self._pezzi.items())
         self._pezzi = {}
         self._mappa_pezzi = list(self._arrivi)
         self._arrivi = []
-        primo = ordinati[0]
-        # scostamenti o numeri d'ordine? se il secondo indice è grande quanto
-        # il primo pezzo, sono scostamenti
-        scostamenti = len(ordinati) > 1 and ordinati[1][0] >= len(primo[1]) - 16
-        if not scostamenti:
-            return b"".join(p for _, p in ordinati)
-        intero = bytearray()
-        self._buchi = 0
-        for dove, pezzo in ordinati:
-            dove = min(dove, 4 * 1024 * 1024)   # un indice assurdo non alloca
-            if dove > len(intero):
-                self._buchi += dove - len(intero)
-                intero.extend(b"\x00" * (dove - len(intero)))
-            intero[dove:dove + len(pezzo)] = pezzo
-        return bytes(intero)
+        # la cucitura sta in `vita/lotti.py`, perché la fa anche chi rilegge i
+        # pezzi messi da parte su disco: una regola sola, non due gemelle
+        intero, self._buchi = decodifica.cuci(pezzi)
+        return intero
 
     def _messaggio(self, trama) -> None:
         if trama.servizio == sap.SERVIZI["avvio"]:
@@ -477,8 +465,11 @@ class Braccialetto(QObject):
             return {}
         giorni = decodifica.per_giorno(self._raccolti)
         ore = decodifica.misure_battito(self._raccolti)
+        stress = decodifica.misure_stress(self._raccolti)
         if ore:
             self.battiti_pronti.emit(ore)
+        if stress:
+            self.stress_pronto.emit(stress)
         if giorni:
             self.giorni_pronti.emit(giorni)
         return giorni

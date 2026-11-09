@@ -254,6 +254,32 @@ def misure_battito(lotti) -> list[dict]:
     return misure
 
 
+def misure_stress(lotti) -> list[dict]:
+    """Ogni misura di stress, **anche quelle senza punteggio**.
+
+    Il braccialetto registra la misura appena la fai, ma il punteggio a
+    volte è zero: la sessione c'è, il numero no. `per_giorno` i punteggi
+    zero li lascia fuori — scrivere «stress 0» vorrebbe dire «sereno», e non
+    è quello che è successo. Qui invece ci sono tutte, così chi racconta la
+    sincronizzazione può dire la differenza fra «non hai misurato niente» e
+    «hai misurato, e il braccialetto non ha calcolato nulla».
+    """
+    misure = []
+    for messaggio in lotti:
+        tipo, record = leggi(messaggio)
+        if tipo != STRESS:
+            continue
+        for r in record:
+            secondi = r.get("quando") or r.get("inizio")
+            if not secondi:
+                continue
+            misure.append({
+                "quando": quando(secondi).astimezone().strftime("%Y-%m-%dT%H:%M"),
+                "valore": int(r.get("stress") or 0),
+            })
+    return misure
+
+
 def notti(lotti) -> dict[str, dict]:
     """Le notti, dai lotti del sonno (16) e delle sue fasi (17).
 
@@ -389,6 +415,39 @@ def per_giorno(lotti) -> dict[str, dict]:
     return giorni
 
 
+PEZZO = 0x3F        # un pezzo di un lotto grande: 3f <stato> <indice LE32>
+
+
+def cuci(pezzi: list[tuple[int, bytes]]) -> tuple[bytes, int]:
+    """Rimette insieme i pezzi di un lotto grande. Torna (lotto, byte mancanti).
+
+    `pezzi` è `[(indice, pezzo)]` nell'ordine in cui sono arrivati.
+    **L'indice a volte è il numero del pezzo, a volte lo scostamento in
+    byte.** Se è uno scostamento i pezzi si posano al loro posto, e dove
+    manca qualcosa resta un buco di zeri invece di far scivolare tutto il
+    resto: così i record dopo il buco restano allineati e si possono ancora
+    leggere (`_prossimo_record` sa saltare la parte rovinata).
+    """
+    if not pezzi:
+        return b"", 0
+    ordinati = sorted(pezzi)
+    primo = ordinati[0]
+    # scostamenti o numeri d'ordine? se il secondo indice è grande quanto
+    # il primo pezzo, sono scostamenti
+    scostamenti = len(ordinati) > 1 and ordinati[1][0] >= len(primo[1]) - 16
+    if not scostamenti:
+        return b"".join(p for _, p in ordinati), 0
+    intero = bytearray()
+    buchi = 0
+    for dove, pezzo in ordinati:
+        dove = min(dove, 4 * 1024 * 1024)      # un indice assurdo non alloca
+        if dove > len(intero):
+            buchi += dove - len(intero)
+            intero.extend(b"\x00" * (dove - len(intero)))
+        intero[dove:dove + len(pezzo)] = pezzo
+    return bytes(intero), buchi
+
+
 def lotti_salvati(cartella: str) -> list[bytes]:
     """I lotti già scaricati e messi da parte, senza doppioni.
 
@@ -401,6 +460,11 @@ def lotti_salvati(cartella: str) -> list[bytes]:
         return []
     visti: set[bytes] = set()
     lotti: list[bytes] = []
+    # Le prime versioni mettevano da parte anche i **pezzi** dei lotti
+    # grandi, uno per file, senza rimetterli insieme: dentro c'è una
+    # giornata intera di passi che nessuno ha mai letto. Qui si ricuciono,
+    # nell'ordine in cui sono arrivati — che è quello dei nomi dei file.
+    aperti: list[tuple[int, bytes]] = []
     for nome in sorted(os.listdir(cartella)):
         if not nome.endswith(".bin"):
             continue
@@ -409,6 +473,19 @@ def lotti_salvati(cartella: str) -> list[bytes]:
                 dati = f.read()
         except OSError:
             continue
+        if not dati:
+            continue
+        if dati[0] == PEZZO and len(dati) >= 6:
+            stato, indice = dati[1], int.from_bytes(dati[2:6], "little")
+            if stato == 0x08:                  # il primo: si ricomincia
+                aperti = []
+            if indice in dict(aperti):         # due pezzi con lo stesso numero
+                indice = max(i for i, _ in aperti) + 1
+            aperti.append((indice, dati[6:]))
+            if stato != 0x0A:                  # non è l'ultimo: si aspetta
+                continue
+            dati, _buchi = cuci(aperti)
+            aperti = []
         if dati and dati not in visti:
             visti.add(dati)
             lotti.append(dati)

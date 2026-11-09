@@ -24,7 +24,20 @@ from .banda import CARTELLA_LOTTI, DISPONIBILE, Braccialetto, cerca_braccialetto
 from .componenti import (DisposizioneFluida, EtichettaAlta,
                          Interruttore, etichetta)
 from .grafici import Sparkline
-from .lotti import lotti_salvati, misure_battito, per_giorno
+from .lotti import (lotti_salvati, misure_battito, misure_stress,
+                    per_giorno)
+
+
+# Quello che si può dire di sicuro quando lo stress arriva a zero: cosa è
+# successo, perché nell'archivio non ci va, e cosa si può provare. Il perché
+# ultimo non lo sappiamo — il braccialetto il punteggio una volta lo mandava.
+SPIEGA_STRESS = (
+    "Il braccialetto ha registrato la misura ma al posto del punteggio ha "
+    "mandato zero.\nUno zero vorrebbe dire «sereno», e non è quello che è "
+    "successo: nell'archivio non ci va.\nSe capita sempre, prova a "
+    "ricollegare il braccialetto al telefono una volta:\npotrebbe essere "
+    "Samsung Health a calcolare il punteggio, non il braccialetto."
+)
 
 
 class RiquadroBraccialetto(QWidget):
@@ -104,6 +117,7 @@ class RiquadroBraccialetto(QWidget):
 
         self._giorni_scritti: set[str] = set()
         self._ore_scritte = 0
+        self._stress_vuote = 0       # misure di stress senza punteggio, di oggi
         # i lotti arrivano a ondate: il racconto si fa quando smettono, se no
         # la scritta cambierebbe dieci volte al secondo
         self._racconto = QTimer(self)
@@ -112,6 +126,7 @@ class RiquadroBraccialetto(QWidget):
         self._racconto.timeout.connect(lambda: self._racconta(0, ""))
         self.banda.giorni_pronti.connect(self._scrivi_giorni)
         self.banda.battiti_pronti.connect(self._scrivi_battiti)
+        self.banda.stress_pronto.connect(self._conta_stress)
         self.banda.lotto.connect(self._arriva_lotto)
         for segnale, gestore in (("stato", self._stato), ("battito", self._battito),
                                  ("batteria", self._batteria),
@@ -177,6 +192,7 @@ class RiquadroBraccialetto(QWidget):
     def _cerca_dati(self) -> None:
         self._giorni_scritti: set[str] = set()
         self._ore_scritte = 0
+        self._stress_vuote = 0
         self._ripesca()
         self.et_stato.setText("Chiedo al braccialetto quello che ha…")
         self.banda.sincronizza(0)
@@ -193,6 +209,7 @@ class RiquadroBraccialetto(QWidget):
         if not salvati:
             return
         self._scrivi_battiti(misure_battito(salvati))
+        self._conta_stress(misure_stress(salvati))
         self._scrivi_giorni(per_giorno(salvati))
 
     def _arriva_lotto(self, quanti: int, _dati) -> None:
@@ -204,6 +221,20 @@ class RiquadroBraccialetto(QWidget):
         # non si somma due volte
         self._ore_scritte = max(self._ore_scritte, self.db.salva_battiti(misure))
         self._racconto.start()
+
+    def _conta_stress(self, misure: list) -> None:
+        """Le misure di stress di oggi a cui il braccialetto non ha dato un voto.
+
+        Il punteggio dello stress a volte arriva a zero: la sessione c'è, il
+        numero no. Scriverlo come «0» vorrebbe dire «sereno» e sarebbe falso,
+        quindi nell'archivio non entra — ma allora misuri lo stress al polso
+        e nell'app non succede niente, che sembra un guasto. Qui si contano,
+        e la riga di stato lo dice.
+        """
+        oggi = date.today().isoformat()
+        self._stress_vuote = max(self._stress_vuote, sum(
+            1 for m in misure
+            if m["quando"][:10] == oggi and not m["valore"]))
 
     def _scrivi_giorni(self, giorni: dict) -> None:
         """Quello che il braccialetto ha raccontato finisce nell'archivio.
@@ -238,6 +269,12 @@ class RiquadroBraccialetto(QWidget):
         if self._ore_scritte:
             pezzi.append(f"{self._ore_scritte} ore di battito"
                          if self._ore_scritte > 1 else "un'ora di battito")
+        if self._stress_vuote:
+            quante = self._stress_vuote
+            pezzi.append(
+                f"{quante} misure di stress senza punteggio" if quante > 1
+                else "una misura di stress senza punteggio")
+        self.et_stato.setToolTip(SPIEGA_STRESS if self._stress_vuote else "")
         if pezzi:
             self.et_stato.setText(" · ".join(pezzi))
         elif lotti:
