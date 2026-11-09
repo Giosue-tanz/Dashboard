@@ -65,17 +65,17 @@ class Intestazione(QWidget):
             lambda: self.periodo_richiesto.emit(
                 self.periodo.mapToGlobal(QPoint(0, self.periodo.height() + 2))))
         self.periodo.hide()
-        self.azioni = QLabel("⋯")
-        self.azioni.setObjectName("AzioniSezione")
-        self.azioni.setCursor(Qt.PointingHandCursor)
-        self.azioni.setToolTip("Altre azioni")
-        self.azioni.setVisible(False)
+        # I «⋯» non ci sono più. Erano tre puntini che comparivano al
+        # passaggio del mouse e aprivano lo stesso menu del tasto destro: una
+        # seconda strada per la stessa cosa, che rubava posto al comando del
+        # riquadro — e il posto sulla riga del titolo è quello che serve al
+        # navigatore dei periodi. Il menu resta sul tasto destro, e nascondere
+        # i riquadri si fa dal pulsante «Riquadri» in testa alla pagina.
 
         lay.addWidget(self.titolo)
         lay.addWidget(self.nota)
         lay.addStretch(1)
         lay.addWidget(self.periodo)
-        lay.addWidget(self.azioni)
         self.lay = lay
         # il comando del riquadro (il navigatore dei periodi), se ce l'ha:
         # sta qui sulla riga del titolo, e sono pixel che restano al grafico
@@ -118,7 +118,7 @@ class Intestazione(QWidget):
         Con il testo molto grande una barra alta 24 px tagliava le code delle
         lettere: la «g» di «Oggi», di «Progetti», di «Prossimi impegni».
         """
-        pezzi = [self.titolo, self.nota, self.periodo, self.azioni]
+        pezzi = [self.titolo, self.nota, self.periodo]
         if self.comando is not None and self._comando_dentro:
             pezzi.append(self.comando)
         for widget in pezzi:
@@ -145,7 +145,7 @@ class Intestazione(QWidget):
             self._sta_sistemando = False
 
     def _sistema(self) -> None:
-        spazio = max(0, self.width() - 28)        # il posto dei «⋯»
+        spazio = max(0, self.width() - 8)
         for widget in (self.titolo, self.nota):
             widget.setMinimumWidth(0)
             widget.setMaximumWidth(LARGHEZZA_LIBERA)
@@ -256,14 +256,6 @@ class Intestazione(QWidget):
             self._adatta_altezza()
             self._accorcia()
 
-    def enterEvent(self, ev):
-        self.azioni.setVisible(True)
-        super().enterEvent(ev)
-
-    def leaveEvent(self, ev):
-        self.azioni.setVisible(False)
-        super().leaveEvent(ev)
-
     # ---------------------------------------------------------- interazione
     def _dentro(self, widget: QLabel, punto: QPoint) -> bool:
         return widget.isVisible() and widget.geometry().adjusted(
@@ -279,10 +271,6 @@ class Intestazione(QWidget):
         if self._dentro(self.periodo, punto):
             self.periodo_richiesto.emit(
                 self.periodo.mapToGlobal(QPoint(0, self.periodo.height())))
-            return
-        if self._dentro(self.azioni, punto):
-            self.menu_richiesto.emit(
-                self.azioni.mapToGlobal(QPoint(0, self.azioni.height())))
             return
         self._premuto = punto
         self.setCursor(Qt.ClosedHandCursor)

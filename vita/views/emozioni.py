@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (QHBoxLayout, QHeaderView, QLabel, QMenu,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ..componenti import (DisposizioneFluida, EtichettaACapo, EtichettaAlta,
-                          abilita_deselezione, etichetta, faccia,
-                          pillola, stile_tabella)
+                          NavigatorePeriodo, abilita_deselezione, etichetta,
+                          faccia, pillola, stile_tabella)
 from ..dialoghi import DialogoVoce
 from ..grafici import GraficoCiambella, GraficoLinea, MappaCalore
 from ..utils import (PERIODI, data_it, data_lunga, giorni, intervallo, media,
@@ -105,7 +105,6 @@ class VistaEmozioni(VistaSezioni):
         "calendario": ({"trenta": "Ultimi 30 giorni", "tre_mesi": "Ultimi 3 mesi",
                         "sei_mesi": "Ultimi 6 mesi", "anno": "Anno corrente",
                         "anno_scorso": "Anno scorso"}, "trenta"),
-        "andamento": (PERIODI, "trenta"),
         "frequenze": (PERIODI, "trenta"),
         # anche a periodi corti: con due settimane i confronti sono fragili,
         # ma servono a vedere come stai andando *adesso*, non in media da
@@ -126,11 +125,15 @@ class VistaEmozioni(VistaSezioni):
         self.mappa.setToolTip("Clicca un giorno per scrivere o rileggere la sua voce.")
         self.aggiungi("calendario", self.mappa)
 
+        self.nav_andamento = NavigatorePeriodo(self.c, "giorni", tutto=True)
+        self.nav_andamento.cambiato.connect(self._aggiorna_andamento)
         self.g_andamento = GraficoLinea(self.c)
         self.g_andamento.formato = lambda v: numero(v, 1)
         self.g_andamento.minimo_forzato = 0
         self.g_andamento.massimo_forzato = 10
-        self.aggiungi("andamento", self.g_andamento)
+        self.nav_andamento.scorri_con_rotella(self.g_andamento)
+        self.aggiungi("andamento", self.g_andamento,
+                      comando=self.nav_andamento)
 
         self.g_frequenze = GraficoCiambella(self.c)
         self.g_frequenze.formato = lambda v: f"{v:.0f} volte"
@@ -334,14 +337,18 @@ class VistaEmozioni(VistaSezioni):
         """Come sono andati umore, energia e stress.
 
         Di norma un punto per giorno, con la media delle voci di quel giorno.
-        Ma dentro una giornata sola la media nasconde proprio quello che si
-        vuole vedere — se la mattina è andata diversa dalla sera — e allora
-        si disegnano le voci **una per una, all'ora in cui le hai scritte**.
+        Ma quando in tutta la finestra c'è **un giorno solo** con delle voci,
+        una linea di un punto non dice niente: allora si scende dentro la
+        giornata e si disegnano le voci una per una, **all'ora in cui le hai
+        scritte** — se la mattina è andata diversa dalla sera, è lì che si
+        vede.
         """
-        dal, al = intervallo(self.periodo("andamento"))
-        dentro_un_giorno = dal == al
-        if dentro_un_giorno:
-            voci = sorted(self.db.voci(dal, al), key=lambda v: v["ora"])
+        dal, al = self.nav_andamento.esteso()
+        righe = self.db.medie_giorno(dal, al)
+        sezione = self.contenitore.sezioni["andamento"]
+        if len(righe) == 1:
+            giorno = righe[0]["data"]
+            voci = sorted(self.db.voci(giorno, giorno), key=lambda v: v["ora"])
             if len(voci) >= 2:
                 def a_ore(campo):
                     return [(v["ora"][:5], float(v[campo])) for v in voci]
@@ -350,12 +357,18 @@ class VistaEmozioni(VistaSezioni):
                     ("energia", a_ore("energia"), "#35c4d7"),
                     ("stress", a_ore("stress"), "#f7913a"),
                 ])
-                self.contenitore.sezioni["andamento"].imposta_nota(
-                    f"{len(voci)} voci, ora per ora")
+                sezione.imposta_nota(
+                    f"{data_it(giorno)[:5]}, ora per ora · {len(voci)} voci")
                 return
-        righe = self.db.medie_giorno(dal, al)
-        self.contenitore.sezioni["andamento"].imposta_nota(
-            "una sola voce" if dentro_un_giorno and righe else "")
+            sezione.imposta_nota(f"una voce sola, {relativa(giorno)}")
+            self.g_andamento.vuoto = (
+                f"Una voce sola, {relativa(giorno)}: per disegnare una linea "
+                "ce ne vogliono almeno due.")
+        else:
+            sezione.imposta_nota(f"{len(righe)} giorni scritti" if righe else "")
+            self.g_andamento.vuoto = (
+                f"Niente scritto {self.nav_andamento.nome_esteso()}. "
+                "«Scrivi voce», in alto, e comincia da oggi.")
         if not righe:
             self.g_andamento.imposta_serie([])
             return

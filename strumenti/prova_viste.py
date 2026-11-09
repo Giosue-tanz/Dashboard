@@ -36,7 +36,9 @@ from vita.andamento import AMPIEZZE, MISURE, FinestraAndamento         # noqa: E
 from vita.db import DB_PATH, Database, copia_archivio                  # noqa: E402
 from vita.dialoghi import DialogoGiorno                                # noqa: E402
 from vita.finestra import VISTE, FinestraPrincipale                    # noqa: E402
+from vita.componenti import NavigatorePeriodo                          # noqa: E402
 from vita.tema import SCALE                                            # noqa: E402
+from vita.utils import MODI_PERIODO                                    # noqa: E402
 
 errori: list[str] = []
 
@@ -97,6 +99,55 @@ def main() -> int:
                 prova(f"{nome}/{chiave}={valore}",
                       lambda v=vista, k=chiave, x=valore:
                       (v._imposta_periodo(k, x), app.processEvents(), f.grab()))
+
+    # ---- ogni navigatore: tutti i modi, avanti e indietro nel tempo
+    # È il comando che adesso hanno quasi tutti i grafici: se uno di loro non
+    # sa rispondere a «mesi» o a «tre settimane fa», si rompe qui e non in
+    # mano a chi lo usa.
+    navigatori = 0
+    for i, (nome, _) in enumerate(VISTE):
+        f.vai(i); posa(80)
+        vista = f.viste[i]
+        for attributo in sorted(a for a in dir(vista) if a.startswith("nav_")):
+            nav = getattr(vista, attributo)
+            if not isinstance(nav, NavigatorePeriodo):
+                continue
+            modo_prima, scarto_prima = nav.modo, nav.scarto
+            for modo in MODI_PERIODO:
+                for indietro in (0, 1, 5):
+                    navigatori += 1
+
+                    def passo(n=nav, m=modo, k=indietro):
+                        n.imposta_modo(m)
+                        n.torna_a_oggi()
+                        n.scorri(k)
+                        app.processEvents()
+                        assert n.finestre(), "nessuna finestra da disegnare"
+                        assert n.et_quando.text(), "il periodo non ha un nome"
+                        f.grab()
+                    prova(f"{nome}/{attributo} {modo} −{indietro}", passo)
+            nav.imposta_modo(modo_prima)
+            nav.scarto = scarto_prima
+            nav._mostra()
+
+    def grafico_vuoto_spiega():
+        """Un grafico senza niente dentro deve dire **perché**.
+
+        Col navigatore si può andare indietro fin dove si vuole, e prima o
+        poi si finisce in una finestra vuota: «Nessun dato da mostrare» lì
+        lascia a chiedersi se si è rotto qualcosa.
+        """
+        indice = [k for k, (nome, _) in enumerate(VISTE) if nome == "emozioni"][0]
+        vista = f.viste[indice]
+        f.vai(indice); posa(100)
+        vista.nav_andamento.imposta_modo("settimane")
+        vista.nav_andamento.scorri(60)        # un anno e passa fa: lì non c'è nulla
+        app.processEvents()
+        assert "Nessun dato da mostrare" != vista.g_andamento.vuoto, \
+            "il grafico vuoto non spiega niente"
+        vista.nav_andamento.torna_a_oggi()
+        vista.nav_andamento.imposta_modo("giorni")
+    prova("Grafici: quando sono vuoti dicono perché", grafico_vuoto_spiega)
 
     # ---- la finestra dell'andamento, misura per misura
     w = FinestraAndamento(db, f.c, "passi", parent=f)
@@ -444,8 +495,9 @@ def main() -> int:
 
     f.grab().save(os.path.join(scatti, "salute.png"))
     fuori = [x for x in app.topLevelWidgets() if x.isVisible() and x not in (f, w)]
-    print(f"{periodi} periodi · {andamenti} andamenti · {len(fuori)} finestrelle "
-          f"· {len(strette)} scritte strette · {len(errori)} errori")
+    print(f"{periodi} periodi · {navigatori} navigatori · {andamenti} andamenti "
+          f"· {len(fuori)} finestrelle · {len(strette)} scritte strette "
+          f"· {len(errori)} errori")
     for stretta in strette[:6]:
         print(f"  {stretta}")
     for e in errori[:4]:

@@ -10,8 +10,8 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QHeaderView, QLabel,
                                QTableWidgetItem, QWidget)
 
 from ..componenti import (COLORE_BATTITO, AnelloEtichettato, AzioniRiga,
-                          EtichettaACapo, EtichettaAlta,
-                          Interruttore, RigaMisura, abilita_deselezione,
+                          EtichettaACapo, EtichettaAlta, Interruttore,
+                          NavigatorePeriodo, RigaMisura, abilita_deselezione,
                           dati_battito, etichetta, faccia, righe_indicatori,
                           stile_tabella)
 from ..db import AREE
@@ -20,9 +20,9 @@ from ..grafici import (Anello, GraficoBarre, GraficoIntervalli,
                        GraficoLinea, MappaCalore)
 from ..punteggi import PREDEFINITI
 from ..tess import Accensione, Motore
-from ..utils import (PERIODI, data_it, data_lunga, durata, etichetta_mese, euro,
-                     giorni, intervallo, media, mese_corrente, numero, relativa,
-                     settimana_corrente, ultimi_giorni, voto)
+from ..utils import (data_it, data_lunga, durata, euro, giorni, media,
+                     mese_corrente, numero, relativa, settimana_corrente,
+                     ultimi_giorni, voto)
 from . import VistaSezioni
 
 
@@ -64,11 +64,8 @@ class VistaCruscotto(VistaSezioni):
                              (0.34, 0.26, 0.40),
                              (0.26, 0.26, 0.26, 0.22))
     PERIODI_SEZIONE = {
-        "emotivo": (PERIODI, "trenta"),
         "abitudini": ({"14": "14 giorni", "30": "30 giorni", "90": "90 giorni",
                        "180": "6 mesi", "365": "un anno"}, "30"),
-        "finanza": ({"6": "6 mesi", "12": "12 mesi", "24": "24 mesi",
-                     "36": "36 mesi"}, "6"),
         "impegni": ({"30": "30 giorni", "90": "90 giorni", "365": "un anno",
                      "730": "due anni"}, "90"),
         "battito": ({"oggi": "oggi", "ieri": "ieri", "7": "7 giorni",
@@ -107,11 +104,14 @@ class VistaCruscotto(VistaSezioni):
         self.aggiungi("oggi", contenuto)
 
         # --------------------------------------------------------- emotivo
+        self.nav_emotivo = NavigatorePeriodo(self.c, "settimane", tutto=True)
+        self.nav_emotivo.cambiato.connect(self._aggiorna_emotivo)
         self.g_emotivo = GraficoLinea(self.c)
         self.g_emotivo.formato = lambda v: numero(v, 1)
         self.g_emotivo.minimo_forzato = 0
         self.g_emotivo.massimo_forzato = 10
-        self.aggiungi("emotivo", self.g_emotivo)
+        self.nav_emotivo.scorri_con_rotella(self.g_emotivo)
+        self.aggiungi("emotivo", self.g_emotivo, comando=self.nav_emotivo)
 
         # ---------------------------------------------------------- salute
         contenuto, lay = self.colonna(10)
@@ -183,10 +183,13 @@ class VistaCruscotto(VistaSezioni):
         self.et_finanza = EtichettaACapo("")
         self.et_finanza.setObjectName("NotaScheda")
         lay.addWidget(self.et_finanza)
+        self.nav_finanza = NavigatorePeriodo(self.c, "mesi")
+        self.nav_finanza.cambiato.connect(self._aggiorna_finanza)
         self.g_finanza = GraficoBarre(self.c)
         self.g_finanza.formato = lambda v: euro(v).replace(",00", "")
+        self.nav_finanza.scorri_con_rotella(self.g_finanza)
         lay.addWidget(self.g_finanza, 1)
-        self.aggiungi("finanza", contenuto)
+        self.aggiungi("finanza", contenuto, comando=self.nav_finanza)
 
         # --------------------------------------------------------- impegni
         self.tab = QTableWidget(0, 3)
@@ -309,11 +312,16 @@ class VistaCruscotto(VistaSezioni):
             f"{data_lunga(oggi)} · {medie['n']} voci")
 
     def _aggiorna_emotivo(self) -> None:
-        dal, al = intervallo(self.periodo("emotivo"))
+        dal, al = self.nav_emotivo.esteso()
         righe = self.db.medie_giorno(dal, al)
-        if not righe:
+        if len(righe) < 2:
+            self.g_emotivo.vuoto = (
+                f"Niente scritto {self.nav_emotivo.nome_esteso()}."
+                if not righe else
+                "Un giorno solo: per disegnare una linea ce ne vogliono due.")
             self.g_emotivo.imposta_serie([])
-            self.contenitore.sezioni["emotivo"].imposta_nota("")
+            self.contenitore.sezioni["emotivo"].imposta_nota(
+                "" if not righe else "un giorno scritto")
             return
         def punti(campo):
             return [(data_it(r["data"])[:5], float(r[campo])) for r in righe]
@@ -489,11 +497,13 @@ class VistaCruscotto(VistaSezioni):
         self.et_saldo.setText(euro(self.fonte.saldo()))
         self.et_finanza.setText(
             f"entrate {euro(entrate)} · uscite {euro(uscite)} · fonte {self.fonte.nome}")
-        mesi = int(self.periodo("finanza"))
-        serie = self.fonte.serie_mensile(mesi)
+        dati = []
+        for nome, da, a in self.nav_finanza.finestre():
+            e, u = self.fonte.totali_periodo(da, a)
+            dati.append((nome, [e, u]))
+        self.g_finanza.evidenziata = self.nav_finanza.indice_adesso()
         self.g_finanza.imposta_dati(
-            [(etichetta_mese(m), [e, u]) for m, e, u in serie],
-            [("entrate", self.c["entrata"]), ("uscite", self.c["uscita"])])
+            dati, [("entrate", self.c["entrata"]), ("uscite", self.c["uscita"])])
         risparmio = entrate - uscite
         self.contenitore.sezioni["finanza"].imposta_nota(
             f"risparmio del mese {euro(risparmio)}")

@@ -22,7 +22,7 @@ from ..dialoghi import (DialogoAllenamento, DialogoGiorno,
 from ..grafici import (Anello, BarraFasi, GraficoBarre, GraficoIntervalli,
                        GraficoLinea, MappaCalore)
 from ..punteggi import PREDEFINITI
-from ..utils import (data_it, durata, media, numero, relativa,
+from ..utils import (data_it, durata, giorni, media, numero, relativa,
                      ultimi_giorni)
 from . import VistaSezioni
 
@@ -59,8 +59,6 @@ class VistaSalute(VistaSezioni):
     LARGHEZZE_PREDEFINITE = ((0.36, 0.34, 0.30), (0.34, 0.33, 0.33),
                              (0.38, 0.32, 0.30))
     PERIODI_SEZIONE = {
-        "corpo": ({"30": "30 giorni", "90": "90 giorni", "180": "6 mesi",
-                   "365": "un anno", "730": "due anni"}, "90"),
         "costanza": ({"2": "2 settimane", "4": "4 settimane", "8": "8 settimane",
                       "12": "12 settimane", "26": "6 mesi"}, "4"),
         "indicatori": ({"7": "7 giorni", "30": "30 giorni", "90": "90 giorni",
@@ -131,6 +129,8 @@ class VistaSalute(VistaSezioni):
         # composizione non ha niente da dire, e un riquadro con dentro un
         # numero solo e una barra finta non serviva a nessuno.
         contenuto, lay = self.colonna(7)
+        self.nav_corpo = NavigatorePeriodo(self.c, "settimane", tutto=True)
+        self.nav_corpo.cambiato.connect(self._aggiorna_corpo)
         self.et_peso = EtichettaAlta("—")
         self.et_peso.setObjectName("ValoreScheda")
         self.et_peso_scarto = etichetta("", "NotaScheda")
@@ -160,7 +160,8 @@ class VistaSalute(VistaSezioni):
         self.cont_corpo, self.lay_corpo = self.colonna(7)
         self.area_corpo = self.scorrevole(self.cont_corpo)
         lay.addWidget(self.area_corpo, 1)
-        self.aggiungi("corpo", contenuto)
+        self.nav_corpo.scorri_con_rotella(self.g_peso)
+        self.aggiungi("corpo", contenuto, comando=self.nav_corpo)
 
         # -------------------------------------------------------- costanza
         contenuto, lay = self.colonna(10)
@@ -510,9 +511,12 @@ class VistaSalute(VistaSezioni):
     def _aggiorna_corpo(self) -> None:
         """Peso, com'è fatto e come si muove: grassa, muscolare, massa secca."""
         self.svuota(self.lay_corpo)
-        quanti = int(self.periodo("corpo"))
-        elenco = ultimi_giorni(quanti)
-        dati = self.db.giorni_salute(elenco[0], elenco[-1])
+        # la curva disegna ogni misura che c'è dentro la finestra: non si
+        # media niente, il peso è un numero che hai scritto tu
+        dal, al = self.nav_corpo.esteso()
+        elenco = giorni(dal, al)
+        quando = self.nav_corpo.nome_esteso()
+        dati = self.db.giorni_salute(dal, al)
 
         def serie(campo: str) -> list[tuple[str, float]]:
             return [(g, float(dati[g][campo])) for g in elenco
@@ -525,7 +529,7 @@ class VistaSalute(VistaSezioni):
         if not pesi and not grassi and not muscoli:
             self.et_peso.setText("—")
             self.et_peso_scarto.setText("")
-            self.et_peso_nota.setText("nessuna misura in questo periodo")
+            self.et_peso_nota.setText(f"{quando} · nessuna misura")
             self.barra_corpo.hide()
             self.et_corpo_nota.hide()
             self.lay_corpo.addWidget(etichetta(
@@ -550,7 +554,7 @@ class VistaSalute(VistaSezioni):
                 return "unica misura"
             scostamento = valori[-1][1] - valori[0][1]
             segno = "+" if scostamento > 0 else "−"
-            return f"{segno}{numero(abs(scostamento), 1)} {unita} in {quanti} giorni"
+            return f"{segno}{numero(abs(scostamento), 1)} {unita}"
 
         ultima = (pesi or grassi or muscoli)[-1][0]
         self.et_peso.setText(f"{numero(peso, 1)} kg" if peso else f"{numero(grasso, 1)} %")
@@ -564,8 +568,9 @@ class VistaSalute(VistaSezioni):
                 f"{segno}{numero(abs(scostamento), 1)} kg")
             self.et_peso_scarto.setStyleSheet(
                 f"color: {tinta}; font-weight: 700;")
+            # il periodo lo dice già il navigatore, sulla riga del titolo
             self.et_peso_nota.setText(
-                f"{relativa(ultima)} · in {quanti} giorni · "
+                f"ultima misura {relativa(ultima)} · "
                 f"min {numero(min(v for _, v in pesi), 1)} · "
                 f"max {numero(max(v for _, v in pesi), 1)} kg")
         else:

@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel,
                                QLineEdit, QMenu, QMessageBox, QPushButton,
                                QSizePolicy, QWidget)
 
-from ..componenti import RigaMisura, etichetta
+from ..componenti import NavigatorePeriodo, RigaMisura, etichetta
 from ..dialoghi import DialogoAbitudine
 from ..grafici import GraficoBarre
 from ..icone_nav import icona
@@ -106,16 +106,13 @@ class VistaAbitudini(VistaSezioni):
         "griglia": "Griglia dei giorni",
         "elenco": "Le tue abitudini",
         "serie": "Come stai andando",
-        "andamento": "Costanza settimana per settimana",
+        "andamento": "Costanza nel tempo",
     }
     DISPOSIZIONE = [["griglia"], ["elenco", "serie", "andamento"]]
     ALTEZZE_PREDEFINITE = (0.52, 0.48)
     PERIODI_SEZIONE = {
         "griglia": ({"7": "7 giorni", "14": "14 giorni", "21": "21 giorni",
                      "30": "30 giorni", "60": "60 giorni"}, "14"),
-        "andamento": ({"8": "8 settimane", "12": "12 settimane",
-                       "26": "26 settimane", "52": "un anno",
-                       "104": "due anni"}, "12"),
     }
 
     def crea_sezioni(self) -> None:
@@ -129,10 +126,14 @@ class VistaAbitudini(VistaSezioni):
         self.cont_serie, self.lay_serie = self.colonna(10)
         self.aggiungi("serie", self.scorrevole(self.cont_serie))
 
+        self.nav_andamento = NavigatorePeriodo(self.c, "settimane")
+        self.nav_andamento.cambiato.connect(self._aggiorna_andamento)
         self.g_andamento = GraficoBarre(self.c)
         self.g_andamento.formato = lambda v: f"{v:.0f}%"
         self.g_andamento.evidenzia_ultima = True
-        self.aggiungi("andamento", self.g_andamento)
+        self.nav_andamento.scorri_con_rotella(self.g_andamento)
+        self.aggiungi("andamento", self.g_andamento,
+                      comando=self.nav_andamento)
 
         self.grafici = [self.g_andamento]
 
@@ -336,20 +337,26 @@ class VistaAbitudini(VistaSezioni):
         self.lay_serie.addStretch(1)
 
     def _aggiorna_andamento(self) -> None:
-        settimane = int(self.periodo("andamento"))
+        """Quanto degli obiettivi hai centrato, una barra per finestra.
+
+        Gli obiettivi delle abitudini sono settimanali: in «settimane» una
+        barra è una settimana ed è il conto giusto. In «giorni» e in «mesi»
+        la quota si rapporta a quanto di una settimana sta nella finestra,
+        se no un giorno solo sembrerebbe sempre un disastro.
+        """
         abitudini = self.db.abitudini()
-        oggi = date.today()
-        lunedi = oggi - timedelta(days=oggi.weekday())
-        obiettivo_totale = sum(a["obiettivo"] for a in abitudini) or 1
-        dati = []
-        for i in range(settimane - 1, -1, -1):
-            inizio = lunedi - timedelta(weeks=i)
-            fine = inizio + timedelta(days=6)
-            fatte = self.db.registro(inizio.isoformat(), fine.isoformat())
-            quota = min(100.0, len(fatte) / obiettivo_totale * 100)
-            dati.append((data_it(inizio.isoformat())[:5], [quota]))
+        obiettivo_settimana = sum(a["obiettivo"] for a in abitudini) or 1
+        finestre = self.nav_andamento.finestre()
+        dati, valori = [], []
+        for nome, dal, al in finestre:
+            quanti = (date.fromisoformat(al) - date.fromisoformat(dal)).days + 1
+            obiettivo = obiettivo_settimana * quanti / 7
+            fatte = self.db.registro(dal, al)
+            quota = min(100.0, len(fatte) / obiettivo * 100) if obiettivo else 0.0
+            dati.append((nome, [quota]))
+            valori.append(quota)
         self.g_andamento.riferimento = 100
+        self.g_andamento.evidenziata = self.nav_andamento.indice_adesso()
         self.g_andamento.imposta_dati(dati, [("costanza", self.c["accento"])])
-        valori = [v[0] for _, v in dati]
         self.contenitore.sezioni["andamento"].imposta_nota(
-            f"media {numero(media(valori), 0)}% degli obiettivi settimanali")
+            f"media {numero(media(valori), 0)}% degli obiettivi")

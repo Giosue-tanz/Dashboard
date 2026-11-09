@@ -962,11 +962,17 @@ class NavigatorePeriodo(QWidget):
     cambiato = Signal()
 
     def __init__(self, colori: dict, modo: str = "giorni",
-                 quanti: dict | None = None, parent=None):
+                 quanti: dict | None = None, parent=None, tutto: bool = False):
         super().__init__(parent)
         self.setObjectName("ContenutoSezione")
         self.c = colori
         self.modo = modo
+        # `tutto`: il nome fra le frecce è quello di **tutto** l'arco che si
+        # vede, non della finestra in primo piano. Lo vogliono le curve di
+        # misure vere — il peso, l'umore — che non fanno una barra per
+        # finestra ma una linea sola su tutto quanto: lì «questa settimana»
+        # accanto a tre mesi di curva sarebbe una bugia.
+        self.tutto = tutto
         self.scarto = 0
         self.quanti = dict(QUANTI_PREDEFINITI if quanti is None else quanti)
         # quanto posto gli hanno riservato: finché nessuno lo dice, tutto
@@ -1049,9 +1055,12 @@ class NavigatorePeriodo(QWidget):
         # la più larga fra le frasi che possono comparire **in questo modo**:
         # così il gruppo non balla a ogni freccia, e non si porta dietro lo
         # spazio di parole che qui non compariranno mai
-        frasi = (("questo mese", "mese scorso", "settembre 2026")
-                 if self.modo == "mesi" else
-                 ("questa settimana", "settimana scorsa", "30/09 – 06/10"))
+        if self.tutto:
+            frasi = ("ultime 12 settimane", "30/09 – 06/10")
+        elif self.modo == "mesi":
+            frasi = ("questo mese", "mese scorso", "settembre 2026")
+        else:
+            frasi = ("questa settimana", "settimana scorsa", "30/09 – 06/10")
         self.et_quando.riserva = max(misura.horizontalAdvance(t)
                                      for t in frasi) + 8
         self.et_quando.updateGeometry()
@@ -1198,6 +1207,24 @@ class NavigatorePeriodo(QWidget):
         dal, al = self.esteso() if self.modo == "giorni" else self.scelto()
         return nome_intervallo(self.modo, dal, al, self.scarto) if dal else ""
 
+    def nome_esteso(self) -> str:
+        """Come si chiama **tutto** quello che si vede, non solo il primo piano.
+
+        Chi disegna una curva di misure vere — il peso, l'umore — non fa una
+        barra per finestra: prende tutto l'arco e ci mette i punti che ci
+        sono dentro. E allora il nome da scrivere è quello dell'arco.
+        """
+        dal, al = self.esteso()
+        if not dal:
+            return ""
+        if self.modo == "giorni":
+            return self.nome()          # è una settimana: si chiama già così
+        if self.scarto == 0:
+            quante = len(self.finestre())
+            return (f"ultime {quante} settimane" if self.modo == "settimane"
+                    else f"ultimi {quante} mesi")
+        return f"{data_it(dal)[:5]} – {data_it(al)[:5]}"
+
     def nome_scelto(self) -> str:
         """Come si chiama il periodo in primo piano.
 
@@ -1212,7 +1239,7 @@ class NavigatorePeriodo(QWidget):
         return nome_intervallo(self.modo, dal, al, self.scarto)
 
     def _mostra(self) -> None:
-        self.et_quando.imposta(self.nome())
+        self.et_quando.imposta(self.nome_esteso() if self.tutto else self.nome())
         self.b_modo.setText(f"{MODI_PERIODO[self.modo].lower()}  \u25be")
         self.b_dopo.setEnabled(self.scarto > 0)
         self._mostra_oggi()

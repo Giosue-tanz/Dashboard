@@ -6,19 +6,19 @@ altrimenti dall'archivio interno, dove i movimenti si inseriscono qui dentro.
 from __future__ import annotations
 
 import os
-from datetime import date, timedelta
+from datetime import date
 
 from PySide6.QtCore import QProcess, Qt
 from PySide6.QtWidgets import (QHeaderView, QMenu, QPushButton, QTableWidget,
                                QTableWidgetItem)
 
-from ..componenti import (ContenutoStat, RigaMisura, abilita_deselezione,
-                          etichetta, stile_tabella)
+from ..componenti import (ContenutoStat, NavigatorePeriodo, RigaMisura,
+                          abilita_deselezione, etichetta, stile_tabella)
 from ..dialoghi import DialogoMovimento, DialogoObiettivo
 from ..grafici import GraficoBarre, GraficoCiambella, GraficoLinea
 from ..tema import PALETTE_GRAFICI
-from ..utils import (FINESTRE, PERIODI, anno_corrente, data_it, etichetta_mese,
-                     euro, intervallo, intervallo_precedente, mese_corrente,
+from ..utils import (FINESTRE, PERIODI, anno_corrente, data_it, euro,
+                     intervallo, intervallo_precedente, mese_corrente,
                      relativa)
 from . import VistaSezioni
 
@@ -40,7 +40,7 @@ class VistaFinanza(VistaSezioni):
         "andamento": "Andamento del saldo",
         "ripartizione": "Uscite per categoria",
         "conti": "Saldo dei conti",
-        "mensili": "Entrate e uscite per mese",
+        "mensili": "Entrate e uscite",
         "budget": "Budget",
         "ultimi": "Ultimi movimenti",
         "obiettivi": "Obiettivi di risparmio",
@@ -57,10 +57,6 @@ class VistaFinanza(VistaSezioni):
         "ripartizione": (PERIODI, "mese"),
         "ultimi": (PERIODI, "trenta"),
         "budget": ({"mese": "Mese corrente", "mese_scorso": "Mese scorso"}, "mese"),
-        "andamento": ({"6": "6 mesi", "12": "12 mesi", "24": "24 mesi",
-                       "36": "36 mesi", "60": "5 anni"}, "12"),
-        "mensili": ({"6": "6 mesi", "12": "12 mesi", "24": "24 mesi",
-                     "36": "36 mesi"}, "12"),
     }
 
     def crea_sezioni(self) -> None:
@@ -86,20 +82,26 @@ class VistaFinanza(VistaSezioni):
             self.aggiungi(chiave, contenuto, "EtichettaScheda")
 
         # ------------------------------------------------------------ grafici
+        self.nav_saldo = NavigatorePeriodo(self.c, "mesi", tutto=True)
+        self.nav_saldo.cambiato.connect(self._aggiorna_andamento)
         self.g_saldo = GraficoLinea(self.c)
         self.g_saldo.formato = lambda v: euro(v).replace(",00", "")
         self.g_saldo.setMinimumHeight(70)
-        self.aggiungi("andamento", self.g_saldo)
+        self.nav_saldo.scorri_con_rotella(self.g_saldo)
+        self.aggiungi("andamento", self.g_saldo, comando=self.nav_saldo)
 
         self.g_torta = GraficoCiambella(self.c)
         self.g_torta.formato = lambda v: euro(v)
         self.g_torta.setMinimumHeight(70)
         self.aggiungi("ripartizione", self.g_torta)
 
+        self.nav_barre = NavigatorePeriodo(self.c, "mesi")
+        self.nav_barre.cambiato.connect(self._aggiorna_mensili)
         self.g_barre = GraficoBarre(self.c)
         self.g_barre.formato = lambda v: euro(v).replace(",00", "")
         self.g_barre.setMinimumHeight(70)
-        self.aggiungi("mensili", self.g_barre)
+        self.nav_barre.scorri_con_rotella(self.g_barre)
+        self.aggiungi("mensili", self.g_barre, comando=self.nav_barre)
 
         # ------------------------------------------------------- elenchi
         self.cont_conti, self.lay_conti = self.colonna(9)
@@ -319,18 +321,14 @@ class VistaFinanza(VistaSezioni):
             self.stat[chiave].imposta(euro(valore), nota, serie_valori)
 
     def _aggiorna_andamento(self) -> None:
-        mesi = int(self.periodo("andamento"))
-        oggi = date.today()
-        punti = []
-        for i in range(mesi - 1, -1, -1):
-            totale = oggi.year * 12 + (oggi.month - 1) - i
-            anno, mese = totale // 12, totale % 12 + 1
-            fine = (date(anno, 12, 31) if mese == 12
-                    else date(anno, mese + 1, 1) - timedelta(days=1))
-            fine = min(fine, oggi)
-            punti.append((etichetta_mese(f"{anno}-{mese:02d}"),
-                          self.fonte.saldo_alla_data(fine.isoformat())))
+        """Quanto c'era in cassa alla fine di ogni finestra."""
+        oggi = date.today().isoformat()
+        punti = [(nome, self.fonte.saldo_alla_data(min(al, oggi)))
+                 for nome, _dal, al in self.nav_saldo.finestre()
+                 if _dal <= oggi]        # il saldo di un mese che non c'è ancora
         self.g_saldo.imposta_dati(punti, self.c["accento"], "saldo")
+        self.contenitore.sezioni["andamento"].imposta_nota(
+            f"{len(punti)} letture" if len(punti) > 1 else "")
 
     def _aggiorna_ripartizione(self) -> None:
         dal, al = intervallo(self.periodo("ripartizione"))
@@ -358,11 +356,19 @@ class VistaFinanza(VistaSezioni):
             f"{len(conti)} conti" if len(conti) != 1 else "")
 
     def _aggiorna_mensili(self) -> None:
-        mesi = int(self.periodo("mensili"))
-        serie = self._serie_mensile(mesi)
+        """Entrate e uscite, una coppia di barre per finestra."""
+        finestre = self.nav_barre.finestre()
+        dati, risparmi = [], []
+        for nome, dal, al in finestre:
+            entrate, uscite = self.fonte.totali_periodo(dal, al)
+            dati.append((nome, [entrate, uscite]))
+            risparmi.append(entrate - uscite)
+        self.g_barre.evidenziata = self.nav_barre.indice_adesso()
         self.g_barre.imposta_dati(
-            [(etichetta_mese(m), [e, u]) for m, e, u in serie],
-            [("entrate", self.c["entrata"]), ("uscite", self.c["uscita"])])
+            dati, [("entrate", self.c["entrata"]), ("uscite", self.c["uscita"])])
+        in_attivo = sum(1 for r in risparmi if r > 0)
+        self.contenitore.sezioni["mensili"].imposta_nota(
+            f"in attivo {in_attivo} volte su {len(risparmi)}" if risparmi else "")
 
     def _aggiorna_budget(self) -> None:
         self.svuota(self.lay_budget)

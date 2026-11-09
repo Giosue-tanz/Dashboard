@@ -395,22 +395,40 @@ dove viene.
 
 Il tempo si cambia in un modo solo, uguale dappertutto.
 
-**Nei riquadri** la pastiglia sta in alto a destra — `30 giorni ▾` — e apre
-l'elenco dei periodi. Prima il periodo era una scritta grigia in mezzo ai
-numeri del titolo: si poteva cliccare, ma non lo sembrava, e spesso veniva
-tagliata via per fare spazio. Adesso il titolo dice **cosa**, la nota grigia
-**come sta andando** e la pastiglia **quando**: tre cose, tre posti.
+**Su ogni grafico nel tempo c'è il navigatore**, sulla riga del titolo: le
+frecce `‹ ›` con in mezzo l'intervallo che stai guardando, la pastiglia del
+modo — `giorni`, `settimane`, `mesi` — e «Oggi», che compare solo quando ti
+sei allontanato dal presente. La rotellina del mouse **sul grafico** scorre i
+periodi senza cercare le frecce.
 
-**Dove si sfoglia** (Passi, Sonno, Ore di studio) c'è il navigatore: a
-sinistra il binario `Giorni | Settimane | Mesi`, a destra le frecce con in
-mezzo l'intervallo che stai guardando, e «Oggi» che compare solo quando ti sei
-allontanato dal presente. Le scelte brevi stanno tutte in un binario unico —
-anche quelle che non riguardano il tempo, come `Passi | Sonno | Allenamenti`
-della costanza — così l'occhio le riconosce subito.
+Ce l'hanno tutti e sono gli stessi gesti: Passi, Sonno, Stress e Composizione
+in Salute; Ore di lavoro in Carriera; Ore di studio in Accademica; Andamento
+del saldo ed Entrate e uscite in Finanza; Costanza nel tempo in Abitudini;
+Andamento in Emozioni; Andamento emotivo e Finanza nel cruscotto. Prima metà
+di loro aveva un menu a tendina con delle durate fisse — `30 giorni ▾`, `12
+mesi ▾` — che diceva *quanto* ma non permetteva di andare **indietro**: per
+guardare il mese scorso non c'era modo.
+
+Quando una finestra non ha niente dentro il grafico **lo dice e dice perché**
+— «Una voce sola, oggi: per disegnare una linea ce ne vogliono almeno due»,
+«Niente scritto ultime 12 settimane» — invece di un «nessun dato» che lascia
+a chiedersi se si è rotto qualcosa.
+
+Resta la pastiglia a tendina dove il periodo non è un arco da sfogliare ma
+una **durata**: i quadretti della costanza e del calendario (che si contano a
+settimane piene, da lunedì), le ciambelle, le tabelle, i totali di Finanza.
+
+**Via i «⋯».** Erano tre puntini che comparivano al passaggio del mouse a
+destra del titolo e aprivano lo stesso menu del tasto destro: una seconda
+strada per la stessa cosa, che rubava posto proprio dove adesso sta il
+navigatore. Il menu resta sul tasto destro sull'intestazione, e i riquadri si
+nascondono dal pulsante «Riquadri» in testa alla pagina.
 
 Quando lo spazio è poco il riquadro rinuncia nell'ordine: prima la nota, poi
-la pastiglia, per ultimo il titolo. E la nota o ci sta intera, o ne resta
-abbastanza da capirla: un moncone come «6/28 centr…» non si vede più.
+la pastiglia, per ultimo il titolo — e il navigatore, se non ci sta accanto al
+titolo, si rimette sulla riga sotto invece di farsi tagliare. La nota o ci sta
+intera, o ne resta abbastanza da capirla: un moncone come «6/28 centr…» non si
+vede più.
 
 ## I colori non si scelgono
 

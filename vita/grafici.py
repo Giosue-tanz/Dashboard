@@ -33,6 +33,10 @@ class BaseGrafico(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMouseTracking(True)
         self.formato = _testo_semplice
+        # cosa scrivere quando non c'è niente da disegnare. Chi lo sa può
+        # cambiarlo e dire **perché** è vuoto: «una voce sola, oggi» spiega,
+        # «nessun dato» lascia lì a chiedersi se si è rotto qualcosa
+        self.vuoto = "Nessun dato da mostrare"
         self._zone: list[tuple[QRectF, str]] = []
 
     def aggiorna_tema(self, colori: dict) -> None:
@@ -50,10 +54,11 @@ class BaseGrafico(QWidget):
         largo = max((fm.horizontalAdvance(self.formato(v)) for v in valori), default=0.0)
         return max(minimo, largo + 10.0)
 
-    def _vuoto(self, p: QPainter, messaggio: str = "Nessun dato da mostrare") -> None:
+    def _vuoto(self, p: QPainter, messaggio: str = "") -> None:
         p.setPen(QColor(self.c["testo2"]))
         f = QFont(); f.setPointSize(10); p.setFont(f)
-        p.drawText(self.rect(), Qt.AlignCenter, messaggio)
+        p.drawText(self.rect().adjusted(12, 0, -12, 0),
+                   Qt.AlignCenter | Qt.TextWordWrap, messaggio or self.vuoto)
 
     def mouseMoveEvent(self, ev):
         for rect, testo in self._zone:

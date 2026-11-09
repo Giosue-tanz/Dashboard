@@ -592,11 +592,6 @@ def foglio_stile(c: dict, scala: float = 1.0,
         background: {trasparente(c['accento'], 0.16)}; color: {c['accento']};
     }}
     QPushButton#Periodo:pressed {{ background: {c['bordo']}; }}
-    QLabel#AzioniSezione {{
-        color: {c['testo2']}; font-size: {p(14)}; font-weight: 700;
-        padding: 0 7px; border-radius: 9px;
-    }}
-    QLabel#AzioniSezione:hover {{ background: {tocco}; color: {c['testo']}; }}
     QFrame#IndicatoreRilascio {{
         background: {c['accento']}; border: none; border-radius: 3px;
     }}
