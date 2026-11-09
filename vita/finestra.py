@@ -18,7 +18,7 @@ from .fonti import fonte_finanza
 from .grafici import Anello
 from .icone_nav import (RISORSE, icona, icona_menu, logo_app,
                         percorso_logo)
-from .tema import (ACCENTO_PREDEFINITO, AREE, SCALE, colore_area, colori,
+from .tema import (AREE, SCALE, colore_area, colori,
                    foglio_stile, frecce_spin, luminosita, su_colore)
 from .utils import durata, euro, numero
 from .views.abitudini import VistaAbitudini
@@ -125,8 +125,7 @@ class FinestraPrincipale(QMainWindow):
         self.db = db
         self.fonte = fonte_finanza(db)
         self.tema = db.leggi("tema", "scuro")
-        self.c = colori(db.leggi("tema", "scuro"),
-                        db.leggi("accento", ACCENTO_PREDEFINITO))
+        self.c = colori(db.leggi("tema", "scuro"))
         # stato delle icone animate della barra, una voce per pulsante:
         # «fase» è il fotogramma del disegno (1 = icona ferma)
         self._fase_icona: dict[int, float] = {}
@@ -585,7 +584,7 @@ class FinestraPrincipale(QMainWindow):
 
     def applica_tema(self, nome: str) -> None:
         self.tema = nome
-        self.c = colori(nome, self.db.leggi("accento", ACCENTO_PREDEFINITO))
+        self.c = colori(nome)
         scala = SCALE.get(self.db.leggi("scala", "normale"), 1.0)
         app = QApplication.instance()
         if app is not None:

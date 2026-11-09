@@ -23,6 +23,7 @@ lotti veri registrati, con `python3 strumenti/prova_lotti.py`.
 """
 from __future__ import annotations
 
+import os
 import struct
 from datetime import datetime, timedelta, timezone
 
@@ -386,3 +387,29 @@ def per_giorno(lotti) -> dict[str, dict]:
     for giorno, riga in notti(lotti).items():
         giorni.setdefault(giorno, {}).update(riga)
     return giorni
+
+
+def lotti_salvati(cartella: str) -> list[bytes]:
+    """I lotti già scaricati e messi da parte, senza doppioni.
+
+    Il braccialetto i dati li consegna **una volta sola**: appena arrivano
+    finiscono su disco, grezzi. Da lì si possono rileggere quante volte si
+    vuole — ed è la rete che prende quello che per un motivo o per l'altro
+    non era entrato nell'archivio al primo colpo.
+    """
+    if not os.path.isdir(cartella):
+        return []
+    visti: set[bytes] = set()
+    lotti: list[bytes] = []
+    for nome in sorted(os.listdir(cartella)):
+        if not nome.endswith(".bin"):
+            continue
+        try:
+            with open(os.path.join(cartella, nome), "rb") as f:
+                dati = f.read()
+        except OSError:
+            continue
+        if dati and dati not in visti:
+            visti.add(dati)
+            lotti.append(dati)
+    return lotti

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QCheckBox, QDateEdit, QFrame, QHBoxLayout, QLabel
                                QSlider, QSpinBox, QVBoxLayout, QWidget)
 
 from .grafici import Anello, Sparkline
-from .tema import scurisci, su_colore as su_tinta, trasparente
+from .tema import colore_area, luminosita, scurisci, su_colore as su_tinta, trasparente
 from .utils import (MODI_PERIODO, QUANTI_PREDEFINITI, data_it, intervalli,
                     media, nome_intervallo, numero, relativa, ultimi_giorni)
 
@@ -1342,6 +1342,8 @@ class BottoneIcona(QPushButton):
         p.scale(lato / 100.0, lato / 100.0)
         colore = QColor(self.c["accento"] if self.underMouse()
                         else self.c["testo2"])
+        if not self.isEnabled():     # spento: si vede che c'è, e che non va
+            colore.setAlphaF(0.35)
         penna = QPen(colore, 8.0)
         penna.setCapStyle(Qt.RoundCap)
         penna.setJoinStyle(Qt.RoundJoin)
@@ -1399,6 +1401,50 @@ class BottoneIcona(QPushButton):
         segno.lineTo(40, 76)
         segno.lineTo(86, 24)
         p.drawPath(segno)
+
+
+class AzioniRiga(QWidget):
+    """Matita e cestino per la voce scelta in una tabella.
+
+    Modificare ed eliminare c'erano già, ma solo col tasto destro o col
+    doppio clic: due gesti che non si vedono, e che infatti non trovava
+    nessuno. Qui diventano due icone sulla riga del titolo, spente finché
+    non scegli una riga — così si capisce anche *che bisogna sceglierla*.
+    """
+
+    modifica = Signal()
+    elimina = Signal()
+
+    def __init__(self, colori: dict, tabella=None, cosa: str = "la voce scelta",
+                 parent=None):
+        super().__init__(parent)
+        self.c = colori
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(2)
+        self.b_modifica = BottoneIcona("matita", colori, f"Modifica {cosa}")
+        self.b_modifica.clicked.connect(self.modifica.emit)
+        self.b_elimina = BottoneIcona("cestino", colori, f"Elimina {cosa}")
+        self.b_elimina.clicked.connect(self.elimina.emit)
+        lay.addWidget(self.b_modifica)
+        lay.addWidget(self.b_elimina)
+        self.tabella = tabella
+        if tabella is not None:
+            tabella.itemSelectionChanged.connect(self.rivedi)
+        self.rivedi()
+
+    def rivedi(self) -> None:
+        """Accese solo quando c'è una riga scelta."""
+        scelta = bool(self.tabella is None or
+                      self.tabella.selectionModel().selectedRows())
+        for b in (self.b_modifica, self.b_elimina):
+            b.setEnabled(scelta)
+            b.setCursor(Qt.PointingHandCursor if scelta else Qt.ArrowCursor)
+
+    def aggiorna_tema(self, colori: dict) -> None:
+        self.c = colori
+        self.b_modifica.aggiorna_tema(colori)
+        self.b_elimina.aggiorna_tema(colori)
 
 
 class BarraAttesa(QWidget):
@@ -1463,9 +1509,13 @@ class Interruttore(QWidget):
     cambiato = Signal(bool)
 
     def __init__(self, colori: dict, acceso: bool = False, parent=None,
-                 larghezza: int = 46, altezza: int = 26):
+                 larghezza: int = 46, altezza: int = 26, area: str = ""):
         super().__init__(parent)
         self.c = colori
+        # con `area` l'interruttore prende il colore di quella pagina invece
+        # dell'accento: nella pagina di Tess, che è rosa, un interruttore
+        # verde era l'unica cosa rimasta di un altro colore
+        self.area = area
         self._acceso = acceso
         self._quota = 1.0 if acceso else 0.0
         self.setFixedSize(larghezza, altezza)
@@ -1518,12 +1568,18 @@ class Interruttore(QWidget):
         self.update()
 
     # ------------------------------------------------------------ disegno
+    def _tinta(self) -> str:
+        """Il colore da acceso: quello dell'area, o l'accento di casa."""
+        if not self.area:
+            return self.c["accento"]
+        return colore_area(self.area, luminosita(self.c["fondo"]) > 0.5)
+
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
         raggio = self.height() / 2
         spento = QColor(self.c.get("bordo", "#444"))
-        acceso = QColor(self.c["accento"])
+        acceso = QColor(self._tinta())
         fondo = QColor(
             int(spento.red() + (acceso.red() - spento.red()) * self._quota),
             int(spento.green() + (acceso.green() - spento.green()) * self._quota),
@@ -1539,7 +1595,7 @@ class Interruttore(QWidget):
         p.drawEllipse(QRectF(x, 3, lato, lato))
         if self.hasFocus():
             p.setBrush(Qt.NoBrush)
-            p.setPen(QColor(self.c["accento"]))
+            p.setPen(QColor(self._tinta()))
             p.drawRoundedRect(QRectF(0.5, 0.5, self.width() - 1, self.height() - 1),
                               raggio, raggio)
 

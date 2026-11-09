@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import sqlite3
 from datetime import date, datetime
 
@@ -287,6 +286,31 @@ TIPI_PROGETTO = ["cliente", "personale", "studio", "passivo"]
 STATI_ESAME = {"previsto": "Previsto", "corso": "In corso", "superato": "Superato"}
 AREE = {"emozioni": "Emozioni", "carriera": "Carriera", "accademica": "Accademica",
         "salute": "Salute", "finanza": "Finanza"}
+
+
+def copia_archivio(sorgente, destinazione: str) -> str:
+    """Una copia intera dell'archivio, anche con l'applicazione aperta.
+
+    Copiare il file e basta non basta: l'archivio sta in modalità WAL, e
+    quello che è stato scritto di recente vive ancora nel file `-wal`
+    accanto. Un `cp` del solo `.db` portava via un archivio **vecchio di
+    ore** — un backup che sembrava fatto e non conteneva la giornata.
+    SQLite sa farsi una copia da sé, coerente e completa: si usa quella.
+
+    `sorgente` può essere una connessione già aperta o il percorso di un
+    archivio.
+    """
+    proprio = isinstance(sorgente, str)
+    conn = sqlite3.connect(sorgente) if proprio else sorgente
+    fuori = sqlite3.connect(destinazione)
+    try:
+        with fuori:
+            conn.backup(fuori)
+    finally:
+        fuori.close()
+        if proprio:
+            conn.close()
+    return destinazione
 
 
 class Database:
@@ -1101,7 +1125,7 @@ class Database:
         if os.path.isdir(destinazione):
             destinazione = os.path.join(
                 destinazione, f"vita-backup-{datetime.now():%Y%m%d-%H%M%S}.db")
-        shutil.copy2(self.percorso, destinazione)
+        copia_archivio(self.conn, destinazione)
         return destinazione
 
     def chiudi(self) -> None:

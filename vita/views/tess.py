@@ -28,7 +28,7 @@ class VistaTess(VistaBase):
         lay.addWidget(self.riquadro, 1)
 
         # l'interruttore in testata: lo stesso comando del cruscotto
-        self.interruttore = Interruttore(self.c)
+        self.interruttore = Interruttore(self.c, area="tess")
         self.interruttore.cambiato.connect(self._commuta)
         self.azioni_intestazione = [self.interruttore]
         self._nota(False)

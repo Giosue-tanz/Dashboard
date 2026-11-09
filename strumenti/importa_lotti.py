@@ -30,26 +30,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vita.db import DATA_DIR, DB_PATH, Database                       # noqa: E402
-from vita.lotti import misure_battito, per_giorno                     # noqa: E402
+from vita.lotti import (lotti_salvati, misure_battito,               # noqa: E402
+                        per_giorno)
 
 CARTELLA = os.path.join(DATA_DIR, "banda")
-
-
-def raccogli() -> list[bytes]:
-    """I lotti registrati, senza doppioni."""
-    if not os.path.isdir(CARTELLA):
-        return []
-    visti, lotti = set(), []
-    for nome in sorted(os.listdir(CARTELLA)):
-        if not nome.endswith(".bin"):
-            continue
-        with open(os.path.join(CARTELLA, nome), "rb") as f:
-            dati = f.read()
-        if dati in visti:
-            continue
-        visti.add(dati)
-        lotti.append(dati)
-    return lotti
 
 
 def main() -> int:
@@ -59,7 +43,7 @@ def main() -> int:
                            help="rifà anche i valori già presenti")
     opzioni = argomenti.parse_args()
 
-    lotti = raccogli()
+    lotti = lotti_salvati(CARTELLA)
     giorni = per_giorno(lotti)
     ore = misure_battito(lotti)
     print(f"{len(lotti)} lotti · {len(giorni)} giorni con dati · "

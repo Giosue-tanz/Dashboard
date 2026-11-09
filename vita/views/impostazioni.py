@@ -14,14 +14,14 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBo
                                QTableWidget, QTableWidgetItem, QTimeEdit,
                                QVBoxLayout, QWidget)
 
-from ..componenti import (CampoDurata, DisposizioneFluida, Interruttore,
-                          Scheda, etichetta, riga, separatore,
+from ..componenti import (CampoDurata, DisposizioneFluida, EtichettaACapo,
+                          Interruttore, Scheda, etichetta, riga, separatore,
                           stile_tabella)
 from ..db import DATA_DIR
 from .. import blocco, salvataggio
 from ..fonti import PERCORSO_FINANCE, finance_presente
 from ..punteggi import PREDEFINITI
-from ..tema import ACCENTI, SCALE
+from ..tema import SCALE
 from ..utils import durata, euro, numero
 from . import VistaBase
 
@@ -78,23 +78,14 @@ class VistaImpostazioni(VistaBase):
             fila.addWidget(b)
         fila.addStretch(1)
         scheda.aggiungi_layout(fila)
-        scheda.aggiungi(etichetta("Ctrl+T cambia tema in qualsiasi momento.",
-                                  "NotaScheda"))
-        lay.addWidget(scheda)
-
-        scheda = Scheda("Colore principale")
-        griglia = QHBoxLayout()
-        griglia.setSpacing(8)
-        tema = self.db.leggi("tema", "scuro")
-        for nome, tinte in ACCENTI.items():
-            b = QPushButton(nome)
-            b.setObjectName("Campione")
-            colore = tinte["scuro" if tema == "scuro" else "chiaro"]
-            b.setStyleSheet(f"background: {colore}; color: #0e1015; font-weight: 600;")
-            b.clicked.connect(lambda _=False, k=nome: self._imposta_accento(k))
-            griglia.addWidget(b)
-        griglia.addStretch(1)
-        scheda.aggiungi_layout(griglia)
+        nota = EtichettaACapo(
+            "Ctrl+T cambia tema in qualsiasi momento.\n"
+            "I colori invece non si scelgono: ogni area ha il suo — rosso "
+            "Emozioni, blu Carriera, viola Accademica, turchese Salute, "
+            "verde Finanza, rosa Tess — e il resto della pagina è fatto per "
+            "andarci d'accordo.")
+        nota.setObjectName("NotaScheda")
+        scheda.aggiungi(nota)
         lay.addWidget(scheda)
 
         scheda = Scheda("Dimensione del testo")
@@ -111,10 +102,6 @@ class VistaImpostazioni(VistaBase):
     def _imposta_tema(self, chiave: str) -> None:
         self.db.imposta("tema", chiave)
         self.tema_cambiato.emit(chiave)
-
-    def _imposta_accento(self, nome: str) -> None:
-        self.db.imposta("accento", nome)
-        self.aspetto_cambiato.emit()
 
     def _imposta_scala(self, nome: str) -> None:
         self.db.imposta("scala", nome)

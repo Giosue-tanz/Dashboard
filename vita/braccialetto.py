@@ -16,14 +16,15 @@ from datetime import date
 
 from .utils import data_it
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (QHBoxLayout, QPushButton, QSizePolicy,
                                QVBoxLayout, QWidget)
 
-from .banda import DISPONIBILE, Braccialetto, cerca_braccialetto
+from .banda import CARTELLA_LOTTI, DISPONIBILE, Braccialetto, cerca_braccialetto
 from .componenti import (DisposizioneFluida, EtichettaAlta,
                          Interruttore, etichetta)
 from .grafici import Sparkline
+from .lotti import lotti_salvati, misure_battito, per_giorno
 
 
 class RiquadroBraccialetto(QWidget):
@@ -49,7 +50,7 @@ class RiquadroBraccialetto(QWidget):
         trovato = cerca_braccialetto()
         self.et_nome = etichetta(trovato[1] if trovato else "Nessun braccialetto",
                                  "TitoloRiga")
-        self.interruttore = Interruttore(colori)
+        self.interruttore = Interruttore(colori, area="salute")
         self.interruttore.setToolTip(
             "Collega il braccialetto a questo PC.\\nMentre è collegato qui, il "
             "telefono potrebbe non vederlo: spegnilo quando hai finito.")
@@ -103,6 +104,12 @@ class RiquadroBraccialetto(QWidget):
 
         self._giorni_scritti: set[str] = set()
         self._ore_scritte = 0
+        # i lotti arrivano a ondate: il racconto si fa quando smettono, se no
+        # la scritta cambierebbe dieci volte al secondo
+        self._racconto = QTimer(self)
+        self._racconto.setSingleShot(True)
+        self._racconto.setInterval(700)
+        self._racconto.timeout.connect(lambda: self._racconta(0, ""))
         self.banda.giorni_pronti.connect(self._scrivi_giorni)
         self.banda.battiti_pronti.connect(self._scrivi_battiti)
         self.banda.lotto.connect(self._arriva_lotto)
@@ -170,17 +177,33 @@ class RiquadroBraccialetto(QWidget):
     def _cerca_dati(self) -> None:
         self._giorni_scritti: set[str] = set()
         self._ore_scritte = 0
+        self._ripesca()
         self.et_stato.setText("Chiedo al braccialetto quello che ha…")
         self.banda.sincronizza(0)
+
+    def _ripesca(self) -> None:
+        """Rilegge i lotti già scaricati, prima di chiederne di nuovi.
+
+        Il braccialetto i dati li consegna **una volta sola**: appena
+        arrivano finiscono su disco, grezzi. Rileggerli non costa niente e
+        non crea doppioni — ed è la rete che prende quello che al primo
+        colpo, per un motivo o per l'altro, nell'archivio non era entrato.
+        """
+        salvati = lotti_salvati(CARTELLA_LOTTI)
+        if not salvati:
+            return
+        self._scrivi_battiti(misure_battito(salvati))
+        self._scrivi_giorni(per_giorno(salvati))
 
     def _arriva_lotto(self, quanti: int, _dati) -> None:
         self.et_stato.setText(f"Sto ricevendo… {quanti} lotti")
 
     def _scrivi_battiti(self, misure: list) -> None:
         """Le ore del battito: è quello che disegna la giornata nel riquadro."""
-        # ogni «ho finito» rilegge tutti i lotti della sessione: il conto
-        # cresce, non si somma due volte
+        # ogni lettura rilegge tutti i lotti della sessione: il conto cresce,
+        # non si somma due volte
         self._ore_scritte = max(self._ore_scritte, self.db.salva_battiti(misure))
+        self._racconto.start()
 
     def _scrivi_giorni(self, giorni: dict) -> None:
         """Quello che il braccialetto ha raccontato finisce nell'archivio.
@@ -191,9 +214,20 @@ class RiquadroBraccialetto(QWidget):
         `Database.scrivi_da_banda`).
         """
         self._giorni_scritti |= set(self.db.scrivi_da_banda(giorni))
+        self._racconto.start()
 
     def _sincronia(self, lotti: int, esito: str) -> None:
         """Fine di una consegna: cosa è entrato, e la pagina si rifà."""
+        self._racconta(lotti, esito)
+
+    def _racconta(self, lotti: int, esito: str) -> None:
+        """Cosa è entrato nell'archivio, detto in una riga. E i grafici si rifanno.
+
+        Si chiama due volte: quando i lotti smettono di arrivare, e quando il
+        braccialetto dice «ho finito». Non sempre le due cose succedono in
+        quest'ordine, e aspettare solo la seconda vuol dire perdere pezzi.
+        """
+        self._racconto.stop()
         giorni = sorted(self._giorni_scritti)
         pezzi = []
         if giorni:
@@ -209,7 +243,7 @@ class RiquadroBraccialetto(QWidget):
         elif lotti:
             self.et_stato.setText(
                 f"{lotti} lotti ricevuti: era già tutto in archivio.")
-        else:
+        elif esito:        # a consegna finita, e senza niente da dire
             self.et_stato.setText(f"Niente da prendere: {esito}")
         # i grafici si rifanno comunque: hai chiesto i dati, è giusto che la
         # pagina risponda anche quando non è cambiato niente

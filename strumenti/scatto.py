@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import sys
 import tempfile
 
@@ -32,7 +31,7 @@ import vita.tess as tess                                               # noqa: E
 tess.Motore.accendi = lambda self: (False, "scatto: motore non toccato")
 tess.Motore.attiva = lambda self: False
 
-from vita.db import DB_PATH, Database                                  # noqa: E402
+from vita.db import DB_PATH, Database, copia_archivio                  # noqa: E402
 from vita.finestra import VISTE, FinestraPrincipale                    # noqa: E402
 
 
@@ -55,7 +54,7 @@ def main() -> int:
     app.setStyle("Fusion")
     banco = tempfile.mkdtemp(prefix="scatto-")
     copia = os.path.join(banco, "scatto.db")
-    shutil.copy2(DB_PATH, copia)
+    copia_archivio(DB_PATH, copia)   # anche quello che sta ancora nel WAL
     db = Database(copia)
     if not opzioni.tua:
         db.esegui("DELETE FROM impostazioni WHERE chiave LIKE 'layout_%'")

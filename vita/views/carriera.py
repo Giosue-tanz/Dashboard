@@ -5,11 +5,12 @@ from datetime import date, timedelta
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QMenu,
-                               QProgressBar, QPushButton, QScrollArea,
-                               QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+                               QMessageBox, QProgressBar, QPushButton,
+                               QScrollArea, QTableWidget, QTableWidgetItem,
+                               QVBoxLayout, QWidget)
 
-from ..componenti import (NavigatorePeriodo, abilita_deselezione, etichetta,
-                          riga, stile_tabella)
+from ..componenti import (AzioniRiga, NavigatorePeriodo, abilita_deselezione,
+                          etichetta, riga, stile_tabella)
 from ..db import STATI_PROGETTO
 from ..dialoghi import DialogoIncasso, DialogoLavoro, DialogoProgetto, DialogoScadenza
 from ..grafici import GraficoBarre, GraficoCiambella
@@ -166,7 +167,12 @@ class VistaCarriera(VistaSezioni):
         self.tab_ore.doubleClicked.connect(self._modifica_ore)
         self.tab_ore.customContextMenuRequested.connect(
             lambda punto: self._menu_tabella(self.tab_ore, "lavoro", punto))
-        self.aggiungi("registro", self.tab_ore)
+        self.azioni_registro = AzioniRiga(self.c, self.tab_ore, "questa registrazione")
+        self.azioni_registro.modifica.connect(self._modifica_ore)
+        self.azioni_registro.elimina.connect(
+            lambda: self._elimina_riga(self.tab_ore, "lavoro",
+                                       "questa registrazione"))
+        self.aggiungi("registro", self.tab_ore, comando=self.azioni_registro)
 
         self.tab_incassi = QTableWidget(0, 4)
         self.tab_incassi.setHorizontalHeaderLabels(
@@ -175,7 +181,12 @@ class VistaCarriera(VistaSezioni):
         self.tab_incassi.doubleClicked.connect(self._modifica_incasso)
         self.tab_incassi.customContextMenuRequested.connect(
             lambda punto: self._menu_tabella(self.tab_incassi, "incassi", punto))
-        self.aggiungi("incassi", self.tab_incassi)
+        self.azioni_incassi = AzioniRiga(self.c, self.tab_incassi, "questo incasso")
+        self.azioni_incassi.modifica.connect(self._modifica_incasso)
+        self.azioni_incassi.elimina.connect(
+            lambda: self._elimina_riga(self.tab_incassi, "incassi",
+                                       "questo incasso"))
+        self.aggiungi("incassi", self.tab_incassi, comando=self.azioni_incassi)
 
         self.tab_scadenze = QTableWidget(0, 3)
         self.tab_scadenze.setHorizontalHeaderLabels(["Quando", "Cosa", "Fatta"])
@@ -183,7 +194,12 @@ class VistaCarriera(VistaSezioni):
         self.tab_scadenze.doubleClicked.connect(self._modifica_scadenza)
         self.tab_scadenze.customContextMenuRequested.connect(
             lambda punto: self._menu_tabella(self.tab_scadenze, "scadenze", punto))
-        self.aggiungi("scadenze", self.tab_scadenze)
+        self.azioni_scadenze = AzioniRiga(self.c, self.tab_scadenze, "questa scadenza")
+        self.azioni_scadenze.modifica.connect(self._modifica_scadenza)
+        self.azioni_scadenze.elimina.connect(
+            lambda: self._elimina_riga(self.tab_scadenze, "scadenze",
+                                       "questa scadenza"))
+        self.aggiungi("scadenze", self.tab_scadenze, comando=self.azioni_scadenze)
 
         self.grafici = [self.g_ore, self.g_soldi]
 
@@ -305,6 +321,21 @@ class VistaCarriera(VistaSezioni):
         if dlg.exec():
             self.db.salva_scadenza(dlg.dati())
             self._ricarica()
+
+    def _elimina_riga(self, tab, tabella: str, cosa: str) -> None:
+        """Il cestino della riga del titolo: chiede conferma, poi elimina.
+
+        Il menu sul tasto destro elimina e basta — lì ci sei arrivato
+        apposta. Un'icona sempre in vista invece si clicca anche per sbaglio.
+        """
+        id_ = self._id_selezionato(tab)
+        if id_ is None:
+            return
+        if QMessageBox.question(self, "Eliminare?", f"Vuoi eliminare {cosa}?",
+                                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        self.db.elimina(tabella, id_)
+        self._ricarica()
 
     def _menu_tabella(self, tab, tabella: str, punto) -> None:
         id_ = self._id_selezionato(tab)

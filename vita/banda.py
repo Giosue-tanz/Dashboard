@@ -128,6 +128,15 @@ class Braccialetto(QObject):
         self._battito_presenza = QTimer(self)
         self._battito_presenza.setInterval(40000)
         self._battito_presenza.timeout.connect(self._tieni_sveglio)
+        # Appena i lotti smettono di arrivare, si leggono. Prima si aspettava
+        # il «ho finito» del braccialetto, che però lo dice quando gli pare —
+        # a volte **prima** dell'ultimo lotto: e quei lotti restavano lì,
+        # scritti su disco e mai letti. È così che il sonno di una notte e le
+        # ore di battito di una giornata non sono mai entrati nell'archivio.
+        self._sgranatura = QTimer(self)
+        self._sgranatura.setSingleShot(True)
+        self._sgranatura.setInterval(900)
+        self._sgranatura.timeout.connect(lambda: self._consegna(False))
         self._cadute = 0
 
     # --------------------------------------------------------- D-Bus comodo
@@ -435,6 +444,7 @@ class Braccialetto(QObject):
             self._conserva(messaggio)
             self._raccolti.append(messaggio)
             self.lotto.emit(self._lotti, messaggio)
+            self._sgranatura.start()      # fra un attimo, se non ne arrivano altri
             self._scrivi(sap.inquadra(sap.SERVIZI["salute"],
                                       sap.conferma_salute(sequenza),
                                       capienza=self._capienza))
@@ -447,23 +457,31 @@ class Braccialetto(QObject):
                         self.orologio.emit(quando.astimezone().strftime("%d/%m %H:%M"))
                 except Exception:
                     pass
-            # I lotti **non si buttano via qui**: il braccialetto risponde
-            # «ho finito» anche in mezzo a una consegna, e svuotando il
-            # cestino a ogni risposta i giorni arrivati prima si perdevano —
-            # è così che 6 e 7 novembre non sono mai entrati nell'archivio.
-            # Si ricontano tutti ogni volta: i totali possono solo crescere, e
-            # chi li scrive sa già come rifare i suoi numeri senza toccare i tuoi.
-            giorni = decodifica.per_giorno(self._raccolti) if self._raccolti else {}
-            ore = (decodifica.misure_battito(self._raccolti)
-                   if self._raccolti else [])
-            if ore:
-                self.battiti_pronti.emit(ore)
-            if giorni:
-                self.giorni_pronti.emit(giorni)
+            giorni = self._consegna(True)
             self.sincronia.emit(
                 self._lotti,
                 "non ha ancora niente da dare" if vuoto and not self._lotti
                 else f"{len(giorni)} giorni" if giorni else "fatto")
+
+    def _consegna(self, finita: bool) -> dict:
+        """Legge tutti i lotti arrivati finora e li manda a chi li scrive.
+
+        I lotti **non si buttano via**: il braccialetto risponde «ho finito»
+        anche in mezzo a una consegna — e a volte prima dell'ultimo lotto.
+        Si ricontano tutti ogni volta: i totali possono solo crescere, e chi
+        li scrive sa già come rifare i suoi numeri senza toccare i tuoi.
+        """
+        if finita:
+            self._sgranatura.stop()
+        if not self._raccolti:
+            return {}
+        giorni = decodifica.per_giorno(self._raccolti)
+        ore = decodifica.misure_battito(self._raccolti)
+        if ore:
+            self.battiti_pronti.emit(ore)
+        if giorni:
+            self.giorni_pronti.emit(giorni)
+        return giorni
 
     # ------------------------------------------------------------ adozione
     PASSI_ADOZIONE = {0x41: "si è presentato", 0x42: "ha detto come sta",

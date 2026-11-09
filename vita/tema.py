@@ -1,7 +1,13 @@
-"""Palette e foglio di stile Qt: tema chiaro/scuro e colore principale scelto.
+"""Palette e foglio di stile Qt: tema chiaro, tema scuro, e basta.
 
 Stesso linguaggio visivo dell'app Finance: stessi fondi, stessi bordi, stesse
 misure. Qui si aggiungono solo le tinte delle cinque aree.
+
+Il colore principale **non si sceglie**. C'era una fila di campioni nelle
+impostazioni, e serviva solo a rompere l'accordo con le tinte delle aree —
+che sono fisse per un motivo: il rosso è Emozioni, il blu è Carriera, il
+turchese è Salute. Il verde di casa è l'unico accento, e tutto il resto è
+costruito per andarci d'accordo.
 """
 from __future__ import annotations
 
@@ -35,20 +41,6 @@ CHIARO = {
     "griglia": "#e6e8ef",
 }
 
-# Colore principale selezionabile dalle impostazioni: una tinta per tema.
-ACCENTI: dict[str, dict[str, str]] = {
-    "verde":     {"scuro": "#16c47f", "chiaro": "#0f9d63"},
-    "blu":       {"scuro": "#3d7bfd", "chiaro": "#2f5fd4"},
-    "turchese":  {"scuro": "#2bc4e0", "chiaro": "#0e93ab"},
-    "viola":     {"scuro": "#a46bff", "chiaro": "#7b3fe4"},
-    "magenta":   {"scuro": "#ff8fc7", "chiaro": "#c02b84"},
-    "arancio":   {"scuro": "#ff9f45", "chiaro": "#c2690a"},
-    "rosso":     {"scuro": "#ff5a5a", "chiaro": "#cf3b3b"},
-    "ambra":     {"scuro": "#f0b429", "chiaro": "#9c7308"},
-    "grafite":   {"scuro": "#9aa6bf", "chiaro": "#5a6782"},
-}
-ACCENTO_PREDEFINITO = "verde"
-
 # Tinta fissa di ogni sezione: non dipende dall'accento scelto. Come in One
 # UI ogni voce ha il suo colore invece di un unico accento che tinge tutto,
 # così la barra si legge a colpo d'occhio anche senza leggere le scritte.
@@ -76,11 +68,9 @@ def su_colore(colore: str) -> str:
     return "#0a1014" if luminosita(colore) > 0.58 else "#ffffff"
 
 
-def colori(tema: str = "scuro", accento: str = ACCENTO_PREDEFINITO) -> dict:
-    """Palette completa del tema richiesto con il colore principale scelto."""
+def colori(tema: str = "scuro") -> dict:
+    """Palette completa del tema richiesto."""
     base = dict(SCURO if tema == "scuro" else CHIARO)
-    tinta = ACCENTI.get(accento, ACCENTI[ACCENTO_PREDEFINITO])
-    base["accento"] = tinta["scuro" if tema == "scuro" else "chiaro"]
     # su una tinta chiara il bianco non si legge: il testo diventa scuro
     base["su_accento"] = "#0a1a12" if luminosita(base["accento"]) > 0.58 else "#ffffff"
     return base
@@ -186,6 +176,13 @@ def foglio_stile(c: dict, scala: float = 1.0,
     }}""" for chiave in AREE)
     selezione = trasparente(c["accento"], 0.30)
     velo = trasparente("#ffffff", 0.22)
+    # Tess ha il suo colore, come ogni area: il rosa. Il filo dei suoi
+    # messaggi ce l'ha sempre avuto — il bottone che manda, la conversazione
+    # aperta e la bolla di quello che scrivi tu invece erano verdi come il
+    # resto dell'app, e nella stessa pagina si vedevano due accenti diversi.
+    # Adesso la chat è tutta del colore di Tess.
+    rosa = colore_area("tess", chiaro)
+    su_rosa = su_colore(rosa)
     tocco = c.get("tocco", c["pannello2"])
     su_accento = c.get("su_accento", "#ffffff")
     # in chiaro le schede bianche hanno bisogno di un filo di contorno,
@@ -434,7 +431,8 @@ def foglio_stile(c: dict, scala: float = 1.0,
 
     /* la chat di Tess */
     QLabel#BollaTu {{
-        background: {tocco}; color: {c['testo']};
+        background: {trasparente(rosa, 0.16 if not chiaro else 0.13)};
+        color: {c['testo']};
         border-radius: 15px; padding: 9px 14px; font-size: {p(13)};
     }}
     QLabel#BollaTess {{
@@ -458,7 +456,7 @@ def foglio_stile(c: dict, scala: float = 1.0,
     QWidget#VoceChat {{ background: {c['pannello2']}; border-radius: 14px; }}
     QWidget#VoceChat:hover {{ background: {tocco}; }}
     QWidget#VoceChat[aperta="si"] {{
-        background: {trasparente(c['accento'], 0.18)};
+        background: {trasparente(rosa, 0.18)};
     }}
     QWidget#VoceChat[aperta="si"] QLabel#NomeChat {{
         color: {c['testo']}; font-weight: 650;
@@ -471,21 +469,21 @@ def foglio_stile(c: dict, scala: float = 1.0,
         padding: 0; color: {c['testo2']}; font-size: {p(14)}; font-weight: 700;
     }}
     QPushButton#MenuChat:hover {{
-        background: {trasparente(c['accento'], 0.18)}; color: {c['accento']};
+        background: {trasparente(rosa, 0.18)}; color: {rosa};
     }}
     /* la casella che compare quando rinomini una conversazione */
     QLineEdit#RinominaChat {{
-        background: {c['pannello']}; border: 1px solid {c['accento']};
+        background: {c['pannello']}; border: 1px solid {rosa};
         border-radius: 10px; padding: 2px 8px; color: {c['testo']};
-        font-size: {p(12.5)}; selection-background-color: {c['accento']};
-        selection-color: {su_accento};
+        font-size: {p(12.5)}; selection-background-color: {rosa};
+        selection-color: {su_rosa};
     }}
     /* il bottone che apre e chiude la colonna: l'icona la disegna lui */
     QPushButton#BottonePannello {{
         background: transparent; border: none; border-radius: {q(10)};
     }}
     QPushButton#BottonePannello:hover {{
-        background: {trasparente(c['accento'], 0.14)};
+        background: {trasparente(rosa, 0.14)};
     }}
     QLabel#TitoloChat {{ font-size: {p(13.5)}; font-weight: 650; }}
 
@@ -563,10 +561,10 @@ def foglio_stile(c: dict, scala: float = 1.0,
         font-size: {p(13)};
     }}
     QPushButton#InviaTondo {{
-        background: {c['accento']}; border: none; color: {su_accento};
+        background: {rosa}; border: none; color: {su_rosa};
         font-size: {p(15)}; font-weight: 700; padding: 0;
     }}
-    QPushButton#InviaTondo:hover {{ background: {scurisci(c['accento'], 0.88)}; }}
+    QPushButton#InviaTondo:hover {{ background: {scurisci(rosa, 0.88)}; }}
     QPushButton#InviaTondo:disabled {{
         background: {c['bordo']}; color: {c['testo2']};
     }}
@@ -749,9 +747,6 @@ def foglio_stile(c: dict, scala: float = 1.0,
     QToolButton#CampioneIcone:checked {{
         border-color: {c['accento']}; color: {c['accento']}; font-weight: 700;
     }}
-    QPushButton#Campione {{ border-radius: 15px; padding: 10px 16px;
-                            font-size: {p(12.5)}; }}
-
     QWidget#TestataBarra {{ background: transparent; }}
     /* Il marchio non ha mai un fondo suo: su un pannello di tinta diversa
        sembrerebbe un francobollo incollato sopra. Nemmeno da «aperto»: che

@@ -1,4 +1,4 @@
-"""Salute: attività, sonno, composizione corporea, allenamenti e costanza.
+"""Salute: attività, sonno, composizione corporea, stress e costanza.
 
 I dati si scrivono nella finestra «Inserimento dati», che si apre dal
 pulsante in alto (o cliccando un giorno nella mappa della costanza).
@@ -8,15 +8,14 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QHeaderView, QLabel,
-                               QMenu, QPushButton, QTableWidget, QTableWidgetItem,
-                               QVBoxLayout, QWidget)
+from PySide6.QtGui import QCursor
+from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QMenu,
+                               QPushButton, QVBoxLayout, QWidget)
 
 from ..braccialetto import RiquadroBraccialetto
 from ..componenti import (COLORE_BATTITO, EtichettaACapo, EtichettaAlta,
-                          NavigatorePeriodo, RigaMisura,
-                          abilita_deselezione, binario, dati_battito,
-                          etichetta, righe_indicatori, stile_tabella)
+                          NavigatorePeriodo, RigaMisura, binario,
+                          dati_battito, etichetta, righe_indicatori)
 from ..andamento import FinestraAndamento
 from ..dialoghi import (DialogoAllenamento, DialogoGiorno,
                         DialogoImporta)
@@ -24,7 +23,7 @@ from ..grafici import (Anello, BarraFasi, GraficoBarre, GraficoIntervalli,
                        GraficoLinea, MappaCalore)
 from ..punteggi import PREDEFINITI
 from ..utils import (data_it, durata, media, numero, relativa,
-                     settimana_corrente, ultimi_giorni)
+                     ultimi_giorni)
 from . import VistaSezioni
 
 
@@ -34,7 +33,7 @@ class VistaSalute(VistaSezioni):
     nome_nuovo = "+  Allenamento"
 
     chiave_vista = "salute"
-    versione_layout = 7
+    versione_layout = 8
 
     SEZIONI = {
         "oggi": "Oggi",
@@ -44,18 +43,18 @@ class VistaSalute(VistaSezioni):
         "sonno": "Sonno",
         "battito": "Battito",
         "indicatori": "Indicatori",
-        "allenamenti": "Allenamenti",
+        "stress": "Stress",
         "braccialetto": "Braccialetto",
     }
     # Tre righe, tre domande, dall'immediato al lento:
     #   la giornata  — com'è andata oggi: movimento, riposo, cuore
     #   nel tempo    — come va la settimana: passi, costanza, indicatori
-    #   il corpo     — peso e composizione, allenamenti, e chi li misura
+    #   il corpo     — peso e composizione, stress, e chi li misura
     DISPOSIZIONE = [["oggi", "sonno", "battito"],
                     ["passi", "costanza", "indicatori"],
-                    ["corpo", "allenamenti", "braccialetto"]]
-    # l'ultima riga tiene la tabella e il braccialetto, che hanno più roba
-    # dentro: un filo più alta delle altre due
+                    ["corpo", "stress", "braccialetto"]]
+    # l'ultima riga tiene la composizione e il braccialetto, che hanno più
+    # roba dentro: un filo più alta delle altre due
     ALTEZZE_PREDEFINITE = (0.33, 0.32, 0.35)
     LARGHEZZE_PREDEFINITE = ((0.36, 0.34, 0.30), (0.34, 0.33, 0.33),
                              (0.38, 0.32, 0.30))
@@ -71,8 +70,6 @@ class VistaSalute(VistaSezioni):
         "battito": ({"oggi": "oggi", "ieri": "ieri", "7": "7 giorni",
                      "14": "14 giorni", "30": "30 giorni",
                      "90": "90 giorni"}, "oggi"),
-        "allenamenti": ({"7": "questa settimana", "30": "30 giorni",
-                         "90": "90 giorni", "365": "un anno"}, "30"),
     }
     # ogni dato della costanza ha il suo segno, la sua tinta e il suo modo
     # di dirsi: il segno sta sulla riga del titolo, il nome nel suggerimento
@@ -172,10 +169,11 @@ class VistaSalute(VistaSezioni):
             next(iter(self.COSTANZA)), self._scegli_costanza,
             {k: nome for k, (nome, _, _, _) in self.COSTANZA.items()})
         self.mappa = MappaCalore(self.c)
-        self.mappa.giorno_scelto.connect(self.apri_dati)
-        self.mappa.setToolTip("Un quadretto per giorno: più è pieno, più sei andato "
-                              "vicino all'obiettivo.\nClicca un giorno per scriverne "
-                              "i dati.")
+        self.mappa.giorno_scelto.connect(self._giorno_costanza)
+        self.mappa.setToolTip(
+            "Un quadretto per giorno: più è pieno, più sei andato vicino "
+            "all'obiettivo.\nClicca un giorno per scriverne i dati — e con 💪 "
+            "acceso, per aprire gli allenamenti\ndi quel giorno e correggerli.")
         lay.addWidget(self.mappa, 1)
         # il riassunto sta sotto la mappa, non accanto al titolo: lassù ci
         # sono già i tre segni e il periodo, e la riga non basterebbe per tutti
@@ -269,27 +267,40 @@ class VistaSalute(VistaSezioni):
         self.cont_ind, self.lay_ind = self.colonna(10)
         self.aggiungi("indicatori", self.scorrevole(self.cont_ind))
 
-        # ------------------------------------------------------ allenamenti
-        self.tab = QTableWidget(0, 5)
-        self.tab.setHorizontalHeaderLabels(["Data", "Tipo", "Durata", "Distanza", "Kcal"])
-        self.tab.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.tab.setSelectionBehavior(QTableWidget.SelectRows)
-        self.tab.doubleClicked.connect(self._modifica_allenamento)
-        self.tab.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.tab.customContextMenuRequested.connect(self._menu_allenamento)
-        h = self.tab.horizontalHeader()
-        h.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        h.setSectionResizeMode(1, QHeaderView.Stretch)
-        for colonna in (2, 3, 4):
-            h.setSectionResizeMode(colonna, QHeaderView.ResizeToContents)
-        abilita_deselezione(self.tab)
-        stile_tabella(self.tab)
-        self.aggiungi("allenamenti", self.tab)
+        # ----------------------------------------------------------- stress
+        # Due stress, e non sono la stessa cosa: quello che misura il
+        # braccialetto dal battito (0-100, più basso è meglio) e quello che
+        # senti tu, scritto in Emozioni. Il grande è il misurato; il sentito
+        # sta nella riga sotto, perché quando i due non vanno d'accordo è
+        # proprio quella la cosa interessante.
+        contenuto, lay = self.colonna(6)
+        self.nav_stress = NavigatorePeriodo(self.c, "giorni")
+        self.nav_stress.cambiato.connect(self._aggiorna_stress)
+        self.et_stress = EtichettaAlta("—")
+        self.et_stress.setObjectName("ValoreScheda")
+        self.et_stress_nota = etichetta("", "NotaScheda")
+        self.et_stress_nota.setAlignment(Qt.AlignRight | Qt.AlignBottom)
+        testa_stress = QHBoxLayout()
+        testa_stress.setSpacing(10)
+        testa_stress.addWidget(self.et_stress)
+        testa_stress.addStretch(1)
+        testa_stress.addWidget(self.et_stress_nota)
+        lay.addLayout(testa_stress)
+        self.g_stress = GraficoBarre(self.c)
+        self.g_stress.formato = lambda v: numero(v, 0)
+        self.g_stress.evidenzia_ultima = True
+        self._apribile(self.g_stress, "stress")
+        self.nav_stress.scorri_con_rotella(self.g_stress)
+        lay.addWidget(self.g_stress, 1)
+        self.et_sentito = EtichettaACapo("")
+        self.et_sentito.setObjectName("NotaScheda")
+        lay.addWidget(self.et_sentito)
+        self.aggiungi("stress", contenuto, comando=self.nav_stress)
 
         self._crea_braccialetto()
 
-        self.grafici = [self.g_passi, self.g_sonno, self.g_peso, self.anello,
-                        self.fasi, self.barra_corpo, self.mappa]
+        self.grafici = [self.g_passi, self.g_sonno, self.g_peso, self.g_stress,
+                        self.anello, self.fasi, self.barra_corpo, self.mappa]
 
     # ------------------------------------------------------------- comandi
     def nuovo(self) -> None:
@@ -366,31 +377,39 @@ class VistaSalute(VistaSezioni):
         self.aggiorna()
         self.dati_cambiati.emit()
 
-    def _allenamento_scelto(self):
-        righe = self.tab.selectionModel().selectedRows()
-        if not righe:
-            return None
-        id_ = self.tab.item(righe[0].row(), 0).data(Qt.UserRole)
-        return self.db.uno("SELECT * FROM allenamenti WHERE id=?", (id_,))
+    def _giorno_costanza(self, giorno: str) -> None:
+        """Un quadretto cliccato: apre quello che quel quadretto racconta.
 
-    def _modifica_allenamento(self) -> None:
-        voce = self._allenamento_scelto()
-        if voce is None:
+        Con 💪 acceso sono gli allenamenti: il quadretto apre quello del
+        giorno, o ne comincia uno nuovo. È da qui che si correggono e si
+        buttano via, da quando la tabella non sta più in pagina.
+        """
+        if self.dato_costanza() != "allenamenti":
+            self.apri_dati(giorno)
             return
+        fatti = list(self.db.allenamenti(giorno, giorno))
+        if not fatti:
+            self._apri_allenamento({"data": giorno})
+            return
+        menu = QMenu(self)
+        for a in fatti:
+            voce = menu.addMenu(f"{a['tipo']} · {durata(a['minuti'])}")
+            voce.addAction("Modifica",
+                           lambda _=False, v=a: self._apri_allenamento(v))
+            voce.addAction("Elimina", lambda _=False, v=a: (
+                self.db.elimina("allenamenti", v["id"]), self._dopo_salvataggio()))
+        menu.addSeparator()
+        menu.addAction("Aggiungine un altro",
+                       lambda: self._apri_allenamento({"data": giorno}))
+        menu.addAction("Scrivi i dati del giorno", lambda: self.apri_dati(giorno))
+        menu.exec(QCursor.pos())
+
+    def _apri_allenamento(self, voce) -> None:
+        """La finestra di un allenamento, nuovo o già scritto."""
         dlg = DialogoAllenamento(voce, parent=self)
         if dlg.exec():
             self.db.salva_allenamento(dlg.dati())
             self._dopo_salvataggio()
-
-    def _menu_allenamento(self, punto) -> None:
-        voce = self._allenamento_scelto()
-        if voce is None:
-            return
-        menu = QMenu(self)
-        menu.addAction("Modifica", self._modifica_allenamento)
-        menu.addAction("Elimina", lambda: (self.db.elimina("allenamenti", voce["id"]),
-                                           self._dopo_salvataggio()))
-        menu.exec(self.tab.viewport().mapToGlobal(punto))
 
     # ---------------------------------------------------------------- dati
     def aggiorna(self) -> None:
@@ -400,7 +419,7 @@ class VistaSalute(VistaSezioni):
         self._aggiorna_passi()
         self._aggiorna_sonno()
         self._aggiorna_indicatori()
-        self._aggiorna_allenamenti()
+        self._aggiorna_stress()
         self._aggiorna_battito()
 
     def _numero(self, campo: str, valore: str, nota: str, colore: str,
@@ -905,29 +924,76 @@ class VistaSalute(VistaSezioni):
                 "braccialetto.", "NotaScheda"))
         self.lay_ind.addStretch(1)
 
-    def _aggiorna_allenamenti(self) -> None:
-        quanti = int(self.periodo("allenamenti"))
-        elenco = ultimi_giorni(quanti)
-        voci = self.db.allenamenti(elenco[0], elenco[-1])
-        self.tab.setRowCount(len(voci))
-        for i, a in enumerate(voci):
-            cella = QTableWidgetItem(relativa(a["data"]))
-            cella.setData(Qt.UserRole, a["id"])
-            cella.setToolTip(data_it(a["data"]))
-            self.tab.setItem(i, 0, cella)
-            self.tab.setItem(i, 1, QTableWidgetItem(a["tipo"]))
-            self.tab.setItem(i, 2, QTableWidgetItem(durata(a["minuti"])))
-            self.tab.setItem(i, 3, QTableWidgetItem(
-                f"{numero(a['km'], 1)} km" if a["km"] else "—"))
-            self.tab.setItem(i, 4, QTableWidgetItem(
-                numero(a["kcal"], 0) if a["kcal"] else "—"))
-            for colonna in (2, 3, 4):
-                self.tab.item(i, colonna).setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        dal, al = settimana_corrente()
-        questa = len(self.db.allenamenti(dal, al))
-        obiettivo = self.db.leggi_num("obiettivo_allenamenti",
-                                      PREDEFINITI["obiettivo_allenamenti"])
-        minuti = sum(a["minuti"] for a in voci)
-        self.contenitore.sezioni["allenamenti"].imposta_nota(
-            f"{questa} su {obiettivo:.0f} questa settimana · {durata(minuti)} in totale")
+    # Come li chiama il braccialetto: sotto 30 è basso, sopra 80 è tanto.
+    LIVELLI_STRESS = ((30, "basso", "#16c47f"), (60, "normale", "#f0b429"),
+                      (80, "alto", "#ff9f45"), (101, "molto alto", "#ff5a5a"))
+
+    @classmethod
+    def _livello_stress(cls, valore: float) -> tuple[str, str]:
+        for soglia, nome, tinta in cls.LIVELLI_STRESS:
+            if valore < soglia:
+                return nome, tinta
+        return cls.LIVELLI_STRESS[-1][1], cls.LIVELLI_STRESS[-1][2]
+
+    def _aggiorna_stress(self) -> None:
+        """Lo stress misurato dal braccialetto, giorno per giorno.
+
+        Da 0 a 100, e qui più basso vuol dire meglio: è il contrario di
+        quasi tutti gli altri grafici della pagina, per questo la barra ha
+        il colore del livello invece di quello dell'accento.
+        """
+        finestre = self.nav_stress.finestre()
+        barre, valori = [], []
+        for nome_barra, dal, al in finestre:
+            dentro = [v for _g, v in self.db.serie_salute("stress", dal, al) if v]
+            quanto = media(dentro) if dentro else None
+            barre.append((nome_barra, [quanto]))
+            if quanto is not None:
+                valori.append(quanto)
+        self.g_stress.evidenziata = self.nav_stress.indice_adesso()
+        tinta = self._livello_stress(valori[-1])[1] if valori else self.c["accento"]
+        self.g_stress.imposta_dati(barre, [("stress", tinta)])
+
+        dal, al = self.nav_stress.scelto()
+        dentro = [v for _g, v in self.db.serie_salute("stress", dal, al) if v]
+        adesso = media(dentro) if dentro else 0.0
+        if adesso:
+            nome, colore = self._livello_stress(adesso)
+            self.et_stress.setText(numero(adesso, 0))
+            self.et_stress.setStyleSheet(f"color: {colore}; font-weight: 700;")
+            self.et_stress_nota.setText(f"{self.nav_stress.nome_scelto()} · {nome}")
+        else:
+            # niente in questa finestra: si dice l'ultima misura che c'è,
+            # invece di un trattino che non spiega niente
+            ultimo = self.db.uno(
+                "SELECT data, stress FROM salute WHERE stress > 0 AND data <= ? "
+                "ORDER BY data DESC LIMIT 1", (al,))
+            if ultimo:
+                nome, colore = self._livello_stress(float(ultimo["stress"]))
+                self.et_stress.setText(numero(float(ultimo["stress"]), 0))
+                self.et_stress.setStyleSheet(f"color: {colore}; font-weight: 700;")
+                self.et_stress_nota.setText(
+                    f"ultima misura · {relativa(ultimo['data'])} · {nome}")
+            else:
+                self.et_stress.setText("—")
+                self.et_stress.setStyleSheet("")
+                self.et_stress_nota.setText(
+                    f"{self.nav_stress.nome_scelto()} · il braccialetto non ha "
+                    "ancora misurato lo stress")
+
+        # lo stress che hai scritto tu in Emozioni, da 1 a 10: è un'altra
+        # cosa dal battito, e quando i due non vanno d'accordo si vede qui
+        sentito = self.db.medie_periodo(dal, al)
+        if sentito["n"]:
+            quante = int(sentito["n"])
+            self.et_sentito.setText(
+                f"sentito {numero(sentito['stress'], 1)} su 10 · "
+                f"{quante} annotazion{'e' if quante == 1 else 'i'} in Emozioni")
+        else:
+            self.et_sentito.setText("in Emozioni non hai scritto come stavi")
+
+        self.contenitore.sezioni["stress"].imposta_nota(
+            f"media {numero(media(valori), 0)} su {len(valori)} "
+            f"{'giorni' if self.nav_stress.modo == 'giorni' else 'periodi'} misurati"
+            if valori else "lo misura il braccialetto, dal battito")
 

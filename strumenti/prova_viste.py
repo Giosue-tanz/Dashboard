@@ -23,6 +23,7 @@ RADICE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, RADICE)
 
 from PySide6.QtCore import QElapsedTimer, QLocale, Qt                  # noqa: E402
+from PySide6.QtGui import QFontMetrics                                 # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QLineEdit          # noqa: E402
 from PySide6.QtTest import QTest                                       # noqa: E402
 
@@ -32,7 +33,7 @@ tess.Motore.accendi = lambda self: (False, "prova: motore non toccato")
 tess.Motore.attiva = lambda self: False
 
 from vita.andamento import AMPIEZZE, MISURE, FinestraAndamento         # noqa: E402
-from vita.db import DB_PATH, Database                                  # noqa: E402
+from vita.db import DB_PATH, Database, copia_archivio                  # noqa: E402
 from vita.dialoghi import DialogoGiorno                                # noqa: E402
 from vita.finestra import VISTE, FinestraPrincipale                    # noqa: E402
 from vita.tema import SCALE                                            # noqa: E402
@@ -66,7 +67,7 @@ def main() -> int:
     banco = tempfile.mkdtemp(prefix="prova-dashboard-")
     copia = os.path.join(banco, "prova.db")
     if os.path.exists(opzioni.archivio):
-        shutil.copy2(opzioni.archivio, copia)
+        copia_archivio(opzioni.archivio, copia)   # WAL compreso
     scatti = opzioni.scatti or banco
 
     db = Database(copia)
@@ -202,6 +203,25 @@ def main() -> int:
         r.piega_colonna(True); posa(300)
         assert r.colonna_chat.isVisible(), "colonna non riaperta"
     prova("Tess: chiudo e riapro l'elenco", colonna)
+
+    def nomi_interi():
+        """Il nome di una conversazione ci deve stare tutto, in altezza.
+
+        Il foglio di stile mette quattro pixel di stacco fra una voce e
+        l'altra: se non si contano, la riga ne riceve quattro in meno di
+        quelli che ha chiesto, e il nome resta tagliato di sotto. Con il
+        testo molto grande si vedeva a occhio nudo.
+        """
+        r.aggiorna_elenco(); posa(150)
+        for k in range(r.elenco.count()):
+            voce = r.elenco.item(k)
+            riga_voce = r.elenco.itemWidget(voce)
+            if riga_voce is None:
+                continue
+            serve = QFontMetrics(riga_voce.et_nome.font()).height()
+            assert riga_voce.et_nome.height() >= serve, (
+                f"nome schiacciato: {riga_voce.et_nome.height()} invece di {serve}")
+    prova("Tess: i nomi delle chat ci stanno tutti", nomi_interi)
     db.elimina_conversazione_tess(chat)
 
     # ---- il braccialetto: il riquadro esiste e non si collega da solo
@@ -270,6 +290,13 @@ def main() -> int:
         vista = f.viste[i_salute]
         riquadro = vista.riquadro_banda
         giorno = _d.today().isoformat()
+        # la giornata di oggi si sgombra: nell'archivio vero il braccialetto
+        # potrebbe averci già messo un sonno più lungo, e i conti di un
+        # giorno non tornano indietro (vedi `Database.CRESCONO`)
+        db.esegui("DELETE FROM salute WHERE data=?", (giorno,))
+        db.esegui("DELETE FROM banda_scritti WHERE data=?", (giorno,))
+        db.esegui("DELETE FROM battiti WHERE data=?", (giorno,))
+        vista.aggiorna()
         prima = vista.et_sonno.text()
         giorni = {giorno: {"passi": 9999, "km": 7.7, "kcal": 333,
                            "sonno": 456, "battito": 52}}
@@ -292,6 +319,91 @@ def main() -> int:
         riquadro._sincronia(13, "fatto")
         assert "già tutto" in riquadro.et_stato.text(), riquadro.et_stato.text()
     prova("Braccialetto: i dati entrano e i grafici si rifanno", consegna)
+
+    def senza_ho_finito():
+        """I lotti si leggono quando smettono di arrivare, non solo alla fine.
+
+        Il braccialetto dice «ho finito» quando gli pare — a volte prima
+        dell'ultimo lotto. Aspettare solo quella parola vuol dire perdere
+        quello che arriva dopo: è così che il sonno di una notte intera e
+        le ore di battito di una giornata sono rimasti fuori dall'archivio,
+        scritti su disco e mai letti.
+        """
+        from vita.banda import Braccialetto
+        # un lotto di passi vero, registrato dal Galaxy Fit2
+        lotto = bytes.fromhex(
+            "8203e00300070105 3ddb4845 01 00db4845 02 3bdb4845 03 80ee3600"
+            "10 0d000000 11 d65b1f41 12 8ffb293e 13 82f0073f 14 00000000"
+            "15 0d000000".replace(" ", ""))
+        banda = Braccialetto()
+        arrivati = []
+        banda.giorni_pronti.connect(lambda g: arrivati.append(g))
+        assert banda._consegna(False) == {}, "senza lotti non deve dire niente"
+        banda._raccolti = [lotto]
+        giorni = banda._consegna(False)      # nessun «ho finito» di mezzo
+        assert giorni and arrivati, "i lotti arrivati non sono stati letti"
+        assert banda._sgranatura.isActive() is False
+    prova("Braccialetto: legge i lotti senza aspettare «ho finito»", senza_ho_finito)
+
+    def rete_su_disco():
+        """«Cerca dati» rilegge prima quello che è già stato scaricato.
+
+        I lotti grezzi restano su disco: rileggerli non costa niente e non
+        crea doppioni, e recupera quello che al primo colpo non era entrato.
+        """
+        riquadro = f.viste[i_salute].riquadro_banda
+        riquadro._giorni_scritti, riquadro._ore_scritte = set(), 0
+        riquadro._ripesca()          # non deve rompersi nemmeno senza lotti
+    prova("Braccialetto: rilegge i lotti già scaricati", rete_su_disco)
+
+    def stress_al_posto_degli_allenamenti():
+        """In Salute c'è lo stress, e la tabella degli allenamenti non c'è più.
+
+        Gli allenamenti restano: si contano nella mappa della costanza, e da
+        lì si aprono, si correggono e si buttano via.
+        """
+        vista = f.viste[i_salute]
+        sezioni = vista.contenitore.sezioni
+        assert "stress" in sezioni, sorted(sezioni)
+        assert "allenamenti" not in sezioni, sorted(sezioni)
+        assert vista.nav_stress is not None
+        vista._aggiorna_stress()          # con o senza misure, non si rompe
+        assert vista._livello_stress(12)[0] == "basso"
+        assert vista._livello_stress(95)[0] == "molto alto"
+    prova("Salute: al posto degli allenamenti c'è lo stress",
+          stress_al_posto_degli_allenamenti)
+
+    # ---- il cruscotto: gli impegni si modificano e si eliminano
+    i_cruscotto = [k for k, (n, _) in enumerate(VISTE) if n == "cruscotto"][0]
+    f.vai(i_cruscotto); posa(200)
+
+    def impegni_modificabili():
+        """Ogni riga degli impegni si ricorda da dove viene.
+
+        Nella tabella finiscono scadenze, esami e consegne di progetti: senza
+        sapere quale è quale, la matita e il cestino non saprebbero dove
+        andare a scrivere.
+        """
+        from datetime import date as _d, timedelta as _t
+        vista = f.viste[i_cruscotto]
+        quando = (_d.today() + _t(days=3)).isoformat()
+        db.salva_scadenza({"id": None, "data": quando, "titolo": "Prova impegno",
+                           "area": "carriera", "note": "", "fatta": 0})
+        vista._aggiorna_impegni(); posa(100)
+        righe = [vista.tab.item(k, 0).data(Qt.UserRole)
+                 for k in range(vista.tab.rowCount())]
+        assert all(r and len(r) == 2 for r in righe), righe
+        assert any(r[0] == "scadenza" for r in righe), (
+            f"la scadenza appena scritta non è fra gli impegni: {righe}")
+        # niente riga scelta: le icone sono spente, e non combinano guai
+        vista.tab.clearSelection()
+        vista.azioni_impegni.rivedi()
+        assert not vista.azioni_impegni.b_elimina.isEnabled()
+        vista._modifica_impegno()        # senza scelta non deve fare niente
+        vista.tab.selectRow(0)
+        vista.azioni_impegni.rivedi()
+        assert vista.azioni_impegni.b_elimina.isEnabled()
+    prova("Cruscotto: un impegno sa da dove viene", impegni_modificabili)
 
     # ---- le quattro dimensioni del testo: niente deve restare tagliato
     strette = []

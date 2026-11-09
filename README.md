@@ -129,13 +129,27 @@ numero apre l'andamento di quel dato.
 **Nel tempo** — *Passi*, *Costanza*, *Indicatori*: la settimana che si sfoglia,
 i quadretti dei giorni centrati, le misure col loro scarto dall'obiettivo.
 
-**Il corpo** — *Composizione*, *Allenamenti*, *Braccialetto*: quello che
+**Il corpo** — *Composizione*, *Stress*, *Braccialetto*: quello che
 cambia lentamente, e in fondo chi lo misura. **Composizione** tiene dentro
 anche la curva del peso, che prima era un riquadro a parte: senza la massa
 grassa quel riquadro mostrava un numero e una barra finta tutta di un colore,
 e non diceva niente. Adesso c'è il peso, di quanto si è mosso nel periodo, la
 curva, e — quando la massa grassa c'è — la barra di com'è diviso il peso con
 la sua legenda.
+
+**Stress** mostra due cose che non sono la stessa: il numero grande è quello
+che misura il braccialetto dal battito — da 0 a 100, e qui **più basso vuol
+dire meglio**, per questo le barre prendono il colore del livello (sotto 30
+basso, sopra 80 molto alto) invece del verde di casa. La riga sotto dice
+invece lo stress **sentito**, quello che hai scritto tu in Emozioni da 1 a
+10. Quando i due non vanno d'accordo è proprio quella la cosa da guardare. Se
+nella finestra che stai guardando il braccialetto non ha misurato, il riquadro
+non mette un trattino: dice l'ultima misura che c'è, e di quando è.
+
+La tabella degli allenamenti non sta più in pagina — gli allenamenti si
+contano nella mappa della **Costanza**, e da lì si aprono: con 💪 acceso, un
+clic su un quadretto apre l'allenamento di quel giorno per correggerlo o
+buttarlo via, e se quel giorno non ce n'è ne comincia uno nuovo.
 
 In **Costanza** i tre dati si scelgono con tre segni sulla riga del titolo
 (👟 passi, 🌙 sonno, 💪 allenamenti): il nome per esteso è nel suggerimento, e
@@ -209,6 +223,20 @@ durante una consegna, e ogni volta copriva quello precedente con un «13 lotti
 di dati» che non diceva se nell'archivio fosse entrato qualcosa. **E i grafici
 si rifanno comunque**, anche quando non è cambiato niente: hai chiesto i dati,
 è giusto che la pagina risponda.
+
+**I lotti si leggono quando smettono di arrivare, non quando il braccialetto
+dice «ho finito».** Quella parola la dice quando gli pare — a volte *prima*
+dell'ultimo lotto — e aspettare solo lei vuol dire perdere tutto quello che
+arriva dopo: scritto su disco, e mai letto. È così che una notte intera di
+sonno e le ore di battito di una giornata sono rimaste fuori dall'archivio
+pur essendo già state consegnate. Adesso ogni lotto fa ripartire un timer
+breve: quando passa senza che ne arrivino altri, si legge quello che c'è.
+
+E «Cerca dati» comincia **rileggendo i lotti già scaricati**. I lotti grezzi
+restano tutti in `~/.local/share/Vita/banda/`, rileggerli non costa niente e
+non crea doppioni: è la rete che recupera quello che al primo colpo, per un
+motivo o per l'altro, nell'archivio non era entrato. Lo stesso fa a mano
+`python3 strumenti/importa_lotti.py --scrivi`.
 
 ## Quello che scrive il braccialetto, e quello che scrivi tu
 
@@ -346,6 +374,23 @@ media delle voci: si disegnano una per una, all'ora in cui le hai scritte. La
 media nascondeva proprio quello che interessa, cioè se la mattina è andata
 diversa dalla sera.
 
+## Modificare ed eliminare: due icone, non un gesto segreto
+
+Nelle tabelle — *Prossimi impegni* nel cruscotto, *Ore registrate*, *Incassi*
+e *Scadenze* in Carriera — correggere e buttare via c'erano già, ma solo col
+doppio clic e col tasto destro: due gesti che non si vedono, e che infatti
+non trovava nessuno. Adesso sulla riga del titolo ci sono **una matita e un
+cestino**, spenti finché non scegli una riga — così si capisce anche *che
+bisogna sceglierla*. Il doppio clic e il tasto destro restano dov'erano.
+
+Il cestino della riga del titolo **chiede conferma**; quello del menu sul
+tasto destro no, perché lì ci sei arrivato apposta — un'icona sempre in vista
+invece si clicca anche per sbaglio.
+
+In *Prossimi impegni* finiscono tre cose diverse — scadenze, esami e consegne
+di progetti — e ognuna si corregge nella sua finestra: ogni riga si ricorda da
+dove viene.
+
 ## Scegliere il periodo
 
 Il tempo si cambia in un modo solo, uguale dappertutto.
@@ -367,6 +412,22 @@ Quando lo spazio è poco il riquadro rinuncia nell'ordine: prima la nota, poi
 la pastiglia, per ultimo il titolo. E la nota o ci sta intera, o ne resta
 abbastanza da capirla: un moncone come «6/28 centr…» non si vede più.
 
+## I colori non si scelgono
+
+In **Impostazioni → Aspetto** si sceglie il tema (scuro o chiaro, `Ctrl+T`) e
+la dimensione del testo. Il colore principale **non si sceglie più**: c'era
+una fila di campioni, e serviva solo a rompere l'accordo con le tinte delle
+aree, che sono fisse per un motivo — rosso Emozioni, blu Carriera, viola
+Accademica, turchese Salute, verde Finanza, rosa Tess, ambra Abitudini. Il
+verde di casa è l'unico accento, e il resto è costruito per andarci d'accordo.
+
+Da questo discende una regola: **ogni pagina indossa il suo colore**. La
+pagina di Tess era rosa nella barra e verde dentro — il bottone che manda, la
+conversazione aperta, l'interruttore. Adesso è rosa anche la chat: il filo dei
+messaggi di Tess (che ce l'ha sempre avuto), la bolla di quello che scrivi tu,
+la conversazione aperta nell'elenco, il tondo dell'invio e i due interruttori.
+L'interruttore del braccialetto, in Salute, è turchese.
+
 ## Il testo grande non taglia niente
 
 La dimensione del testo si cambia in **Impostazioni → Aspetto** e arriva fino
@@ -376,6 +437,11 @@ l'intestazione dei riquadri (le code delle «g» di «Oggi», «Progetti»,
 «Prossimi impegni»), le righe lineari di Accademica e Abitudini, i numeri
 grandi. I titoli lunghi si accorciano coi puntini — e si accorcia prima la
 riga di spiegazione, che conta meno del titolo.
+
+Vale anche per le voci dell'elenco delle conversazioni di Tess: il foglio di
+stile mette quattro pixel di stacco fra una voce e l'altra, e chi chiedeva
+l'altezza non li contava — così la riga ne riceveva quattro in meno di quelli
+che le servivano, e a `molto grande` i nomi restavano tagliati di sotto.
 
 A controllare che sia vero c'è un programma, che apre tutte le pagine e tutte
 le finestre a ognuna delle quattro dimensioni e cerca le scritte che non
@@ -405,6 +471,15 @@ computer: appena installata, l'app parte vuota, con le sole emozioni,
 categorie e abitudini di partenza da cui poi fai le tue. Per ritrovare i dati
 su un PC nuovo si copia quel file a mano, oppure si usa il backup di
 **Impostazioni → Dati e backup**.
+
+> **Copiare `vita.db` e basta non basta.** L'archivio sta in modalità WAL:
+> quello che è stato scritto di recente vive ancora nel file `vita.db-wal`
+> accanto, e un `cp` del solo `.db` porta via un archivio **vecchio di ore** —
+> un backup che sembra fatto e non contiene la giornata. Il backup
+> dell'applicazione non lo fa più: usa l'API di SQLite, che si fa una copia
+> coerente e completa anche con l'app aperta. Se copi a mano, prendi tutti e
+> tre i file (`vita.db`, `vita.db-wal`, `vita.db-shm`) oppure chiudi l'app
+> prima.
 
 ## Il salvataggio automatico
 

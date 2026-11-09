@@ -929,11 +929,13 @@ class VoceChat(QWidget):
         # un QWidget nostro il fondo del foglio di stile non lo disegna da sé
         self.setAttribute(Qt.WA_StyledBackground, True)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(10, 7, 6, 7)
-        lay.setSpacing(6)
+        lay.setContentsMargins(12, 9, 8, 9)
+        lay.setSpacing(8)
         self.et_nome = QLabel(nome)
         self.et_nome.setObjectName("NomeChat")
-        self.et_nome.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        # in larghezza si lascia accorciare coi puntini; in altezza no: deve
+        # starci tutto, anche con il testo grande
+        self.et_nome.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.et_quando = QLabel(quando)
         self.et_quando.setObjectName("QuandoChat")
         # la casella per rinominare nasce solo quando serve: una per riga,
@@ -1215,7 +1217,8 @@ class RiquadroTess(QWidget):
         fila_dati.setSpacing(8)
         et_dati = QLabel("dati")
         et_dati.setObjectName("NotaScheda")
-        self.b_dati = Interruttore(colori, db.leggi("tess_dati", "1") == "1")
+        self.b_dati = Interruttore(colori, db.leggi("tess_dati", "1") == "1",
+                                   area="tess")
         self.b_dati.setToolTip(
             "Manda a Tess il riassunto dei tuoi numeri (salute, esami, "
             "progetti, abitudini, finanza).\nSpento, Tess risponde senza "
@@ -1473,6 +1476,12 @@ class RiquadroTess(QWidget):
         self.et_chat.setText(self._nome_chat_aperta())
         self.b_chat.setVisible(bool(self.chat_id))
 
+    # lo spazio fra una conversazione e l'altra, che il foglio di stile mette
+    # come «margin-bottom» sulla voce: va tolto dall'altezza che si chiede,
+    # se no il nome resta con quattro pixel in meno di quelli che gli servono
+    # — ed è così che le scritte sembravano tagliate di sotto
+    STACCO_VOCE = 4
+
     def _misura_voci(self) -> None:
         """Dà a ogni voce la larghezza della colonna e l'altezza che le serve."""
         if self.elenco.count() == 0:
@@ -1484,10 +1493,12 @@ class RiquadroTess(QWidget):
             voce = self.elenco.item(i)
             riga = self.elenco.itemWidget(voce)
             if riga is None:                     # è un titoletto di gruppo
-                voce.setSizeHint(QSize(largo, alto_titolo))
+                voce.setSizeHint(QSize(largo, alto_titolo + self.STACCO_VOCE))
                 continue
+            riga.ensurePolished()      # prima, il carattere è ancora quello di serie
             riga.setFixedWidth(largo)
-            voce.setSizeHint(QSize(largo, riga.sizeHint().height()))
+            voce.setSizeHint(QSize(largo,
+                                   riga.sizeHint().height() + self.STACCO_VOCE))
 
     # ------------------------------------------------- la colonna dei nomi
     LARGO_PANNELLO = 246

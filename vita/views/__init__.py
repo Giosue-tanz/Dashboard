@@ -104,6 +104,18 @@ class VistaSezioni(VistaBase):
     def crea_sezioni(self) -> None:
         ...
 
+    def aggiorna_tema(self, colori: dict) -> None:
+        """Anche i comandi sulla riga del titolo cambiano vestito.
+
+        Navigatori e icone si disegnano da sé, con i colori che gli sono
+        stati dati: senza passare di qui restavano del tema di prima.
+        """
+        for sezione in getattr(self.contenitore, "sezioni", {}).values():
+            comando = getattr(sezione.intestazione, "comando", None)
+            if hasattr(comando, "aggiorna_tema"):
+                comando.aggiorna_tema(colori)
+        super().aggiorna_tema(colori)
+
     # ------------------------------------------------------------- riquadri
     def _menu_sezioni(self) -> None:
         self.b_sezioni = QPushButton("Riquadri")

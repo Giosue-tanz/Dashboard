@@ -18,7 +18,7 @@ from vita import blocco
 from vita.db import Database
 from vita.finestra import FinestraPrincipale
 from vita.icone_nav import logo_app
-from vita.tema import ACCENTO_PREDEFINITO, SCALE, colori, foglio_stile
+from vita.tema import SCALE, colori, foglio_stile
 
 
 def main() -> int:
@@ -37,7 +37,7 @@ def main() -> int:
 
     # se c'è una password, si entra solo da lì: la finestra non nasce nemmeno
     if blocco.attivo(db):
-        c = colori(tema, db.leggi("accento", ACCENTO_PREDEFINITO))
+        c = colori(tema)
         app.setStyleSheet(foglio_stile(
             c, SCALE.get(db.leggi("scala", "normale"), 1.0)))
         if not blocco.chiedi(db, c, tema):

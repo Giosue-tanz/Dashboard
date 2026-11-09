@@ -6,15 +6,16 @@ from datetime import date, timedelta
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QHeaderView, QLabel,
-                               QPushButton, QTableWidget, QTableWidgetItem,
-                               QWidget)
+                               QMenu, QMessageBox, QPushButton, QTableWidget,
+                               QTableWidgetItem, QWidget)
 
-from ..componenti import (COLORE_BATTITO, AnelloEtichettato, EtichettaACapo,
-                          EtichettaAlta,
+from ..componenti import (COLORE_BATTITO, AnelloEtichettato, AzioniRiga,
+                          EtichettaACapo, EtichettaAlta,
                           Interruttore, RigaMisura, abilita_deselezione,
                           dati_battito, etichetta, faccia, righe_indicatori,
                           stile_tabella)
 from ..db import AREE
+from ..dialoghi import DialogoEsame, DialogoProgetto, DialogoScadenza
 from ..grafici import (Anello, GraficoBarre, GraficoIntervalli,
                        GraficoLinea, MappaCalore)
 from ..punteggi import PREDEFINITI
@@ -50,7 +51,7 @@ class VistaCruscotto(VistaSezioni):
         "finanza": "Finanza",
         "impegni": "Prossimi impegni",
     }
-    versione_layout = 6
+    versione_layout = 7
     # Come si legge una giornata: prima com'è andata (anello, salute, costanza),
     # poi come si sta muovendo (umore e soldi, i due andamenti che vogliono
     # larghezza), in fondo cosa resta da fare. Tess ha una pagina sua: qui
@@ -198,7 +199,13 @@ class VistaCruscotto(VistaSezioni):
         h.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         abilita_deselezione(self.tab)
         stile_tabella(self.tab)
-        self.aggiungi("impegni", self.tab)
+        self.tab.doubleClicked.connect(self._modifica_impegno)
+        self.tab.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tab.customContextMenuRequested.connect(self._menu_impegno)
+        self.azioni_impegni = AzioniRiga(self.c, self.tab, "questo impegno")
+        self.azioni_impegni.modifica.connect(self._modifica_impegno)
+        self.azioni_impegni.elimina.connect(self._elimina_impegno)
+        self.aggiungi("impegni", self.tab, comando=self.azioni_impegni)
 
         self.grafici = [self.g_emotivo, self.g_finanza, self.anello_umore,
                         self.anello_passi, self.mappa,
@@ -491,6 +498,69 @@ class VistaCruscotto(VistaSezioni):
         self.contenitore.sezioni["finanza"].imposta_nota(
             f"risparmio del mese {euro(risparmio)}")
 
+    # ---------------------------------------------------- gli impegni
+    # Nella tabella finiscono tre cose diverse — scadenze, esami e consegne
+    # di progetti — e ognuna si corregge nella sua finestra. La riga si
+    # ricorda da dove viene, così modificarla ed eliminarla sanno dove andare.
+    def _impegno_scelto(self) -> tuple[str, int] | None:
+        righe = self.tab.selectionModel().selectedRows()
+        if not righe:
+            return None
+        return self.tab.item(righe[0].row(), 0).data(Qt.UserRole)
+
+    def _modifica_impegno(self) -> None:
+        scelto = self._impegno_scelto()
+        if scelto is None:
+            return
+        specie, id_ = scelto
+        tabella = {"scadenza": "scadenze", "esame": "esami",
+                   "progetto": "progetti"}[specie]
+        voce = self.db.uno(f"SELECT * FROM {tabella} WHERE id=?", (id_,))
+        if voce is None:
+            return
+        if specie == "scadenza":
+            dlg = DialogoScadenza(voce, parent=self)
+            salva = self.db.salva_scadenza
+        elif specie == "esame":
+            dlg = DialogoEsame(voce, parent=self)
+            salva = self.db.salva_esame
+        else:
+            dlg = DialogoProgetto(voce, parent=self)
+            salva = self.db.salva_progetto
+        if dlg.exec():
+            salva(dlg.dati())
+            self.aggiorna()
+
+    def _elimina_impegno(self) -> None:
+        scelto = self._impegno_scelto()
+        if scelto is None:
+            return
+        specie, id_ = scelto
+        tabella = {"scadenza": "scadenze", "esame": "esami",
+                   "progetto": "progetti"}[specie]
+        nomi = {"scadenza": "questa scadenza", "esame": "questo esame",
+                "progetto": "questo progetto, con le ore e gli incassi che "
+                            "gli sono attaccati"}
+        if QMessageBox.question(
+                self, "Eliminare?", f"Vuoi eliminare {nomi[specie]}?",
+                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        self.db.elimina(tabella, id_)
+        self.aggiorna()
+
+    def _menu_impegno(self, punto) -> None:
+        scelto = self._impegno_scelto()
+        if scelto is None:
+            return
+        menu = QMenu(self)
+        menu.addAction("Modifica", self._modifica_impegno)
+        if scelto[0] == "scadenza":
+            menu.addAction("Segna come fatta", lambda: (
+                self.db.esegui("UPDATE scadenze SET fatta=1 WHERE id=?",
+                               (scelto[1],)), self.aggiorna()))
+        menu.addAction("Elimina", self._elimina_impegno)
+        menu.exec(self.tab.viewport().mapToGlobal(punto))
+
     def _aggiorna_impegni(self) -> None:
         quanti = int(self.periodo("impegni"))
         oggi = date.today()
@@ -502,16 +572,19 @@ class VistaCruscotto(VistaSezioni):
         progetti = [p for p in self.db.progetti()
                     if p["stato"] in ("corso", "pausa") and p["scadenza"] and
                     p["scadenza"] <= limite]
-        voci = [(s["data"], s["titolo"], AREE.get(s["area"], s["area"]))
-                for s in scadenze]
-        voci += [(e["data_esame"], f"Esame di {e['nome']}", "Accademica") for e in esami]
-        voci += [(p["scadenza"], f"Consegna {p['nome']}", "Carriera") for p in progetti]
+        voci = [(s["data"], s["titolo"], AREE.get(s["area"], s["area"]),
+                 ("scadenza", s["id"])) for s in scadenze]
+        voci += [(e["data_esame"], f"Esame di {e['nome']}", "Accademica",
+                  ("esame", e["id"])) for e in esami]
+        voci += [(p["scadenza"], f"Consegna {p['nome']}", "Carriera",
+                  ("progetto", p["id"])) for p in progetti]
         voci.sort(key=lambda v: v[0])
 
         self.tab.setRowCount(len(voci))
-        for i, (giorno, titolo, area) in enumerate(voci):
+        for i, (giorno, titolo, area, da_dove) in enumerate(voci):
             cella = QTableWidgetItem(relativa(giorno))
-            cella.setToolTip(data_it(giorno))
+            cella.setData(Qt.UserRole, da_dove)
+            cella.setToolTip(f"{data_it(giorno)}\nDoppio clic per modificarlo")
             if giorno <= oggi.isoformat():
                 cella.setForeground(QColor(self.c["uscita"]))
             elif giorno <= (oggi + timedelta(days=7)).isoformat():
@@ -519,5 +592,6 @@ class VistaCruscotto(VistaSezioni):
             self.tab.setItem(i, 0, cella)
             self.tab.setItem(i, 1, QTableWidgetItem(titolo))
             self.tab.setItem(i, 2, QTableWidgetItem(area))
+        self.azioni_impegni.rivedi()
         self.contenitore.sezioni["impegni"].imposta_nota(
             f"{len(voci)} nei prossimi {quanti} giorni")
