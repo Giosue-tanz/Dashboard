@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QHeaderView, QLabel,
 
 from ..componenti import (COLORE_BATTITO, AnelloEtichettato, AzioniRiga,
                           EtichettaACapo, EtichettaAlta, Interruttore,
-                          NavigatorePeriodo, RigaMisura, abilita_deselezione,
+                          NavigatorePeriodo, RigaMisura, SceltaPeriodo,
+                          abilita_deselezione,
                           dati_battito, etichetta, faccia, righe_indicatori,
                           stile_tabella)
 from ..db import AREE
@@ -63,9 +64,13 @@ class VistaCruscotto(VistaSezioni):
     LARGHEZZE_PREDEFINITE = ((0.30, 0.34, 0.36),
                              (0.34, 0.26, 0.40),
                              (0.26, 0.26, 0.26, 0.22))
+    # quanto indietro guarda il calendario delle abitudini: per esteso nel
+    # menu, accorciato sulla pastiglia
+    GIORNI_ABITUDINI = {"14": "14 giorni", "30": "30 giorni", "90": "90 giorni",
+                        "180": "6 mesi", "365": "un anno"}
+    GIORNI_ABITUDINI_CORTI = {"14": "14 g", "30": "30 g", "90": "90 g",
+                              "180": "6 mesi", "365": "un anno"}
     PERIODI_SEZIONE = {
-        "abitudini": ({"14": "14 giorni", "30": "30 giorni", "90": "90 giorni",
-                       "180": "6 mesi", "365": "un anno"}, "30"),
         "impegni": ({"30": "30 giorni", "90": "90 giorni", "365": "un anno",
                      "730": "due anni"}, "90"),
         "battito": ({"oggi": "oggi", "ieri": "ieri", "7": "7 giorni",
@@ -152,7 +157,16 @@ class VistaCruscotto(VistaSezioni):
             lambda _g: self.area_richiesta.emit("abitudini"))
         self.mappa.setCursor(Qt.PointingHandCursor)
         lay.addWidget(self.mappa, 1)
-        self.aggiungi("abitudini", contenuto)
+        # la stessa pastiglia stretta della costanza in Salute: un calendario
+        # a quadretti è una durata, non un arco da sfogliare
+        self.periodo_abitudini = SceltaPeriodo(
+            self.GIORNI_ABITUDINI, self.db.leggi("cruscotto_abitudini", "30"),
+            self.c, self.GIORNI_ABITUDINI_CORTI)
+        self.periodo_abitudini.scelto.connect(
+            lambda v: (self.db.imposta("cruscotto_abitudini", v),
+                       self._aggiorna_abitudini()))
+        self.aggiungi("abitudini", contenuto,
+                      comando=self.periodo_abitudini)
 
         # ---------------------------------------------------------- battito
         contenuto, lay = self.colonna(8)
@@ -456,7 +470,7 @@ class VistaCruscotto(VistaSezioni):
             f"{durata(studio)} di studio questa settimana")
 
     def _aggiorna_abitudini(self) -> None:
-        quanti = int(self.periodo("abitudini"))
+        quanti = int(self.periodo_abitudini.valore)
         # si parte da un lunedì: così le righe sono piene e la griglia è dritta
         oggi = date.today()
         inizio = oggi - timedelta(days=quanti - 1)

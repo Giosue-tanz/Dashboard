@@ -14,8 +14,8 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QMenu,
 
 from ..braccialetto import RiquadroBraccialetto
 from ..componenti import (COLORE_BATTITO, EtichettaACapo, EtichettaAlta,
-                          NavigatorePeriodo, RigaMisura, binario,
-                          dati_battito, etichetta, righe_indicatori)
+                          NavigatorePeriodo, RigaMisura, SceltaPeriodo,
+                          binario, dati_battito, etichetta, righe_indicatori)
 from ..andamento import FinestraAndamento
 from ..dialoghi import (DialogoAllenamento, DialogoGiorno,
                         DialogoImporta)
@@ -59,8 +59,6 @@ class VistaSalute(VistaSezioni):
     LARGHEZZE_PREDEFINITE = ((0.36, 0.34, 0.30), (0.34, 0.33, 0.33),
                              (0.38, 0.32, 0.30))
     PERIODI_SEZIONE = {
-        "costanza": ({"2": "2 settimane", "4": "4 settimane", "8": "8 settimane",
-                      "12": "12 settimane", "26": "6 mesi"}, "4"),
         "indicatori": ({"7": "7 giorni", "30": "30 giorni", "90": "90 giorni",
                         "365": "un anno"}, "7"),
         # il battito si guarda in due modi: le ore di una giornata, oppure
@@ -69,6 +67,12 @@ class VistaSalute(VistaSezioni):
                      "14": "14 giorni", "30": "30 giorni",
                      "90": "90 giorni"}, "oggi"),
     }
+    # quanto indietro guarda il calendario della costanza: la scritta per
+    # esteso sta nel menu, quella corta sulla pastiglia
+    SETTIMANE_COSTANZA = {"2": "2 settimane", "4": "4 settimane",
+                          "8": "8 settimane", "13": "3 mesi", "26": "6 mesi"}
+    SETTIMANE_CORTE = {"2": "2 sett", "4": "4 sett", "8": "8 sett",
+                       "13": "3 mesi", "26": "6 mesi"}
     # ogni dato della costanza ha il suo segno, la sua tinta e il suo modo
     # di dirsi: il segno sta sulla riga del titolo, il nome nel suggerimento
     # e nella nota accanto al titolo
@@ -169,6 +173,23 @@ class VistaSalute(VistaSezioni):
             {k: segno for k, (_, _, _, segno) in self.COSTANZA.items()},
             next(iter(self.COSTANZA)), self._scegli_costanza,
             {k: nome for k, (nome, _, _, _) in self.COSTANZA.items()})
+        # Il periodo sta **prima** dei tre segni, sulla stessa riga: dice
+        # quanto indietro si guarda, i segni dicono cosa. Qui le frecce non
+        # servono — un calendario a quadretti è una durata, non un arco da
+        # sfogliare — e una pastiglia stretta ci sta accanto ai simboli.
+        self.periodo_costanza = SceltaPeriodo(
+            self.SETTIMANE_COSTANZA, self.db.leggi("costanza_settimane", "8"),
+            self.c, self.SETTIMANE_CORTE)
+        self.periodo_costanza.scelto.connect(
+            lambda v: (self.db.imposta("costanza_settimane", v),
+                       self._aggiorna_costanza()))
+        comando_costanza = QWidget()
+        comando_costanza.setObjectName("ContenutoSezione")
+        fila_comando = QHBoxLayout(comando_costanza)
+        fila_comando.setContentsMargins(0, 0, 0, 0)
+        fila_comando.setSpacing(6)
+        fila_comando.addWidget(self.periodo_costanza)
+        fila_comando.addWidget(self.quale_costanza)
         self.mappa = MappaCalore(self.c)
         self.mappa.giorno_scelto.connect(self._giorno_costanza)
         self.mappa.setToolTip(
@@ -182,7 +203,7 @@ class VistaSalute(VistaSezioni):
         self.et_costanza.setAlignment(Qt.AlignCenter)
         self.et_costanza.setWordWrap(True)
         lay.addWidget(self.et_costanza)
-        self.aggiungi("costanza", contenuto, comando=self.quale_costanza)
+        self.aggiungi("costanza", contenuto, comando=comando_costanza)
 
         # ------------------------------------------------------------ passi
         contenuto, lay = self.colonna(6)
@@ -652,11 +673,17 @@ class VistaSalute(VistaSezioni):
         nome, tinta, cosa, _segno = self.COSTANZA[dato]
         colore = tinta or self.c["accento"]
 
-        settimane = int(self.periodo("costanza"))
-        oggi = date.today()
-        inizio = oggi - timedelta(days=oggi.weekday() + 7 * (settimane - 1))
-        elenco = [(inizio + timedelta(days=i)).isoformat()
-                  for i in range((oggi - inizio).days + 1)]
+        # settimane piene, da lunedì: la griglia ha sette colonne fisse e un
+        # periodo che comincia di mercoledì le sfalserebbe tutte
+        settimane = int(self.periodo_costanza.valore)
+        fine = date.today()
+        fine += timedelta(days=6 - fine.weekday())        # fino a domenica
+        inizio = fine - timedelta(weeks=settimane - 1, days=6)
+        elenco = giorni(inizio.isoformat(), fine.isoformat())
+        # la settimana in corso finisce di domenica, che deve ancora
+        # arrivare: i conti si fanno sui giorni già passati
+        oggi = date.today().isoformat()
+        passati = [g for g in elenco if g <= oggi] or elenco
 
         valori: dict[str, float] = {}
         if dato == "allenamenti":
@@ -679,33 +706,33 @@ class VistaSalute(VistaSezioni):
             {g: f"{data_it(g)} · {misura(v)}" for g, v in valori.items()})
 
         # ------------------------------------------------- il riassunto sotto
-        raggiunti = sum(1 for v in valori.values() if v >= obiettivo)
+        raggiunti = sum(1 for g in passati if valori.get(g, 0) >= obiettivo)
         serie = migliore = 0
-        for giorno in elenco:
+        for giorno in passati:
             if valori.get(giorno, 0) >= obiettivo:
                 serie += 1
                 migliore = max(migliore, serie)
             else:
                 serie = 0
         attuale = 0
-        for giorno in reversed(elenco):
+        for giorno in reversed(passati):
             if valori.get(giorno, 0) >= obiettivo:
                 attuale += 1
-            elif giorno != oggi.isoformat():   # oggi non è ancora finito
+            elif giorno != oggi:               # oggi non è ancora finito
                 break
 
-        quota = round(raggiunti / len(elenco) * 100) if elenco else 0
+        quota = round(raggiunti / len(passati) * 100) if passati else 0
         if not valori:
             riassunto = f"nessun dato di {nome.lower()}"
         else:
             # il nome del dato lo dice il segno acceso là sopra: qui bastano
             # i numeri, e così la nota ci sta accanto al titolo
-            riassunto = (f"{raggiunti}/{len(elenco)} centrati · "
+            riassunto = (f"{raggiunti}/{len(passati)} centrati · "
                          f"media {misura(media(list(valori.values())))}")
             if attuale > 1:
                 riassunto += f" · serie di {attuale}"
         self.mappa.setToolTip(
-            f"{cosa.capitalize()}: {len(valori)} giorni su {len(elenco)}.\n"
+            f"{cosa.capitalize()}: {len(valori)} giorni su {len(passati)}.\n"
             f"Obiettivo raggiunto {raggiunti} volte ({quota}%), "
             f"meglio {migliore} di fila.\n"
             "Più il quadretto è pieno, più sei andato vicino all'obiettivo: "

@@ -669,10 +669,18 @@ class BarraFasi(QWidget):
 class MappaCalore(QWidget):
     """Calendario a quadretti: un colore per giorno (umore, abitudini, ore).
 
-    I quadretti si ridisegnano alla misura che c'è: il lato, lo spazio fra
-    l'uno e l'altro, gli angoli e le lettere dei giorni seguono tutti la
-    stessa proporzione, così il calendario ha la stessa faccia in un riquadro
-    piccolo e in uno grande, col testo normale e col testo molto grande.
+    **Sette colonne, sempre, e riempiono la larghezza.** Il lato del
+    quadretto è quello che serve perché i sette giorni occupino tutta la
+    riga: prima il lato aveva un massimo di 44 pixel e il calendario si
+    metteva in mezzo, lasciando due bande vuote ai lati di un riquadro
+    largo. Se tanti quadretti così alti non ci stanno in altezza, il lato
+    si accorcia quel tanto che basta — ma le colonne restano distese da un
+    bordo all'altro, che è la cosa che si vedeva.
+
+    Lo spazio fra l'uno e l'altro, gli angoli e le lettere dei giorni
+    seguono la stessa proporzione del lato, così il calendario ha la stessa
+    faccia in un riquadro piccolo e in uno grande, col testo normale e col
+    testo molto grande.
 
     Il riempimento va **a gradini**, non a sfumatura continua: fra il 40% e
     il 45% dell'obiettivo, in un quadretto di dieci pixel, non vedrebbe la
@@ -680,7 +688,7 @@ class MappaCalore(QWidget):
     """
 
     giorno_scelto = Signal(str)
-    LATO_MASSIMO = 44.0        # oltre, i quadretti diventano mattoni
+    COLONNE = 7                # i giorni della settimana, da lunedì
     SOGLIE = (0.08, 0.3, 0.55, 0.8)                 # i gradini
     OPACITA = (0.20, 0.40, 0.62, 0.82, 1.0)         # quanto tinge ognuno
 
@@ -725,34 +733,36 @@ class MappaCalore(QWidget):
         misura = QFontMetrics(carattere)
         intestazione = (misura.height() + 3) if self.etichette else 0
 
-        # Due modi di posare lo stesso calendario: i giorni in colonna (sette
-        # colonne, una riga per settimana) o le settimane in colonna (sette
-        # righe). Vince quello che fa i quadretti più grandi.
-        verticale = min(self.width() / 7,
-                        max(12.0, self.height() - intestazione) / max(1, settimane))
-        orizzontale = min(self.width() / max(1, settimane), self.height() / 7)
-        disteso = orizzontale > verticale * 1.05
-        if disteso:
-            colonne, righe, intestazione = settimane, 7, 0
-        else:
-            colonne, righe = 7, settimane
-
+        colonne, righe = self.COLONNE, settimane
         utile = max(12.0, self.height() - intestazione)
-        naturale = min(self.width() / colonne, utile / max(1, righe))
-        lato = max(6.0, min(naturale * 0.88, self.LATO_MASSIMO))
+        # il passo orizzontale è tutta la larghezza divisa sette: è così che
+        # le colonne arrivano ai due bordi invece di stare in mezzo
+        passo_x = self.width() / colonne
+        passo_y = utile / max(1, righe)
         # lo spazio fra un quadretto e l'altro è un quinto del quadretto, mai
         # meno di tre pixel: a quadretti grandi non diventa un corridoio, a
         # quadretti piccoli non spariscono i confini
-        stacco = max(3.0, lato * 0.2)
-        passo_x = min(self.width() / colonne, lato + stacco)
-        passo_y = min(utile / max(1, righe), lato + stacco)
-        sinistra = (self.width() - passo_x * colonne) / 2
+        stacco = max(3.0, min(passo_x, passo_y) * 0.18)
+        # **La larghezza si riempie sempre**: il quadretto è largo quanto la
+        # sua colonna. L'altezza la prende uguale finché ce n'è; quando le
+        # settimane sono tante e il riquadro è basso si schiaccia, e invece
+        # di quadretti piccoli in mezzo a due bande vuote restano pastiglie
+        # distese da un bordo all'altro.
+        largo = max(6.0, passo_x - stacco)
+        alto_cella = max(5.0, min(largo, passo_y - stacco))
+        # ma un quadretto deve restare riconoscibile: oltre una volta e mezza
+        # più largo che alto smette di essere un quadretto e diventa una
+        # striscia, e allora si stringe un po' lasciandosi aria intorno —
+        # la griglia continua a toccare i due bordi, che è quello che conta
+        largo = min(largo, alto_cella * 1.5)
+        lato = min(largo, alto_cella)          # per raggi e spessori
+        sinistra = 0.0
         alto = intestazione + max(0.0, (utile - passo_y * righe) / 2)
-        raggio = lato * 0.3
+        raggio = min(lato * 0.3, alto_cella / 2)
 
         # con le colonne strette la lettera non ci sta: meglio nessuna lettera
         # che sette lettere appiccicate
-        if (self.etichette and not disteso
+        if (self.etichette
                 and misura.horizontalAdvance("M") <= passo_x - 2):
             p.setFont(carattere)
             p.setPen(QColor(self.c["testo2"]))
@@ -762,13 +772,10 @@ class MappaCalore(QWidget):
 
         for indice, giorno in enumerate(self.giorni):
             posizione = indice + salto
-            if disteso:
-                colonna, riga = divmod(posizione, 7)
-            else:
-                riga, colonna = divmod(posizione, 7)
-            x = sinistra + colonna * passo_x + (passo_x - lato) / 2
-            y = alto + riga * passo_y + (passo_y - lato) / 2
-            rect = QRectF(x, y, lato, lato)
+            riga, colonna = divmod(posizione, self.COLONNE)
+            x = sinistra + colonna * passo_x + (passo_x - largo) / 2
+            y = alto + riga * passo_y + (passo_y - alto_cella) / 2
+            rect = QRectF(x, y, largo, alto_cella)
             quota, colore = self.dati.get(giorno, (0.0, ""))
             p.setPen(Qt.NoPen)
             if not colore:

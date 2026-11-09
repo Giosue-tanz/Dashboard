@@ -443,6 +443,28 @@ a chiedersi se si è rotto qualcosa.
 Resta la pastiglia a tendina dove il periodo non è un arco da sfogliare ma
 una **durata**: i quadretti della costanza e del calendario (che si contano a
 settimane piene, da lunedì), le ciambelle, le tabelle, i totali di Finanza.
+Lì però la pastiglia è **stretta** e sta sulla riga del titolo accanto agli
+altri comandi, non a destra di tutto: in Costanza è «8 sett ▾» prima dei tre
+segni 👟🌙💪, e la stessa forma ce l'hanno la griglia delle Abitudini e il
+calendario delle abitudini nel cruscotto.
+
+## I quadretti riempiono la larghezza
+
+Il calendario a quadretti teneva il lato massimo a 44 pixel e si metteva in
+mezzo: in un riquadro largo restavano due bande vuote ai lati. Adesso sono
+sette colonne che arrivano da un bordo all'altro, e il quadretto è largo
+quanto la sua colonna.
+
+L'altezza la prende uguale finché ce n'è. Quando le settimane sono tante e il
+riquadro è basso si schiaccia — meglio pastiglie distese che quadretti
+piccoli in mezzo al vuoto — ma non oltre una volta e mezza più largo che
+alto: più in là smetterebbe di essere un quadretto, e allora si stringe un
+po' lasciandosi aria intorno. La griglia continua a toccare i due bordi, che
+è quello che si vedeva.
+
+Le quattro strade provate prima di scegliere questa stanno in
+`mockup/quadretti.html`, con due cursori per la larghezza del riquadro e per
+quante settimane guardare.
 
 **Via i «⋯».** Erano tre puntini che comparivano al passaggio del mouse a
 destra del titolo e aprivano lo stesso menu del tasto destro: una seconda

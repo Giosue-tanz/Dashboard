@@ -1,6 +1,8 @@
 """Componenti riutilizzabili dell'interfaccia."""
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from PySide6.QtCore import (QDate, QEasingCurve, QEvent, QModelIndex, QObject,
                             QPoint, QPointF, QRect, QRectF, QSize, Qt,
                             QVariantAnimation, Signal)
@@ -902,6 +904,80 @@ def binario(voci: dict, scelto: str, al_clic,
     return contenitore, pulsanti
 
 
+class SceltaPeriodo(QPushButton):
+    """La scelta del periodo in una pastiglia stretta: «8 sett ▾».
+
+    Dove il periodo non è un arco da sfogliare ma una **durata** — i
+    calendari a quadretti, che si contano a settimane piene — le frecce non
+    servono: serve dire quanto indietro guardare. La pastiglia dell'intestazione
+    faceva già questo, ma stava a destra di tutto e portava la scritta per
+    esteso; qui il nome è accorciato e la pastiglia è stretta, così sta sulla
+    riga del titolo accanto agli altri comandi invece di scacciarli.
+    """
+
+    scelto = Signal(str)
+
+    def __init__(self, voci: dict, valore: str, colori: dict,
+                 corti: dict | None = None, parent=None):
+        super().__init__(parent)
+        self.c = colori
+        self.voci = dict(voci)
+        self.corti = dict(corti or {})
+        self.valore = valore if valore in self.voci else next(iter(self.voci))
+        self.setObjectName("PeriodoCorto")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setToolTip("Quanto indietro guardare")
+        self.clicked.connect(self._menu)
+        self._scrivi()
+
+    def imposta(self, valore: str) -> None:
+        if valore in self.voci and valore != self.valore:
+            self.valore = valore
+            self._scrivi()
+
+    def _nome(self, chiave: str) -> str:
+        return self.corti.get(chiave, self.voci[chiave])
+
+    def _scrivi(self) -> None:
+        self.setText(f"{self._nome(self.valore)}  \u25be")
+        self._arrotonda()
+
+    def _arrotonda(self) -> None:
+        """Il raggio lo mette il codice: Qt butta via un raggio troppo grande."""
+        self.ensurePolished()
+        alto = max(18, self.sizeHint().height())
+        regola = f"QPushButton#PeriodoCorto {{ border-radius: {alto // 2}px; }}"
+        if self.styleSheet() != regola:
+            self.setStyleSheet(regola)
+
+    def changeEvent(self, ev):
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.StyleChange, QEvent.FontChange,
+                         QEvent.ApplicationFontChange):
+            self._arrotonda()
+
+    def _menu(self) -> None:
+        menu = QMenu(self)
+        for chiave, nome in self.voci.items():
+            azione = menu.addAction(nome)
+            azione.setCheckable(True)
+            azione.setChecked(chiave == self.valore)
+            azione.triggered.connect(
+                lambda _=False, k=chiave: self._prendi(k))
+        menu.exec(self.mapToGlobal(QPoint(0, self.height() + 2)))
+
+    def _prendi(self, chiave: str) -> None:
+        if chiave == self.valore:
+            return
+        self.valore = chiave
+        self._scrivi()
+        self.scelto.emit(chiave)
+
+    def aggiorna_tema(self, colori: dict) -> None:
+        self.c = colori
+
+
 class _NomePeriodo(QLabel):
     """Il nome del periodo, fra le due frecce.
 
@@ -1201,6 +1277,24 @@ class NavigatorePeriodo(QWidget):
         """Tutto quello che si vede: dal primo giorno all'ultimo."""
         finestre = self.finestre()
         return (finestre[0][1], finestre[-1][2]) if finestre else ("", "")
+
+    def settimane_intere(self) -> tuple[str, str]:
+        """Come `esteso`, ma allargato a settimane piene: lunedì → domenica.
+
+        Lo vogliono i calendari a quadretti, che hanno sette colonne fisse:
+        se il periodo comincia di mercoledì — come fa sempre un mese — la
+        griglia parte sfalsata e le lettere dei giorni non corrispondono più
+        alla colonna. Allargarla di qualche giorno costa niente e la rimette
+        dritta.
+        """
+        dal, al = self.esteso()
+        if not dal:
+            return ("", "")
+        primo = date.fromisoformat(dal)
+        ultimo = date.fromisoformat(al)
+        primo -= timedelta(days=primo.weekday())
+        ultimo += timedelta(days=6 - ultimo.weekday())
+        return (primo.isoformat(), ultimo.isoformat())
 
     def nome(self) -> str:
         # in «giorni» il nome è quello di tutta la settimana, non dell'ultimo

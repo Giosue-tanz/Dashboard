@@ -8,7 +8,8 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel,
                                QLineEdit, QMenu, QMessageBox, QPushButton,
                                QSizePolicy, QWidget)
 
-from ..componenti import NavigatorePeriodo, RigaMisura, etichetta
+from ..componenti import (NavigatorePeriodo, RigaMisura, SceltaPeriodo,
+                          etichetta)
 from ..dialoghi import DialogoAbitudine
 from ..grafici import GraficoBarre
 from ..icone_nav import icona
@@ -110,14 +111,27 @@ class VistaAbitudini(VistaSezioni):
     }
     DISPOSIZIONE = [["griglia"], ["elenco", "serie", "andamento"]]
     ALTEZZE_PREDEFINITE = (0.52, 0.48)
+    # quante colonne di giorni tiene la griglia: per esteso nel menu,
+    # accorciato sulla pastiglia
+    GIORNI_GRIGLIA = {"7": "7 giorni", "14": "14 giorni", "21": "21 giorni",
+                      "30": "30 giorni", "60": "60 giorni"}
+    GIORNI_GRIGLIA_CORTI = {"7": "7 g", "14": "14 g", "21": "21 g",
+                            "30": "30 g", "60": "60 g"}
     PERIODI_SEZIONE = {
-        "griglia": ({"7": "7 giorni", "14": "14 giorni", "21": "21 giorni",
-                     "30": "30 giorni", "60": "60 giorni"}, "14"),
     }
 
     def crea_sezioni(self) -> None:
         self.riquadro, self.griglia = self._griglia()
-        self.aggiungi("griglia", self.scorrevole(self.riquadro))
+        # la stessa pastiglia stretta della costanza in Salute: qui il periodo
+        # è una durata — quante colonne di giorni — non un arco da sfogliare
+        self.periodo_griglia = SceltaPeriodo(
+            self.GIORNI_GRIGLIA, self.db.leggi("griglia_giorni", "14"),
+            self.c, self.GIORNI_GRIGLIA_CORTI)
+        self.periodo_griglia.scelto.connect(
+            lambda v: (self.db.imposta("griglia_giorni", v),
+                       self._aggiorna_griglia()))
+        self.aggiungi("griglia", self.scorrevole(self.riquadro),
+                      comando=self.periodo_griglia)
 
         self.righe: dict[int, RigaAbitudine] = {}
         self.cont_elenco, self.lay_elenco = self.colonna(7)
@@ -240,7 +254,7 @@ class VistaAbitudini(VistaSezioni):
                 "NotaScheda"), 0, 0)
             return
 
-        giorni = ultimi_giorni(int(self.periodo("griglia")))
+        giorni = ultimi_giorni(int(self.periodo_griglia.valore))
         fatte = self.db.registro(giorni[0], giorni[-1])
         oggi = date.today().isoformat()
 

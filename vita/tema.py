@@ -592,6 +592,17 @@ def foglio_stile(c: dict, scala: float = 1.0,
         background: {trasparente(c['accento'], 0.16)}; color: {c['accento']};
     }}
     QPushButton#Periodo:pressed {{ background: {c['bordo']}; }}
+    /* la stessa pastiglia, ma stretta: sta sulla riga del titolo accanto
+       agli altri comandi invece di scacciarli */
+    QPushButton#PeriodoCorto {{
+        background: {c['pannello2']}; border: none;
+        padding: 4px 9px; color: {c['testo2']}; font-size: {p(11)};
+        font-weight: 650; text-align: center;
+    }}
+    QPushButton#PeriodoCorto:hover {{
+        background: {trasparente(c['accento'], 0.16)}; color: {c['accento']};
+    }}
+    QPushButton#PeriodoCorto:pressed {{ background: {c['bordo']}; }}
     QFrame#IndicatoreRilascio {{
         background: {c['accento']}; border: none; border-radius: 3px;
     }}

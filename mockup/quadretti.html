@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>I quadretti e la larghezza — quattro proposte</title>
+<style>
+  :root{
+    --fondo:#0a0a0c; --pannello:#17181d; --pannello2:#1f2027; --tocco:#272930;
+    --bordo:#272930; --testo:#f3f4f7; --testo2:#9aa0ac; --griglia:#272930;
+    --accento:#16c47f; --su-accento:#06130d; --salute:#19c2e0;
+  }
+  body.chiaro{
+    --fondo:#f1f2f6; --pannello:#ffffff; --pannello2:#f4f5f9; --tocco:#e9ebf2;
+    --bordo:#e6e8ef; --testo:#15171c; --testo2:#6b7280; --griglia:#e6e8ef;
+    --accento:#0f9d63; --su-accento:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:30px 26px 70px; background:var(--fondo); color:var(--testo);
+    font:14px/1.5 "Noto Sans","Segoe UI",system-ui,sans-serif;
+  }
+  h1{font-size:26px; font-weight:780; margin:0 0 6px}
+  .sotto{color:var(--testo2); font-size:13.5px; margin:0 0 22px; max-width:820px}
+  .barra-alto{display:flex; align-items:center; gap:16px; margin-bottom:26px;
+              flex-wrap:wrap}
+  button.tema{
+    background:var(--pannello2); color:var(--testo); border:none; border-radius:16px;
+    padding:9px 18px; font:inherit; font-weight:650; cursor:pointer;
+  }
+  button.tema:hover{background:var(--tocco)}
+  .cursore{display:flex; align-items:center; gap:10px; color:var(--testo2);
+           font-size:13px}
+  .cursore input{width:260px; accent-color:var(--accento)}
+  .cursore b{color:var(--testo); font-variant-numeric:tabular-nums; min-width:62px}
+
+  .griglia{display:flex; flex-wrap:wrap; gap:22px; align-items:flex-start}
+
+  /* ---------------------------------------------------------- la scheda */
+  .scheda{
+    background:var(--pannello); border-radius:22px; padding:16px 18px 18px;
+    border:1px solid transparent;
+  }
+  body.chiaro .scheda{border-color:var(--bordo)}
+  .capo{display:flex; align-items:center; gap:10px; margin-bottom:12px}
+  .capo h2{font-size:16.5px; font-weight:700; margin:0}
+  .capo .segni{margin-left:auto; display:flex; gap:3px}
+  .capo .segni span{
+    background:var(--pannello2); border-radius:999px; padding:4px 9px;
+    font-size:12.5px;
+  }
+  .capo .segni span.acceso{background:var(--accento)}
+  .nota{color:var(--testo2); font-size:12px; text-align:center; margin:12px 0 0}
+  .nav{
+    display:flex; justify-content:center; align-items:center; gap:8px;
+    margin-top:10px; color:var(--testo2); font-size:12.5px;
+  }
+  .nav .gruppo{
+    background:var(--pannello2); border-radius:999px; padding:3px 4px;
+    display:flex; align-items:center; gap:2px;
+  }
+  .nav .gruppo b{color:var(--testo); font-size:12.5px; padding:0 8px}
+  .nav .gruppo i{font-style:normal; padding:2px 7px; border-radius:999px}
+
+  /* --------------------------------------------------- le quattro forme */
+  .lettere{display:grid; gap:var(--stacco); margin-bottom:6px}
+  .lettere span{
+    text-align:center; color:var(--testo2); font-size:11.5px; font-weight:700;
+  }
+  .mappa{display:grid; gap:var(--stacco)}
+  .mappa i{display:block; background:var(--griglia); border-radius:var(--raggio)}
+  .mappa i.oggi{box-shadow:inset 0 0 0 2px var(--testo)}
+
+  .spiega{
+    margin:14px 0 0; color:var(--testo2); font-size:12.5px; line-height:1.55;
+  }
+  .spiega b{color:var(--testo)}
+  .costo{color:var(--testo2); font-size:12px; margin:6px 0 0}
+  .costo em{font-style:normal; color:#ef8f5c}
+</style>
+</head>
+<body>
+
+<h1>I quadretti e la larghezza</h1>
+<p class="sotto">
+  Oggi il calendario a quadretti di <b>Costanza</b> tiene il lato massimo a 44
+  pixel e si mette in mezzo: in un riquadro largo restano due bande vuote ai
+  lati. Quattro modi di riempirle. Il cursore qui sotto cambia la larghezza del
+  riquadro: è lì che le proposte si distinguono, perché una forma che sta bene
+  a 420 pixel può diventare goffa a 900.
+</p>
+
+<div class="barra-alto">
+  <button class="tema" onclick="document.body.classList.toggle('chiaro')">
+    Cambia tema
+  </button>
+  <label class="cursore">
+    Larghezza del riquadro
+    <input id="largo" type="range" min="300" max="980" value="420" step="10">
+    <b id="valore">420 px</b>
+  </label>
+  <label class="cursore">
+    Settimane
+    <input id="sett" type="range" min="2" max="12" value="8" step="1">
+    <b id="quante">8</b>
+  </label>
+</div>
+
+<div class="griglia" id="griglia"></div>
+
+<script>
+// ------------------------------------------------- dati finti ma plausibili
+const GIORNI = "LMMGVSD".split("");
+function dati(settimane){
+  const righe = [];
+  let seme = 7;
+  for(let s = 0; s < settimane; s++){
+    const riga = [];
+    for(let g = 0; g < 7; g++){
+      seme = (seme * 1103515245 + 12345) % 2147483648;
+      const q = (seme / 2147483648);
+      riga.push(q < .38 ? 0 : Math.min(1, q * 1.25));
+    }
+    righe.push(riga);
+  }
+  return righe;
+}
+// i gradini del riempimento, gli stessi del widget vero
+const SOGLIE = [0.08, 0.3, 0.55, 0.8], OPACITA = [0.20, 0.40, 0.62, 0.82, 1.0];
+function tinta(q){
+  if(!q) return "var(--griglia)";
+  const g = SOGLIE.filter(s => q > s).length;
+  return `color-mix(in srgb, var(--salute) ${Math.round(OPACITA[g]*100)}%,
+          transparent)`;
+}
+
+function cornice(titolo, corpo, spiega, costo, largo){
+  return `<div class="scheda" style="width:${largo}px">
+    <div class="capo">
+      <h2>${titolo}</h2>
+      <div class="segni"><span class="acceso">👟</span><span>🌙</span>
+        <span>💪</span></div>
+    </div>
+    ${corpo}
+    <p class="nota">14/50 centrati · media 4.120 passi</p>
+    <div class="nav"><div class="gruppo"><i>‹</i><b>ultime 8 settimane</b>
+      <i>›</i></div> settimane ▾</div>
+    <p class="spiega">${spiega}</p>
+    <p class="costo">${costo}</p>
+  </div>`;
+}
+
+// ----------------------------------------------------------- le proposte
+// A · quadretti elastici: il lato è quello che serve per riempire la riga
+function propostaA(righe, largo){
+  const utile = largo - 36;
+  const stacco = 6;
+  const lato = (utile - stacco * 6) / 7;
+  let celle = "";
+  righe.forEach((r, s) => r.forEach((q, g) => {
+    const oggi = (s === righe.length - 1 && g === 0) ? " class='oggi'" : "";
+    celle += `<i${oggi} style="aspect-ratio:1; background:${tinta(q)}"></i>`;
+  }));
+  const stile = `--stacco:${stacco}px; --raggio:${(lato*0.3).toFixed(1)}px;
+                 grid-template-columns:repeat(7,1fr)`;
+  return cornice("Costanza",
+    `<div class="lettere" style="${stile}">
+       ${GIORNI.map(n => `<span>${n}</span>`).join("")}</div>
+     <div class="mappa" style="${stile}">${celle}</div>`,
+    `<b>A · Quadretti elastici.</b> Il lato è quello che serve: sette colonne
+     che riempiono la riga, sempre. Niente bande vuote ai lati, e le lettere
+     dei giorni restano sopra ogni colonna. In un riquadro largo i quadretti
+     diventano grandi — il che va benissimo se le settimane sono poche.`,
+    `Costo: con dodici settimane in un riquadro largo diventa
+     <em>più alto di quanto il riquadro sia</em>, e bisogna scorrere.`,
+    largo);
+}
+
+// B · pastiglie: la larghezza la riempie, l'altezza resta quella del testo
+function propostaB(righe, largo){
+  const stacco = 5;
+  let celle = "";
+  righe.forEach((r, s) => r.forEach((q, g) => {
+    const oggi = (s === righe.length - 1 && g === 0) ? " class='oggi'" : "";
+    celle += `<i${oggi} style="height:20px; background:${tinta(q)}"></i>`;
+  }));
+  const stile = `--stacco:${stacco}px; --raggio:7px;
+                 grid-template-columns:repeat(7,1fr)`;
+  return cornice("Costanza",
+    `<div class="lettere" style="${stile}">
+       ${GIORNI.map(n => `<span>${n}</span>`).join("")}</div>
+     <div class="mappa" style="${stile}">${celle}</div>`,
+    `<b>B · Pastiglie.</b> La larghezza si riempie tutta, l'altezza resta
+     quella di una riga di testo — come la griglia delle Abitudini, che è già
+     fatta così. L'altezza del calendario dipende solo da quante settimane
+     guardi, non da quanto è largo il riquadro: non cambia mai forma.`,
+    `Costo: non sono più quadretti. A riquadro largo diventano
+     <em>strisce</em>, e il colpo d'occhio «mese» si perde un po'.`,
+    largo);
+}
+
+// C · spaziatura elastica: quadretti con un massimo, il resto va nei vuoti
+function propostaC(righe, largo){
+  const utile = largo - 36;
+  const lato = Math.min(44, (utile - 6 * 6) / 7);
+  const stacco = Math.max(6, (utile - lato * 7) / 6);
+  let celle = "";
+  righe.forEach((r, s) => r.forEach((q, g) => {
+    const oggi = (s === righe.length - 1 && g === 0) ? " class='oggi'" : "";
+    celle += `<i${oggi} style="width:${lato}px; height:${lato}px;
+                background:${tinta(q)}"></i>`;
+  }));
+  const stile = `--stacco:${stacco.toFixed(1)}px;
+                 --raggio:${(lato*0.3).toFixed(1)}px;
+                 grid-template-columns:repeat(7,${lato}px);
+                 justify-content:space-between`;
+  return cornice("Costanza",
+    `<div class="lettere" style="${stile}">
+       ${GIORNI.map(n => `<span>${n}</span>`).join("")}</div>
+     <div class="mappa" style="${stile}">${celle}</div>`,
+    `<b>C · Spaziatura elastica.</b> I quadretti restano quadretti e non
+     crescono oltre una misura ragionevole: a riempire la larghezza ci pensa
+     lo spazio fra l'uno e l'altro, che si allarga finché la griglia non tocca
+     i due bordi.`,
+    `Costo: a riquadro molto largo i vuoti diventano
+     <em>corridoi</em>, e le righe si leggono meno come settimane.`,
+    largo);
+}
+
+// D · distesa: sette righe, una colonna per settimana
+function propostaD(righe, largo){
+  const utile = largo - 36;
+  const stacco = 6;
+  const colonne = righe.length;
+  const lato = Math.min(40, (utile - stacco * (colonne - 1)) / colonne);
+  let celle = "";
+  for(let g = 0; g < 7; g++)
+    for(let s = 0; s < colonne; s++){
+      const oggi = (s === colonne - 1 && g === 0) ? " class='oggi'" : "";
+      celle += `<i${oggi} style="width:${lato}px; height:${lato}px;
+                  background:${tinta(righe[s][g])}"></i>`;
+    }
+  const stile = `--stacco:${stacco}px; --raggio:${(lato*0.3).toFixed(1)}px;
+                 grid-template-columns:repeat(${colonne},${lato}px);
+                 justify-content:center`;
+  return cornice("Costanza",
+    `<div class="mappa" style="${stile}">${celle}</div>`,
+    `<b>D · Distesa.</b> Le settimane in colonna e i giorni in riga, come il
+     calendario dei contributi di GitHub: sette righe fisse, e le colonne che
+     si aggiungono man mano che guardi più indietro. È già quello che il
+     widget fa da solo quando gli conviene — qui lo fa sempre.`,
+    `Costo: spariscono le lettere dei giorni (sette righe, non sette
+     colonne), e con <em>poche settimane</em> resta larga metà riquadro.`,
+    largo);
+}
+
+function disegna(){
+  const largo = +document.getElementById("largo").value;
+  const settimane = +document.getElementById("sett").value;
+  document.getElementById("valore").textContent = largo + " px";
+  document.getElementById("quante").textContent = settimane;
+  const righe = dati(settimane);
+  document.getElementById("griglia").innerHTML =
+    propostaA(righe, largo) + propostaB(righe, largo) +
+    propostaC(righe, largo) + propostaD(righe, largo);
+}
+document.getElementById("largo").addEventListener("input", disegna);
+document.getElementById("sett").addEventListener("input", disegna);
+disegna();
+</script>
+</body>
+</html>

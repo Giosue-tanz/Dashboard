@@ -36,7 +36,8 @@ from vita.andamento import AMPIEZZE, MISURE, FinestraAndamento         # noqa: E
 from vita.db import DB_PATH, Database, copia_archivio                  # noqa: E402
 from vita.dialoghi import DialogoGiorno                                # noqa: E402
 from vita.finestra import VISTE, FinestraPrincipale                    # noqa: E402
-from vita.componenti import NavigatorePeriodo                          # noqa: E402
+from vita.componenti import (NavigatorePeriodo,                        # noqa: E402
+                             SceltaPeriodo)
 from vita.tema import SCALE                                            # noqa: E402
 from vita.utils import MODI_PERIODO                                    # noqa: E402
 
@@ -99,6 +100,28 @@ def main() -> int:
                 prova(f"{nome}/{chiave}={valore}",
                       lambda v=vista, k=chiave, x=valore:
                       (v._imposta_periodo(k, x), app.processEvents(), f.grab()))
+
+    # ---- le pastiglie strette del periodo: ogni scelta, una per una
+    scelte = 0
+    for i, (nome, _) in enumerate(VISTE):
+        f.vai(i); posa(80)
+        vista = f.viste[i]
+        for attributo in sorted(a for a in dir(vista)
+                                if a.startswith("periodo_")):
+            pastiglia = getattr(vista, attributo)
+            if not isinstance(pastiglia, SceltaPeriodo):
+                continue
+            prima = pastiglia.valore
+            for chiave in pastiglia.voci:
+                scelte += 1
+
+                def passo(w=pastiglia, k=chiave):
+                    w._prendi(k)
+                    app.processEvents()
+                    assert w.text().strip(), "la pastiglia è rimasta vuota"
+                    f.grab()
+                prova(f"{nome}/{attributo}={chiave}", passo)
+            pastiglia._prendi(prima)
 
     # ---- ogni navigatore: tutti i modi, avanti e indietro nel tempo
     # È il comando che adesso hanno quasi tutti i grafici: se uno di loro non
@@ -542,7 +565,8 @@ def main() -> int:
 
     f.grab().save(os.path.join(scatti, "salute.png"))
     fuori = [x for x in app.topLevelWidgets() if x.isVisible() and x not in (f, w)]
-    print(f"{periodi} periodi · {navigatori} navigatori · {andamenti} andamenti "
+    print(f"{periodi} periodi · {scelte} pastiglie · {navigatori} navigatori "
+          f"· {andamenti} andamenti "
           f"· {len(fuori)} finestrelle · {len(strette)} scritte strette "
           f"· {len(errori)} errori")
     for stretta in strette[:6]:
