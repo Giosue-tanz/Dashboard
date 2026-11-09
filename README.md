@@ -100,7 +100,11 @@ Tre cose, perché sono il punto:
   testo libero che vale più di tutto il resto («dammi sempre una cosa concreta
   da fare domani», «non parlarmi di soldi se non te lo chiedo», «scrivimi in
   inglese»). L'interruttore **«solo le mie istruzioni»**, in cima alla sezione,
-  lascia fuori tono e lunghezza: comanda soltanto quello che hai scritto tu. Sette caselle decidono poi **che cosa può vedere**: salute,
+  manda a Tess **soltanto** quello che hai scritto: niente nome, niente tono,
+  niente lunghezza e nemmeno le due righe di prudenza sui dati — se le vuoi,
+  te le scrivi tu. Prima quelle righe restavano dentro lo stesso, e chi se
+  l'era già scritte nelle proprie istruzioni se le ritrovava **due volte di
+  fila** nello stesso prompt. Sette caselle decidono poi **che cosa può vedere**: salute,
   punteggi, università, lavoro, abitudini, finanza, scadenze — spenta una, quel
   pezzo di riassunto non le arriva proprio. In fondo alla pagina c'è
   l'anteprima di quello che Tess riceverà, parola per parola.

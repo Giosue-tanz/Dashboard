@@ -354,8 +354,8 @@ class VistaImpostazioni(VistaBase):
         self.tess_solo_mie = Interruttore(
             self.c, self.db.leggi("tess_solo_mie", "0") == "1")
         self.tess_solo_mie.setToolTip(
-            "Acceso, a Tess arrivano solo le tue istruzioni: il tono e la "
-            "lunghezza qui sotto restano fuori.")
+            "Acceso, a Tess arriva soltanto quello che scrivi tu qui sotto:\n"
+            "nome, tono, lunghezza e le righe sui dati restano fuori.")
         et_solo = etichetta("solo le mie istruzioni", "NotaScheda")
         et_solo.setToolTip(self.tess_solo_mie.toolTip())
         self.tess_solo_mie.cambiato.connect(self._commuta_solo_mie)
@@ -385,8 +385,9 @@ class VistaImpostazioni(VistaBase):
         modulo.addRow(self.et_risposte, self.tess_lunghezza)
         scheda.aggiungi_layout(modulo)
         self.et_stile_spento = etichetta(
-            "Tono e lunghezza non vengono mandati: comandano le tue istruzioni.",
-            "NotaScheda")
+            "A Tess arriva soltanto quello che scrivi in «Istruzioni tue»: "
+            "nome, tono, lunghezza e le righe sui dati restano fuori. "
+            "Quello che le serve sapere glielo scrivi tu.", "NotaScheda")
         self.et_stile_spento.setWordWrap(True)
         scheda.aggiungi(self.et_stile_spento)
         lay.addWidget(scheda)
@@ -464,23 +465,21 @@ class VistaImpostazioni(VistaBase):
         self.et_stile_spento.setVisible(acceso)
 
     def _anteprima_tess(self, provvisoria: bool = False) -> None:
-        """Mostra le istruzioni che Tess riceverà, anche prima di salvarle."""
-        from ..tess import (LUNGHEZZE, RIGA_DATI, RIGA_ONESTA, TONI,
-                            istruzioni)
+        """Mostra le istruzioni che Tess riceverà, anche prima di salvarle.
+
+        Le mette insieme la stessa funzione che le manda davvero: un'anteprima
+        che se le componesse per conto suo prima o poi direbbe un'altra cosa.
+        """
+        from ..tess import componi_istruzioni, istruzioni
         if not provvisoria:
             self.tess_anteprima.setText(istruzioni(self.db))
             return
-        nome = self.tess_nome.text().strip() or "Tess"
-        sue = self.tess_istruzioni.toPlainText().strip()
-        pezzi = [f"Ti chiami {nome} e stai rispondendo dentro la Dashboard di "
-                 "Giosuè.", RIGA_DATI]
-        if not (self.tess_solo_mie.acceso() and sue):
-            pezzi.append(TONI[self.tess_tono.currentText()])
-            pezzi.append(LUNGHEZZE[self.tess_lunghezza.currentText()])
-        pezzi.append(RIGA_ONESTA)
-        if sue:
-            pezzi.append("Istruzioni sue, che valgono sopra le altre: " + sue)
-        self.tess_anteprima.setText(" ".join(pezzi))
+        self.tess_anteprima.setText(componi_istruzioni(
+            self.tess_nome.text(),
+            self.tess_istruzioni.toPlainText(),
+            self.tess_tono.currentText(),
+            self.tess_lunghezza.currentText(),
+            self.tess_solo_mie.acceso()))
 
     def _salva_tess(self) -> None:
         self.db.imposta("tess_nome", self.tess_nome.text().strip() or "Tess")

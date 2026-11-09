@@ -172,6 +172,27 @@ def main() -> int:
         assert usa_e_getta not in r.voci, "resta nell'elenco"
     prova("Tess: elimino una chat", elimina)
 
+    def istruzioni_solo_mie():
+        """«Solo le mie» vuol dire solo le mie, e l'anteprima non mente.
+
+        La cornice (nome, righe sui dati, tono, lunghezza) va fuori: chi se
+        l'è già scritta nelle sue istruzioni se la ritrovava due volte.
+        """
+        from vita.tess import RIGA_DATI, componi_istruzioni, istruzioni
+        sue = "Rispondi in rima, e chiamami capo."
+        acceso = componi_istruzioni("Tess", sue, "asciutta", "normali", True)
+        assert acceso == sue, acceso
+        spento = componi_istruzioni("Tess", sue, "asciutta", "normali", False)
+        assert RIGA_DATI in spento and sue in spento, spento[:120]
+        # l'anteprima delle impostazioni e quello che arriva a Tess sono la
+        # stessa frase: prima erano due pezzi di codice gemelli
+        indice = [k for k, (nome, _) in enumerate(VISTE)
+                  if nome == "impostazioni"][0]
+        vista = f.viste[indice]        # senza cambiare pagina: basta il testo
+        vista._anteprima_tess(False)
+        assert vista.tess_anteprima.text() == istruzioni(db)
+    prova("Tess: «solo le mie» non ripete la cornice", istruzioni_solo_mie)
+
     def colonna():
         # il pannello non sparisce di colpo: si stringe in 170 ms, e si
         # nasconde a corsa finita. Si aspetta che abbia finito.

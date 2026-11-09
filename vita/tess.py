@@ -661,24 +661,41 @@ def solo_istruzioni_tue(db) -> bool:
     return db.leggi("tess_solo_mie", "0") == "1"
 
 
-def istruzioni(db) -> str:
-    """Le istruzioni di Tess, messe insieme da come l'hai impostata."""
-    nome = (db.leggi("tess_nome", "") or "Tess").strip()
-    sue = db.leggi("tess_istruzioni", "").strip()
+def componi_istruzioni(nome: str, sue: str, tono: str, lunghezza: str,
+                       solo_mie: bool) -> str:
+    """Le istruzioni che Tess riceve, a partire dai pezzi.
+
+    Una funzione sola per quelle vere e per l'anteprima delle impostazioni:
+    erano due copie della stessa regola, e bastava cambiarne una perché
+    l'anteprima raccontasse una cosa diversa da quella che arriva a Tess.
+    """
+    nome = (nome or "Tess").strip()
+    sue = (sue or "").strip()
+    if solo_mie and sue:
+        # «Solo le mie» vuol dire **solo le mie**: fuori il nome, lo stile e
+        # le due righe di prudenza. Prima restavano dentro, e chi se le era
+        # già scritte nelle sue istruzioni — come è naturale fare — se le
+        # ritrovava due volte di fila nello stesso prompt.
+        return sue
     pezzi = [f"Ti chiami {nome} e stai rispondendo dentro la Dashboard di "
-             "Giosuè.", RIGA_DATI]
-    # con l'interruttore acceso comandano solo le sue istruzioni: lo stile
-    # pronto (tono e lunghezza) resta fuori
-    if not (solo_istruzioni_tue(db) and sue):
-        pezzi.append(TONI.get(db.leggi("tess_tono", TONO_PREDEFINITO),
-                              TONI[TONO_PREDEFINITO]))
-        pezzi.append(LUNGHEZZE.get(db.leggi("tess_lunghezza", LUNGHEZZA_PREDEFINITA),
-                                   LUNGHEZZE[LUNGHEZZA_PREDEFINITA]))
-    pezzi.append(RIGA_ONESTA)
+             "Giosuè.", RIGA_DATI,
+             TONI.get(tono, TONI[TONO_PREDEFINITO]),
+             LUNGHEZZE.get(lunghezza, LUNGHEZZE[LUNGHEZZA_PREDEFINITA]),
+             RIGA_ONESTA]
     if sue:
         # quello che scrive lui conta più di tutto il resto
         pezzi.append("Istruzioni sue, che valgono sopra le altre: " + sue)
     return " ".join(pezzi)
+
+
+def istruzioni(db) -> str:
+    """Le istruzioni di Tess, messe insieme da come l'hai impostata."""
+    return componi_istruzioni(
+        db.leggi("tess_nome", ""),
+        db.leggi("tess_istruzioni", ""),
+        db.leggi("tess_tono", TONO_PREDEFINITO),
+        db.leggi("tess_lunghezza", LUNGHEZZA_PREDEFINITA),
+        solo_istruzioni_tue(db))
 
 
 # ----------------------------------------------------------- pezzi della chat
