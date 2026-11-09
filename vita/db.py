@@ -574,19 +574,31 @@ class Database:
 
     # ------------------------------------------------------------- battito
     def salva_battiti(self, misure) -> int:
-        """Scrive le misure orarie del braccialetto. Riscriverle non le duplica."""
+        """Scrive le misure orarie del braccialetto. Riscriverle non le duplica.
+
+        Torna **quante ore sono cambiate davvero**: rileggere gli stessi
+        lotti non deve far dire «cinque ore nuove» quando non è arrivato
+        niente di nuovo.
+        """
         righe = [(m["quando"], m["quando"][:10], int(m["valore"]),
                   int(m.get("minimo") or 0), int(m.get("massimo") or 0))
                  for m in misure if m.get("quando") and m.get("valore")]
         if not righe:
             return 0
+        gia = {r["quando"]: (r["valore"], r["minimo"], r["massimo"])
+               for r in self.query(
+                   "SELECT quando, valore, minimo, massimo FROM battiti "
+                   "WHERE quando IN (%s)" % ",".join("?" * len(righe)),
+                   tuple(r[0] for r in righe))}
+        nuove = sum(1 for q, _d, v, mi, ma in righe
+                    if gia.get(q) != (v, mi, ma))
         self.conn.executemany(
             "INSERT INTO battiti(quando, data, valore, minimo, massimo) "
             "VALUES(?,?,?,?,?) ON CONFLICT(quando) DO UPDATE SET "
             "valore=excluded.valore, minimo=excluded.minimo, "
             "massimo=excluded.massimo", righe)
         self.conn.commit()
-        return len(righe)
+        return nuove
 
     def battiti_del_giorno(self, giorno: str) -> list[sqlite3.Row]:
         """Le ore di una giornata, in ordine."""

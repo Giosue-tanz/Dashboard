@@ -181,6 +181,20 @@ limiti del possibile — e riprende da lì. Accanto a ogni lotto grezzo viene
 salvata la mappa dei pezzi (`.pezzi.txt`), per arrivare in fondo alla
 faccenda con i prossimi dati.
 
+## Quando premi «Cerca dati»
+
+Il riquadro racconta la consegna mentre succede: «Chiedo al braccialetto
+quello che ha…», poi «Sto ricevendo… 7 lotti», e alla fine cosa è entrato —
+**«3 giorni aggiornati: 06/11, 07/11, 08/11 · 41 ore di battito»**. Se non
+c'era niente di nuovo lo dice lo stesso: «13 lotti ricevuti: era già tutto in
+archivio».
+
+Prima quel racconto si perdeva: il messaggio «ho finito» arriva più volte
+durante una consegna, e ogni volta copriva quello precedente con un «13 lotti
+di dati» che non diceva se nell'archivio fosse entrato qualcosa. **E i grafici
+si rifanno comunque**, anche quando non è cambiato niente: hai chiesto i dati,
+è giusto che la pagina risponda.
+
 ## Quello che scrive il braccialetto, e quello che scrivi tu
 
 Un giorno non è finito finché non è mezzanotte: i passi delle sei del

@@ -191,6 +191,41 @@ def main() -> int:
         assert riquadro.interruttore is not None
     prova("Braccialetto: sta fermo finché non glielo dici", braccialetto)
 
+    def consegna():
+        """Una consegna di dati deve finire in archivio **e** nei grafici.
+
+        È tutta la catena: lotti → giorni → archivio → `dati_cambiati` →
+        la pagina si rifà. Se si rompe in mezzo non se ne accorge nessuno,
+        perché i numeri restano quelli di prima e sembra solo che il
+        braccialetto non abbia trovato niente.
+        """
+        from datetime import date as _d
+        vista = f.viste[i_salute]
+        riquadro = vista.riquadro_banda
+        giorno = _d.today().isoformat()
+        prima = vista.et_sonno.text()
+        giorni = {giorno: {"passi": 9999, "km": 7.7, "kcal": 333,
+                           "sonno": 456, "battito": 52}}
+        ore = [{"quando": f"{giorno}T0{h}:00", "valore": 60 + h,
+                "minimo": 50, "massimo": 90} for h in range(1, 6)]
+        riquadro._giorni_scritti, riquadro._ore_scritte = set(), 0
+        riquadro._scrivi_battiti(ore)
+        riquadro._scrivi_giorni(giorni)
+        riquadro._sincronia(13, "fatto")
+        posa(120)
+        riga = db.salute_giorno(giorno)
+        assert riga and int(riga["sonno"]) == 456, "l'archivio non l'ha preso"
+        assert vista.et_sonno.text() != prima, (
+            f"il grafico non si è rifatto: resta «{prima}»")
+        assert "aggiornato" in riquadro.et_stato.text(), riquadro.et_stato.text()
+        # la seconda volta non c'è niente di nuovo, e lo deve dire
+        riquadro._giorni_scritti, riquadro._ore_scritte = set(), 0
+        riquadro._scrivi_battiti(ore)
+        riquadro._scrivi_giorni(giorni)
+        riquadro._sincronia(13, "fatto")
+        assert "già tutto" in riquadro.et_stato.text(), riquadro.et_stato.text()
+    prova("Braccialetto: i dati entrano e i grafici si rifanno", consegna)
+
     # ---- le quattro dimensioni del testo: niente deve restare tagliato
     strette = []
     for scala in SCALE:

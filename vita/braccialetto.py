@@ -96,13 +96,16 @@ class RiquadroBraccialetto(QWidget):
         self.b_sincronizza.setToolTip(
             "Chiede al braccialetto i dati che ha raccolto da solo: passi, "
             "sonno, battito, stress.")
-        self.b_sincronizza.clicked.connect(lambda: self.banda.sincronizza(0))
+        self.b_sincronizza.clicked.connect(self._cerca_dati)
         fila.addWidget(self.b_salva)
         fila.addWidget(self.b_sincronizza)
         lay.addLayout(fila)
 
+        self._giorni_scritti: set[str] = set()
+        self._ore_scritte = 0
         self.banda.giorni_pronti.connect(self._scrivi_giorni)
         self.banda.battiti_pronti.connect(self._scrivi_battiti)
+        self.banda.lotto.connect(self._arriva_lotto)
         for segnale, gestore in (("stato", self._stato), ("battito", self._battito),
                                  ("batteria", self._batteria),
                                  ("orologio", self._orologio),
@@ -158,11 +161,26 @@ class RiquadroBraccialetto(QWidget):
         self.db.imposta("banda_orologio", quando)
         self._numeri()
 
+    # ------------------------------------------------- la raccolta dei dati
+    # Una consegna non è un colpo solo: i lotti arrivano a decine e il
+    # braccialetto dice «ho finito» più di una volta. Quello che è entrato
+    # nell'archivio si tiene da parte qui, e alla fine di ogni pezzo lo si
+    # racconta tutto insieme — se no l'ultimo messaggio copriva il
+    # precedente e sembrava che non fosse successo niente.
+    def _cerca_dati(self) -> None:
+        self._giorni_scritti: set[str] = set()
+        self._ore_scritte = 0
+        self.et_stato.setText("Chiedo al braccialetto quello che ha…")
+        self.banda.sincronizza(0)
+
+    def _arriva_lotto(self, quanti: int, _dati) -> None:
+        self.et_stato.setText(f"Sto ricevendo… {quanti} lotti")
+
     def _scrivi_battiti(self, misure: list) -> None:
         """Le ore del battito: è quello che disegna la giornata nel riquadro."""
-        quante = self.db.salva_battiti(misure)
-        if quante:
-            self.dati_cambiati.emit()
+        # ogni «ho finito» rilegge tutti i lotti della sessione: il conto
+        # cresce, non si somma due volte
+        self._ore_scritte = max(self._ore_scritte, self.db.salva_battiti(misure))
 
     def _scrivi_giorni(self, giorni: dict) -> None:
         """Quello che il braccialetto ha raccontato finisce nell'archivio.
@@ -172,16 +190,30 @@ class RiquadroBraccialetto(QWidget):
         mezzanotte e la sincronizzazione dopo ne sa di più (vedi
         `Database.scrivi_da_banda`).
         """
-        scritti = self.db.scrivi_da_banda(giorni)
-        if scritti:
-            self.et_stato.setText(
-                f"Scritti {len(scritti)} giorni: " +
-                ", ".join(data_it(g)[:5] for g in scritti[-4:]))
-            self.dati_cambiati.emit()
+        self._giorni_scritti |= set(self.db.scrivi_da_banda(giorni))
 
     def _sincronia(self, lotti: int, esito: str) -> None:
-        self.et_stato.setText(
-            f"{lotti} lotti di dati" if lotti else f"Niente da prendere: {esito}")
+        """Fine di una consegna: cosa è entrato, e la pagina si rifà."""
+        giorni = sorted(self._giorni_scritti)
+        pezzi = []
+        if giorni:
+            quanti = len(giorni)
+            pezzi.append(f"{quanti} giorno aggiornato: " if quanti == 1
+                         else f"{quanti} giorni aggiornati: ")
+            pezzi[-1] += ", ".join(data_it(g)[:5] for g in giorni[-4:])
+        if self._ore_scritte:
+            pezzi.append(f"{self._ore_scritte} ore di battito"
+                         if self._ore_scritte > 1 else "un'ora di battito")
+        if pezzi:
+            self.et_stato.setText(" · ".join(pezzi))
+        elif lotti:
+            self.et_stato.setText(
+                f"{lotti} lotti ricevuti: era già tutto in archivio.")
+        else:
+            self.et_stato.setText(f"Niente da prendere: {esito}")
+        # i grafici si rifanno comunque: hai chiesto i dati, è giusto che la
+        # pagina risponda anche quando non è cambiato niente
+        self.dati_cambiati.emit()
 
     def _numeri(self) -> None:
         pezzi = []
