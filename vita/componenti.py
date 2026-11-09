@@ -1285,6 +1285,122 @@ class BottonePannello(QPushButton):
         p.drawRect(colonna)
 
 
+class BottoneIcona(QPushButton):
+    """Un bottone piccolo con l'icona disegnata: matita, copia, cestino.
+
+    Niente file di immagini e niente emoji: la figura la fa il pennello, su
+    una griglia di cento per cento poi messa in scala. Così è nitida a ogni
+    dimensione del testo, prende il colore del tema senza tenerne due
+    versioni, e cambia tinta al passaggio del mouse come il resto.
+    """
+
+    FIGURE = ("matita", "copia", "cestino", "fatto")
+
+    def __init__(self, figura: str, colori: dict, suggerimento: str = "",
+                 parent=None):
+        super().__init__(parent)
+        self.figura = figura
+        self.c = colori
+        self.setObjectName("BottoneIcona")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.NoFocus)
+        if suggerimento:
+            self.setToolTip(suggerimento)
+        self._misura()
+
+    def _misura(self) -> None:
+        self.ensurePolished()
+        lato = max(22, QFontMetrics(self.font()).height() + 6)
+        if self.width() != lato:
+            self.setFixedSize(lato, lato)
+        # il raggio lo mette il codice perché dipende dall'altezza vera; con
+        # il confronto, se no, rimettere il foglio di stile si richiama da sé
+        regola = f"QPushButton#BottoneIcona {{ border-radius: {lato // 2}px; }}"
+        if self.styleSheet() != regola:
+            self.setStyleSheet(regola)
+
+    def imposta_figura(self, figura: str) -> None:
+        self.figura = figura
+        self.update()
+
+    def changeEvent(self, ev):
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.StyleChange, QEvent.FontChange,
+                         QEvent.ApplicationFontChange):
+            self._misura()
+
+    def aggiorna_tema(self, colori: dict) -> None:
+        self.c = colori
+        self.update()
+
+    def paintEvent(self, ev):
+        super().paintEvent(ev)          # lo sfondo lo mette il foglio di stile
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        lato = min(self.width(), self.height()) * 0.56
+        p.translate((self.width() - lato) / 2, (self.height() - lato) / 2)
+        p.scale(lato / 100.0, lato / 100.0)
+        colore = QColor(self.c["accento"] if self.underMouse()
+                        else self.c["testo2"])
+        penna = QPen(colore, 8.0)
+        penna.setCapStyle(Qt.RoundCap)
+        penna.setJoinStyle(Qt.RoundJoin)
+        p.setPen(penna)
+        p.setBrush(Qt.NoBrush)
+        getattr(self, "_disegna_" + self.figura, self._disegna_copia)(p)
+
+    # ---- le figure, su una griglia di cento per cento
+    @staticmethod
+    def _disegna_copia(p: QPainter) -> None:
+        """Due fogli, uno dietro l'altro."""
+        p.drawRoundedRect(QRectF(10, 30, 56, 62), 12, 12)
+        dietro = QPainterPath()
+        dietro.moveTo(32, 14)
+        dietro.lineTo(78, 14)
+        dietro.quadTo(90, 14, 90, 26)
+        dietro.lineTo(90, 70)
+        p.drawPath(dietro)
+
+    @staticmethod
+    def _disegna_cestino(p: QPainter) -> None:
+        """Coperchio, manico e corpo."""
+        p.drawLine(12, 26, 88, 26)
+        manico = QPainterPath()
+        manico.moveTo(36, 26)
+        manico.lineTo(38, 10)
+        manico.lineTo(62, 10)
+        manico.lineTo(64, 26)
+        p.drawPath(manico)
+        corpo = QPainterPath()
+        corpo.moveTo(20, 26)
+        corpo.lineTo(26, 90)
+        corpo.lineTo(74, 90)
+        corpo.lineTo(80, 26)
+        p.drawPath(corpo)
+
+    @staticmethod
+    def _disegna_matita(p: QPainter) -> None:
+        """Il corpo in diagonale e la punta."""
+        corpo = QPainterPath()
+        corpo.moveTo(14, 86)
+        corpo.lineTo(22, 62)
+        corpo.lineTo(64, 20)
+        corpo.lineTo(80, 36)
+        corpo.lineTo(38, 78)
+        corpo.closeSubpath()
+        p.drawPath(corpo)
+        p.drawLine(22, 62, 38, 78)
+
+    @staticmethod
+    def _disegna_fatto(p: QPainter) -> None:
+        """Il segno di spunta: «copiato»."""
+        segno = QPainterPath()
+        segno.moveTo(16, 52)
+        segno.lineTo(40, 76)
+        segno.lineTo(86, 24)
+        p.drawPath(segno)
+
+
 class BarraAttesa(QWidget):
     """Barra di caricamento che non sa quanto manca: un segmento che scorre.
 

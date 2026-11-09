@@ -515,6 +515,21 @@ def foglio_stile(c: dict, scala: float = 1.0,
     QPushButton#AzioneMessaggio:hover {{
         background: {tocco}; color: {c['testo']};
     }}
+    /* i bottoncini con l'icona disegnata: modifica, copia, elimina */
+    QPushButton#BottoneIcona {{ background: transparent; border: none; }}
+    QPushButton#BottoneIcona:hover {{
+        background: {trasparente(c['accento'], 0.16)};
+    }}
+    QPushButton#BottoneIcona:pressed {{
+        background: {trasparente(c['accento'], 0.28)};
+    }}
+    /* la casella che prende il posto del messaggio quando lo correggi */
+    QPlainTextEdit#ModificaMessaggio {{
+        background: {c['pannello2']}; border: 1px solid {c['accento']};
+        border-radius: 14px; padding: 8px 12px; font-size: {p(13)};
+        color: {c['testo']}; selection-background-color: {c['accento']};
+        selection-color: {su_accento};
+    }}
 
     /* ------------------------------------------- la scheda della chat */
     /* stesso linguaggio dei riquadri delle altre pagine: fondo pannello,
@@ -523,24 +538,18 @@ def foglio_stile(c: dict, scala: float = 1.0,
         background: {c['pannello']}; border: 1px solid {c['bordo']};
         border-radius: 18px;
     }}
-    QWidget#TestataChat {{
-        background: transparent; border: none;
-        border-bottom: 1px solid {c['bordo']};
-    }}
+    QWidget#TestataChat {{ background: transparent; border: none; }}
     QWidget#PastigliaModello {{
         background: {c['pannello2']}; border: 1px solid {c['bordo']};
         border-radius: {q(13)};
     }}
     QLabel#NomeModello {{ color: {c['testo2']}; font-size: {p(11)}; }}
-    /* il cassetto delle conversazioni: entra sopra la chat, sotto la testata */
-    QWidget#CassettoChat {{
-        background: {c['pannello']}; border: none;
-        border-right: 1px solid {c['bordo']};
-        border-bottom-left-radius: 17px;
-    }}
-    /* appena un'ombra sul contenuto mentre il cassetto è aperto */
-    QWidget#VeloChat {{
-        background: {trasparente('#000000', 0.12 if chiaro else 0.38)}; border: none;
+    /* il pannello delle conversazioni, a destra: un riquadro suo, come i
+       pannelli laterali di NotebookLM. La conversazione invece non sta in
+       nessuna scatola: è testo sulla pagina. */
+    QWidget#PannelloChat {{
+        background: {c['pannello']}; border: 1px solid {c['bordo']};
+        border-radius: 16px;
     }}
 
     /* la barra in fondo: una pastiglia sola che tiene tutto */

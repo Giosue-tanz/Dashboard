@@ -173,10 +173,12 @@ def main() -> int:
     prova("Tess: elimino una chat", elimina)
 
     def colonna():
-        r.piega_colonna(False); posa(120)
+        # il pannello non sparisce di colpo: si stringe in 170 ms, e si
+        # nasconde a corsa finita. Si aspetta che abbia finito.
+        r.piega_colonna(False); posa(300)
         assert not r.colonna_chat.isVisible(), "colonna ancora aperta"
         assert r.linguetta.isVisible(), "linguetta assente"
-        r.piega_colonna(True); posa(120)
+        r.piega_colonna(True); posa(300)
         assert r.colonna_chat.isVisible(), "colonna non riaperta"
     prova("Tess: chiudo e riapro l'elenco", colonna)
     db.elimina_conversazione_tess(chat)

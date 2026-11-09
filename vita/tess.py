@@ -32,7 +32,8 @@ from PySide6.QtWidgets import (QApplication, QFrame, QGraphicsDropShadowEffect,
                                QSizePolicy, QVBoxLayout, QWidget)
 
 from . import punteggi as calcolo
-from .componenti import BarraAttesa, BottonePannello, Interruttore
+from .componenti import (BarraAttesa, BottoneIcona, BottonePannello,
+                         Interruttore)
 from .utils import (GIORNI, MESI, data_it, data_lunga, durata, euro, media,
                     numero, relativa, settimana_corrente, ultimi_giorni)
 
@@ -736,20 +737,21 @@ class Messaggio(QWidget):
         if chi == "tu":
             self.azioni.addStretch(1)
         self.bottoni: list[QPushButton] = []
-        self.b_copia = self._azione("Copia", self._copia)
+        # icone disegnate invece di parole: una fila di tre scritte sotto
+        # ogni messaggio pesava più del messaggio
         if chi == "tu":
-            self.b_modifica = self._azione("Modifica", self.apri_modifica)
-        self.b_elimina = self._azione("Elimina", self._chiedi_elimina)
+            self.b_modifica = self._azione("matita", "Modifica la domanda",
+                                           self.apri_modifica)
+        self.b_copia = self._azione("copia", "Copia il testo", self._copia)
+        self.b_elimina = self._azione("cestino", "Elimina questo messaggio",
+                                      self._chiedi_elimina)
         if chi != "tu":
             self.azioni.addStretch(1)
         lay.addLayout(self.azioni)
         self._misura()
 
-    def _azione(self, nome: str, cosa) -> QPushButton:
-        b = QPushButton(nome)
-        b.setObjectName("AzioneMessaggio")
-        b.setCursor(Qt.PointingHandCursor)
-        b.setFocusPolicy(Qt.NoFocus)
+    def _azione(self, figura: str, suggerimento: str, cosa) -> QPushButton:
+        b = BottoneIcona(figura, self.c, suggerimento)
         b.clicked.connect(cosa)
         b.setVisible(False)
         self.azioni.addWidget(b)
@@ -758,17 +760,21 @@ class Messaggio(QWidget):
 
     def _misura(self) -> None:
         """Le azioni e il filo seguono il carattere del foglio di stile."""
-        self.b_copia.ensurePolished()
-        alto = max(16, QFontMetrics(self.b_copia.font()).height())
         for b in self.bottoni:
-            b.setFixedHeight(alto)
+            b._misura()
         self.azioni.setContentsMargins(0 if self.chi == "tu" else 13, 0, 0, 0)
 
     # ------------------------------------------------------------ azioni
     def _copia(self) -> None:
         QApplication.clipboard().setText(self.testo.text())
-        self.b_copia.setText("Copiato")
-        QTimer.singleShot(1200, lambda: self.b_copia.setText("Copia"))
+        # il segno di spunta al posto dei fogli: «fatto», senza parole
+        self.b_copia.imposta_figura("fatto")
+        self.b_copia.setToolTip("Copiato")
+        QTimer.singleShot(1400, self._fine_copia)
+
+    def _fine_copia(self) -> None:
+        self.b_copia.imposta_figura("copia")
+        self.b_copia.setToolTip("Copia il testo")
 
     def _chiedi_elimina(self) -> None:
         self.eliminato.emit(self.id_messaggio)
@@ -783,8 +789,12 @@ class Messaggio(QWidget):
         self.editor.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.editor.textChanged.connect(self._adatta_editor)
         self.testo.hide()
-        indice = self.riga.count() - 1 if self.chi == "tu" else 1
-        self.riga.insertWidget(indice, self.editor, 1)
+        if self.chi == "tu":
+            # davanti resta un filo di margine, non metà riga
+            self.riga.setStretch(0, 1)
+            self.riga.insertWidget(self.riga.count() - 1, self.editor, 5)
+        else:
+            self.riga.insertWidget(1, self.editor, 1)
 
         self.conferma = QWidget()
         self.conferma.setObjectName("ContenutoSezione")
@@ -807,18 +817,28 @@ class Messaggio(QWidget):
         for b in self.bottoni:
             b.setVisible(False)
         self._adatta_editor()
+        # la misura buona si sa solo dopo che il layout l'ha sistemata
+        QTimer.singleShot(0, self._adatta_editor)
         self.editor.setFocus()
         cursore = self.editor.textCursor()
         cursore.movePosition(cursore.MoveOperation.End)
         self.editor.setTextCursor(cursore)
 
     def _adatta_editor(self) -> None:
+        """La casella è alta quanto il testo che contiene, non una riga.
+
+        In un `QPlainTextEdit` l'altezza del documento si conta in righe, non
+        in pixel: la misura in pixel la dà il carattere.
+        """
         if self.editor is None:
             return
         doc = self.editor.document()
-        doc.setTextWidth(self.editor.viewport().width())
-        alto = int(doc.size().height()) + 16
-        self.editor.setFixedHeight(max(38, min(alto, 260)))
+        doc.setTextWidth(max(80, self.editor.viewport().width()))
+        righe = max(1, int(doc.size().height()))
+        passo = QFontMetrics(self.editor.font()).lineSpacing()
+        # 16 di riempimento dal foglio di stile, più la cornice
+        alto = righe * passo + 2 * int(self.editor.frameWidth()) + 16
+        self.editor.setFixedHeight(max(38, min(alto, 300)))
 
     def chiudi_modifica(self) -> None:
         if self.editor is None:
@@ -857,6 +877,12 @@ class Messaggio(QWidget):
         if ev.type() in (QEvent.StyleChange, QEvent.FontChange,
                          QEvent.ApplicationFontChange):
             self._misura()
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        # la casella di modifica va riadattata: l'altezza dipende da quanto
+        # è larga, e la larghezza la decide il layout qui attorno
+        self._adatta_editor()
 
     def minimumSizeHint(self) -> QSize:
         chiesto = super().minimumSizeHint()
@@ -1110,7 +1136,10 @@ class RiquadroTess(QWidget):
         lato.addLayout(riga_cima)
         lato.addWidget(self.b_nuova)
         lato.addWidget(self.elenco, 1)
-        self.colonna_chat.setFixedWidth(232)
+        # la larghezza vera gliela dà l'apertura: mentre si stringe il
+        # minimo deve stare a zero, se no il layout non la lascia rimpicciolire
+        self.colonna_chat.setMinimumWidth(0)
+        self.colonna_chat.setMaximumWidth(self.LARGO_PANNELLO)
 
         # a colonna chiusa il bottone si sposta in cima alla chat, dove sta
         # nelle app: lì si capisce che riapre il pannello
@@ -1126,7 +1155,7 @@ class RiquadroTess(QWidget):
         self.testa_chat.setObjectName("TestataChat")
         self.testa_chat.setAttribute(Qt.WA_StyledBackground, True)
         testa = QHBoxLayout(self.testa_chat)
-        testa.setContentsMargins(12, 10, 12, 10)
+        testa.setContentsMargins(2, 0, 2, 10)
         testa.setSpacing(10)
         self.et_chat = QLabel("")
         self.et_chat.setObjectName("TitoloChat")
@@ -1137,12 +1166,12 @@ class RiquadroTess(QWidget):
         self.b_chat.setFocusPolicy(Qt.NoFocus)
         self.b_chat.setToolTip("Rinomina o elimina questa conversazione")
         self.b_chat.clicked.connect(self._menu_questa_chat)
-        testa.addWidget(self.linguetta)
         testa.addWidget(self.et_chat, 1)
         # la pastiglia del modello e dei dati si aggiunge qui sotto, appena
         # l'interruttore esiste
         self.testa_layout = testa
-        testa.addWidget(self.b_chat)
+        testa.addWidget(self.b_chat)          # «⋯» della conversazione
+        testa.addWidget(self.linguetta)       # apre e chiude il pannello
 
         # -------------------------------------------------- barra in fondo
         self.campo = QLineEdit()
@@ -1196,7 +1225,7 @@ class RiquadroTess(QWidget):
         self.sotto = QWidget()
         self.sotto.setObjectName("ContenutoSezione")
         fila_sotto = QHBoxLayout(self.sotto)
-        fila_sotto.setContentsMargins(14, 6, 14, 14)
+        fila_sotto.setContentsMargins(0, 8, 0, 2)
         fila_sotto.addStretch(1)
         fila_sotto.addWidget(self.riga_barra, 20)
         fila_sotto.addStretch(1)
@@ -1213,37 +1242,35 @@ class RiquadroTess(QWidget):
         self.et_modello.setToolTip(self.b_dati.toolTip())
         fila_p.addWidget(self.et_modello)
         fila_p.addWidget(self.b_dati)
-        self.testa_layout.insertWidget(self.testa_layout.count() - 1,
+        # la pastiglia dei dati prima del «⋯»: i comandi della conversazione
+        # restano gli ultimi, accanto al pannello
+        self.testa_layout.insertWidget(self.testa_layout.count() - 2,
                                        self.pastiglia)
         self.dati.hide()               # l'interruttore adesso vive in testata
 
-        # ------------------------------------------ la scheda che tiene tutto
-        # stesso riquadro delle altre pagine: la conversazione ci sta dentro,
-        # testata compresa, e l'elenco dei nomi ci entra sopra come un cassetto
-        self.scheda = QFrame()
-        self.scheda.setObjectName("SchedaChat")
-        dentro_scheda = QVBoxLayout(self.scheda)
-        dentro_scheda.setContentsMargins(0, 0, 0, 0)
-        dentro_scheda.setSpacing(0)
-        dentro_scheda.addWidget(self.testa_chat)
-        dentro_scheda.addWidget(self.chat, 1)
-        dentro_scheda.addWidget(self.sotto)
-        lay.addWidget(self.scheda, 1)
-        self.riga_chat = self.scheda        # il nome di prima, per chi lo usa
+        # ------------------------------------------------- come sta in pagina
+        # Niente scatola intorno alla conversazione: il testo sta sulla pagina
+        # come su un foglio. A destra, staccato, il pannello delle chat —
+        # quello sì un riquadro, perché è un elenco e non un discorso.
+        centro = QWidget()
+        centro.setObjectName("ContenutoSezione")
+        colonna_centro = QVBoxLayout(centro)
+        colonna_centro.setContentsMargins(0, 0, 0, 0)
+        colonna_centro.setSpacing(0)
+        colonna_centro.addWidget(self.testa_chat)
+        colonna_centro.addWidget(self.chat, 1)
+        colonna_centro.addWidget(self.sotto)
 
-        self.velo = QWidget(self.scheda)
-        self.velo.setObjectName("VeloChat")
-        self.velo.setAttribute(Qt.WA_StyledBackground, True)
-        self.velo.mousePressEvent = lambda _ev: self.piega_colonna(False)
-        self.velo.hide()
-        self.colonna_chat.setParent(self.scheda)
-        self.colonna_chat.setObjectName("CassettoChat")
+        self.colonna_chat.setObjectName("PannelloChat")
         self.colonna_chat.setAttribute(Qt.WA_StyledBackground, True)
-        ombra = QGraphicsDropShadowEffect(self.colonna_chat)
-        ombra.setBlurRadius(36); ombra.setXOffset(12); ombra.setYOffset(0)
-        ombra.setColor(QColor(0, 0, 0, 90))
-        self.colonna_chat.setGraphicsEffect(ombra)
-        self.colonna_chat.hide()
+        self.riga_chat = QWidget()
+        self.riga_chat.setObjectName("ContenutoSezione")
+        fianco = QHBoxLayout(self.riga_chat)
+        fianco.setContentsMargins(0, 0, 0, 0)
+        fianco.setSpacing(14)
+        fianco.addWidget(centro, 1)
+        fianco.addWidget(self.colonna_chat)
+        lay.addWidget(self.riga_chat, 1)
         self._anim_cassetto = None
 
         self._misura_barra()
@@ -1446,60 +1473,51 @@ class RiquadroTess(QWidget):
             voce.setSizeHint(QSize(largo, riga.sizeHint().height()))
 
     # ------------------------------------------------- la colonna dei nomi
+    LARGO_PANNELLO = 246
+
     def piega_colonna(self, aperta: bool) -> None:
-        """Fa entrare o uscire il cassetto dei nomi, e si ricorda la scelta."""
-        if not hasattr(self, "scheda"):
-            return
+        """Apre o chiude il pannello delle conversazioni, a destra.
+
+        Non scompare di colpo: si stringe, così l'occhio segue dove va.
+        """
         self.colonna_aperta = aperta
         self.db.imposta("tess_colonna", "1" if aperta else "0")
-        self._misura_cassetto()
-        larghezza = self.colonna_chat.width()
-        alto = self.testa_chat.height()
-        dentro, fuori = QPoint(1, alto), QPoint(-larghezza - 20, alto)
+        self.linguetta.imposta(aperta)
         if self._anim_cassetto is not None:
             self._anim_cassetto.stop()
+        self.colonna_chat.setMinimumWidth(0)
         if aperta:
-            self.colonna_chat.move(fuori)
             self.colonna_chat.show()
-            self.velo.show()
-            self.velo.raise_()
-            self.colonna_chat.raise_()
-        anim = QPropertyAnimation(self.colonna_chat, b"pos", self)
+        anim = QPropertyAnimation(self.colonna_chat, b"maximumWidth", self)
         anim.setDuration(170)
         anim.setEasingCurve(QEasingCurve.OutCubic)
-        anim.setEndValue(dentro if aperta else fuori)
-        if not aperta:
+        anim.setStartValue(self.colonna_chat.maximumWidth())
+        anim.setEndValue(self.LARGO_PANNELLO if aperta else 0)
+        if aperta:
+            def assestata():
+                self.colonna_chat.setMinimumWidth(self.LARGO_PANNELLO)
+                self._misura_voci()
+            anim.finished.connect(assestata)
+        else:
             anim.finished.connect(self.colonna_chat.hide)
-            self.velo.hide()
         self._anim_cassetto = anim
         anim.start()
 
-    def _misura_cassetto(self) -> None:
-        """Dà al cassetto e al velo la misura giusta dentro la scheda."""
-        alto = self.testa_chat.height()
-        altezza = max(0, self.scheda.height() - alto - 1)
-        larghezza = max(176, min(232, int(self.scheda.width() * 0.36)))
-        self.colonna_chat.setFixedWidth(larghezza)
-        self.colonna_chat.resize(larghezza, altezza)
-        self.velo.setGeometry(1, alto, max(0, self.scheda.width() - 2), altezza)
-
     def _sistema_colonna(self) -> None:
-        """Rimette il cassetto al suo posto quando la scheda cambia misura."""
-        if not hasattr(self, "scheda"):
-            return
-        self._misura_cassetto()
-        aperta = self.colonna_aperta
+        """Il pannello a destra c'è se l'hai voluto tu e se c'è posto."""
         corre = (self._anim_cassetto is not None
                  and self._anim_cassetto.state() == QPropertyAnimation.Running)
         if corre:
             return
-        alto = self.testa_chat.height()
-        self.colonna_chat.move(1 if aperta else -self.colonna_chat.width() - 20, alto)
+        largo = self.width() > 640
+        aperta = largo and self.colonna_aperta
+        self.colonna_chat.setMinimumWidth(self.LARGO_PANNELLO if aperta else 0)
+        self.colonna_chat.setMaximumWidth(self.LARGO_PANNELLO if aperta else 0)
         self.colonna_chat.setVisible(aperta)
-        self.velo.setVisible(aperta)
         if aperta:
-            self.velo.raise_()
-            self.colonna_chat.raise_()
+            QTimer.singleShot(0, self._misura_voci)
+        self.linguetta.setVisible(largo)
+        self.linguetta.imposta(aperta)
 
     # ---------------------------------------------------------- rinominare
     def rinomina_chat(self, voce) -> None:

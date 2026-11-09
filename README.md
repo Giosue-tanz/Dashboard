@@ -65,10 +65,19 @@ Tre cose, perché sono il punto:
   minuto avvisa che ci sta mettendo più del solito.
 * **Le conversazioni restano, e si vedono.** Il motore non ha memoria — a
   ogni domanda gli si rimanda l'intera conversazione — quindi le chat le
-  conserva la Dashboard, nella tabella `tess_chat` del suo archivio. Nella
-  pagina di Tess la colonna di sinistra le elenca tutte («oggi · 15:23» più la
-  prima domanda): un clic e torni lì, **«+ Nuova»** ne comincia un'altra,
-  tasto destro per eliminarne una. Riaprendo l'app ritrovi l'ultima dov'era.
+  conserva la Dashboard, nella tabella `tess_chat` del suo archivio. La
+  conversazione sta libera sulla pagina — nessuna scatola intorno: le risposte
+  di Tess hanno un filo rosa a sinistra, le tue domande una bolla grigia — e
+  **a destra** c'è il pannello con tutte le chat («oggi · 15:23» più la prima
+  domanda), che si apre e si chiude dal bottone in cima. Un clic e torni lì,
+  **«+ Nuova»** ne comincia un'altra, tasto destro per eliminarne una.
+  Riaprendo l'app ritrovi l'ultima dov'era.
+* **I messaggi si correggono e si tolgono.** Passando il mouse su un messaggio
+  compaiono **Copia**, **Elimina** e, sulle tue domande, **Modifica**: la
+  domanda diventa una casella lì dov'è, e «Salva e richiedi» la riscrive e
+  rifà la risposta — quelle che venivano dopo rispondevano a un'altra domanda,
+  quindi se ne vanno. «Elimina» toglie un messaggio solo, dalla pagina e
+  dall'archivio, dopo averlo chiesto.
   Sono separate dalle chat fatte nell'interfaccia web di Tess, che restano
   nel database di quella.
 * **Ogni chat può avere un nome.** Doppio clic su una voce dell'elenco (o
@@ -144,6 +153,8 @@ un testo, non come un cartello. Le tue domande restano in una bolla a
 destra, così l'occhio capisce subito di chi è la riga. Al passaggio del
 mouse compare «Copia», e il posto è già suo anche quando non si vede: la
 chat non salta su e giù.
+
+Sotto ogni messaggio, al passaggio del mouse, compaiono le azioni come **icone disegnate** — matita, fogli, cestino — invece di tre parole in fila: la figura la fa il pennello su una griglia di cento per cento, quindi è nitida a ogni dimensione del testo e prende da sé il colore del tema. Copiando, i due fogli diventano un segno di spunta.
 
 **La conversazione sta in una colonna larga al massimo novecento pixel**, in
 mezzo alla pagina, con la barra in fondo allineata sotto: una riga di testo
