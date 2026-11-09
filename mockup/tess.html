@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="it" data-tema="scuro">
+<head>
+<meta charset="utf-8">
+<title>Tess attiva — tre direzioni</title>
+<style>
+:root{
+  --fondo:#0a0a0c; --pannello:#17181d; --pannello2:#1f2027; --tocco:#272930;
+  --bordo:#272930; --testo:#f3f4f7; --testo2:#9aa0ac; --accento:#ff5a5a;
+  --tess:#f472b6; --su-accento:#ffffff;
+  --accento-velo:rgba(255,90,90,.14); --accento-orlo:rgba(255,90,90,.30);
+  --accento-pieno:#c9453f;
+  --ombra:0 18px 40px rgba(0,0,0,.45);
+}
+[data-tema="chiaro"]{
+  --fondo:#f1f2f6; --pannello:#ffffff; --pannello2:#f4f5f9; --tocco:#e9ebf2;
+  --bordo:#e6e8ef; --testo:#15171c; --testo2:#6b7280; --accento:#cf3b3b;
+  --tess:#d1629c; --su-accento:#ffffff;
+  --accento-velo:rgba(207,59,59,.10); --accento-orlo:rgba(207,59,59,.26);
+  --accento-pieno:#cf3b3b;
+  --ombra:0 14px 34px rgba(16,20,30,.10);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--fondo); color:var(--testo);
+  font-family:Inter,"Noto Sans","Segoe UI",system-ui,sans-serif; font-size:14px;
+  -webkit-font-smoothing:antialiased;
+}
+.pagina-mock{max-width:1320px; margin:0 auto; padding:26px 26px 60px}
+.capo{display:flex; align-items:center; gap:16px; margin:10px 0 30px}
+.capo h1{font-size:21px; font-weight:700; margin:0; letter-spacing:-.2px}
+.capo p{margin:0; color:var(--testo2); font-size:13px}
+.interruttore-tema{
+  margin-left:auto; display:flex; gap:2px; background:var(--pannello2);
+  border:1px solid var(--bordo); border-radius:11px; padding:3px;
+}
+.interruttore-tema button{
+  background:none; border:0; color:var(--testo2); font:inherit; font-size:12.5px;
+  padding:6px 14px; border-radius:8px; cursor:pointer;
+}
+.interruttore-tema button[aria-pressed="true"]{background:var(--pannello); color:var(--testo); font-weight:600}
+
+/* ---------------------------------------------------------- impaginato */
+.variante{margin-bottom:46px}
+.intest{display:flex; align-items:baseline; gap:12px; margin-bottom:12px}
+.lettera{
+  width:26px; height:26px; flex:0 0 26px; border-radius:9px; display:grid;
+  place-items:center; background:var(--accento-velo); color:var(--accento);
+  font-weight:700; font-size:13px; align-self:center;
+}
+.intest h2{margin:0; font-size:16.5px; font-weight:650; letter-spacing:-.2px}
+.intest p{margin:0; color:var(--testo2); font-size:13px}
+.note{display:flex; gap:22px; flex-wrap:wrap; margin:12px 2px 0; padding:0; list-style:none}
+.note li{color:var(--testo2); font-size:12.5px; position:relative; padding-left:13px}
+.note li::before{content:""; position:absolute; left:0; top:7px; width:5px; height:5px;
+  border-radius:50%; background:var(--accento-orlo)}
+
+.telaio{
+  height:560px; display:flex; background:var(--fondo); border:1px solid var(--bordo);
+  border-radius:16px; overflow:hidden;
+}
+
+/* ------------------------------------------------------------- comuni */
+.occhiello{font-size:10.5px; font-weight:700; letter-spacing:.9px; text-transform:uppercase; color:var(--testo2)}
+.ic{
+  width:28px; height:28px; display:grid; place-items:center; border-radius:9px;
+  border:1px solid transparent; background:none; color:var(--testo2); cursor:pointer;
+}
+.ic:hover{border-color:var(--bordo); color:var(--testo)}
+.ic svg{width:15px; height:15px; stroke:currentColor; stroke-width:1.7; fill:none;
+  stroke-linecap:round; stroke-linejoin:round}
+.pallino{width:6px; height:6px; border-radius:50%; background:var(--tess); display:inline-block}
+.stato{display:inline-flex; align-items:center; gap:7px; color:var(--testo2); font-size:11.5px}
+
+/* tendina (lista conversazioni) */
+.tendina{
+  width:244px; flex:0 0 244px; border-right:1px solid var(--bordo);
+  background:var(--pannello); padding:14px 10px; display:flex; flex-direction:column; gap:10px;
+}
+.tendina-testa{display:flex; align-items:center; padding:0 6px 0 8px; height:28px}
+.tendina-testa .ic{margin-left:auto}
+.nuova{
+  display:flex; align-items:center; gap:9px; width:100%; height:34px; padding:0 12px;
+  border-radius:10px; border:1px dashed var(--bordo); background:none;
+  color:var(--testo2); font:inherit; font-size:12.5px; cursor:pointer;
+}
+.nuova:hover{border-style:solid; border-color:var(--accento-orlo); color:var(--accento)}
+.gruppo{font-size:10.5px; font-weight:700; letter-spacing:.7px; text-transform:uppercase;
+  color:var(--testo2); opacity:.75; padding:10px 10px 3px}
+.chat{
+  position:relative; display:flex; align-items:center; gap:8px; height:34px;
+  padding:0 10px; border-radius:10px; color:var(--testo2); cursor:pointer;
+}
+.chat .nome{flex:1; font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.chat .ora{font-size:10.5px; opacity:.8}
+.chat:hover{background:var(--pannello2); color:var(--testo)}
+.chat.attiva{background:var(--pannello2); color:var(--testo)}
+.chat.attiva .nome{font-weight:600}
+.chat.attiva::before{
+  content:""; position:absolute; left:0; top:9px; bottom:9px; width:2px;
+  border-radius:2px; background:var(--accento);
+}
+
+/* pagina della chat */
+.pagina{flex:1; display:flex; flex-direction:column; min-width:0}
+.testa{
+  display:flex; align-items:center; gap:12px; padding:14px 20px;
+  border-bottom:1px solid var(--bordo);
+}
+.testa h3{margin:0; font-size:13.5px; font-weight:650}
+.testa .ic{margin-left:auto}
+.flusso{flex:1; overflow:hidden; padding:20px 20px 10px}
+.colonna{max-width:680px; margin:0 auto; display:flex; flex-direction:column; gap:18px}
+.separa{display:flex; align-items:center; gap:12px; color:var(--testo2); font-size:10.5px;
+  letter-spacing:.7px; text-transform:uppercase}
+.separa::before,.separa::after{content:""; height:1px; background:var(--bordo); flex:1}
+
+/* composer */
+.barra{padding:12px 20px 18px}
+.barra-dentro{max-width:680px; margin:0 auto}
+.campo{
+  display:flex; align-items:center; gap:10px; background:var(--pannello2);
+  border:1px solid var(--bordo); border-radius:16px; padding:10px 10px 10px 16px;
+}
+.campo input{
+  flex:1; background:none; border:0; color:var(--testo); font:inherit; font-size:13px; outline:none;
+}
+.campo input::placeholder{color:var(--testo2)}
+.invia{
+  width:32px; height:32px; flex:0 0 32px; border-radius:50%; border:0; cursor:pointer;
+  background:var(--accento); color:var(--su-accento); display:grid; place-items:center;
+}
+.invia svg{width:15px; height:15px; stroke:currentColor; stroke-width:2.1; fill:none;
+  stroke-linecap:round; stroke-linejoin:round}
+.sottobarra{display:flex; align-items:center; gap:10px; padding:9px 4px 0; color:var(--testo2); font-size:11.5px}
+.levetta{
+  width:30px; height:17px; border-radius:9px; background:var(--accento); position:relative; flex:0 0 30px;
+}
+.levetta::after{content:""; position:absolute; top:2px; right:2px; width:13px; height:13px;
+  border-radius:50%; background:#fff}
+.levetta.spenta{background:var(--tocco)}
+.levetta.spenta::after{right:auto; left:2px; background:var(--testo2)}
+
+/* ============================================================ A: foglio */
+.A .msg-tu{align-self:flex-end; max-width:78%}
+.A .bolla-tu{
+  background:var(--accento-velo); border:1px solid var(--accento-orlo);
+  color:var(--testo); border-radius:16px 16px 5px 16px; padding:9px 14px; font-size:13px;
+}
+.A .msg-tess{display:flex; flex-direction:column; gap:6px}
+.A .firma{display:flex; align-items:center; gap:7px; font-size:11px; font-weight:650;
+  letter-spacing:.4px; color:var(--tess)}
+.A .risposta{font-size:13.5px; line-height:1.62; color:var(--testo)}
+.A .risposta .num{font-weight:650}
+
+/* =========================================================== B: bolle */
+.B .rail{
+  width:52px; flex:0 0 52px; background:var(--pannello); border-right:1px solid var(--bordo);
+  display:flex; flex-direction:column; align-items:center; gap:8px; padding:14px 0;
+}
+.B .rail .ic{width:34px; height:34px; border-radius:11px}
+.B .rail .ic:hover{background:var(--pannello2); border-color:transparent}
+.B .rail .spazio{flex:1}
+.B .tendina{width:230px; flex:0 0 230px; background:var(--pannello2); border-right:1px solid var(--bordo)}
+.B .chat:hover,.B .chat.attiva{background:var(--pannello)}
+.B .testa{background:var(--pannello)}
+.B .flusso{background:var(--fondo)}
+.B .colonna{gap:10px}
+.B .riga{display:flex; gap:10px; align-items:flex-end}
+.B .riga.tua{justify-content:flex-end}
+.B .faccia{
+  width:26px; height:26px; flex:0 0 26px; border-radius:9px; display:grid; place-items:center;
+  background:rgba(244,114,182,.16); color:var(--tess); font-size:11px; font-weight:700;
+}
+.B .bolla{max-width:74%; padding:10px 14px; font-size:13px; line-height:1.55; border-radius:16px}
+.B .bolla.tess{background:var(--pannello2); border:1px solid var(--bordo); border-bottom-left-radius:5px}
+.B .bolla.tua{background:var(--accento-pieno); color:var(--su-accento); border-bottom-right-radius:5px}
+.B .gruppetto{display:flex; flex-direction:column; gap:4px; max-width:74%}
+.B .gruppetto .bolla{max-width:100%}
+.B .orario{font-size:10.5px; color:var(--testo2); padding:0 4px}
+.B .campo{border-radius:22px; padding:8px 8px 8px 16px}
+
+/* ========================================================== C: scheda */
+.C .telaio{position:relative; background:var(--fondo)}
+.C .scheda{
+  position:absolute; inset:18px; display:flex; flex-direction:column;
+  background:var(--pannello); border:1px solid var(--bordo); border-radius:18px;
+  box-shadow:var(--ombra); overflow:hidden;
+}
+.C .testa{padding:15px 20px}
+.C .etichetta-modello{
+  margin-left:auto; display:flex; align-items:center; gap:7px; font-size:11px;
+  color:var(--testo2); background:var(--pannello2); border:1px solid var(--bordo);
+  border-radius:999px; padding:4px 11px;
+}
+.C .testa .ic{margin-left:0}
+.C .cassetto{
+  position:absolute; left:19px; top:76px; bottom:19px; width:232px; z-index:3;
+  background:var(--pannello); border-right:1px solid var(--bordo);
+  border-bottom-left-radius:18px; box-shadow:14px 0 34px rgba(0,0,0,.28);
+  padding:12px 10px; display:flex; flex-direction:column; gap:10px;
+}
+[data-tema="chiaro"] .C .cassetto{box-shadow:14px 0 30px rgba(16,20,30,.07)}
+/* appena un'ombra sul contenuto, non una tenda nera */
+.C .velo{position:absolute; left:251px; right:19px; top:76px; bottom:19px;
+  background:rgba(0,0,0,.14); border-bottom-right-radius:18px; z-index:2}
+[data-tema="chiaro"] .C .velo{background:rgba(16,20,30,.05)}
+.C .msg-tu{align-self:flex-end; max-width:76%}
+.C .bolla-tu{background:var(--tocco); color:var(--testo); border-radius:15px; padding:9px 14px; font-size:13px}
+.C .msg-tess{display:flex; gap:11px}
+.C .filo{width:2px; flex:0 0 2px; border-radius:2px; background:linear-gradient(var(--tess),transparent)}
+.C .risposta{font-size:13.5px; line-height:1.62}
+.C .barra{padding:0 20px 16px}
+.C .campo{background:var(--pannello2); border-radius:14px}
+.C .flusso{padding-top:18px}
+</style>
+</head>
+<body>
+<div class="pagina-mock">
+
+<div class="capo">
+  <div>
+    <h1>Tess attiva — tre direzioni</h1>
+    <p>Stessa conversazione, tre modi di impaginarla. Palette della Dashboard, accento rosso.</p>
+  </div>
+  <div class="interruttore-tema">
+    <button data-vai="scuro" aria-pressed="true">Scuro</button>
+    <button data-vai="chiaro" aria-pressed="false">Chiaro</button>
+  </div>
+</div>
+
+<!-- =================================================== A -->
+<section class="variante A">
+  <div class="intest">
+    <span class="lettera">A</span>
+    <div>
+      <h2>Foglio</h2>
+      <p>Tess non parla dentro una bolla: scrive sulla pagina. Solo le tue domande hanno un contorno.</p>
+    </div>
+  </div>
+  <div class="telaio">
+    <aside class="tendina">
+      <div class="tendina-testa">
+        <span class="occhiello">Conversazioni</span>
+        <button class="ic" title="Chiudi l'elenco"><svg viewBox="0 0 20 20"><path d="M12 5 7 10l5 5"/><path d="M3 3v14"/></svg></button>
+      </div>
+      <button class="nuova"><svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 4v12M4 10h12"/></svg> Nuova conversazione</button>
+      <div class="gruppo">Oggi</div>
+      <div class="chat attiva"><span class="nome">Sonno di questa settimana</span><span class="ora">15:55</span></div>
+      <div class="chat"><span class="nome">Che giorno è oggi</span><span class="ora">15:39</span></div>
+      <div class="gruppo">Ultimi 30 giorni</div>
+      <div class="chat"><span class="nome">Guardiamo le emozioni</span><span class="ora">28 ott</span></div>
+      <div class="chat"><span class="nome">Esami che mancano</span><span class="ora">24 ott</span></div>
+      <div class="chat"><span class="nome">Spese del mese</span><span class="ora">21 ott</span></div>
+    </aside>
+    <main class="pagina">
+      <header class="testa">
+        <div>
+          <h3>Sonno di questa settimana</h3>
+          <span class="stato"><i class="pallino"></i> in ascolto · dati della Dashboard attivi</span>
+        </div>
+        <button class="ic" title="Altro"><svg viewBox="0 0 20 20"><circle cx="5" cy="10" r="1.4" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+      </header>
+      <div class="flusso">
+        <div class="colonna">
+          <div class="separa">Oggi</div>
+          <div class="msg-tu"><div class="bolla-tu">Quanto ho dormito martedì?</div></div>
+          <div class="msg-tess">
+            <div class="firma"><i class="pallino"></i> TESS</div>
+            <div class="risposta"><span class="num">8h20</span>. Più della media della settimana, che sta a 8h02.</div>
+          </div>
+          <div class="msg-tu"><div class="bolla-tu">E i passi dello stesso giorno?</div></div>
+          <div class="msg-tess">
+            <div class="firma"><i class="pallino"></i> TESS</div>
+            <div class="risposta">Martedì 27 i passi non sono stati registrati: quel giorno il braccialetto non ha mandato niente.</div>
+          </div>
+        </div>
+      </div>
+      <div class="barra">
+        <div class="barra-dentro">
+          <div class="campo">
+            <input placeholder="Chiedi a Tess dei tuoi dati…">
+            <button class="invia"><svg viewBox="0 0 20 20"><path d="M10 16V5"/><path d="M5 10l5-5 5 5"/></svg></button>
+          </div>
+          <div class="sottobarra"><span class="levetta"></span> I tuoi dati sono accesi · gemma 3,9B sul tuo PC</div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <ul class="note">
+    <li>Niente blocchi di colore pieni: la risposta è testo, si legge come una pagina</li>
+    <li>La tendina segna l'attiva con una stanghetta, non con un fondo acceso</li>
+    <li>Campo e stato dei dati sono una cosa sola, in fondo alla colonna di lettura</li>
+  </ul>
+</section>
+
+<!-- =================================================== B -->
+<section class="variante B">
+  <div class="intest">
+    <span class="lettera">B</span>
+    <div>
+      <h2>Bolle</h2>
+      <p>Conversazione vera, con le bolle raggruppate. L'elenco vive accanto a una colonnina di icone sempre lì.</p>
+    </div>
+  </div>
+  <div class="telaio">
+    <nav class="rail">
+      <button class="ic" title="Elenco"><svg viewBox="0 0 20 20"><path d="M4 6h12M4 10h12M4 14h8"/></svg></button>
+      <button class="ic" title="Nuova"><svg viewBox="0 0 20 20"><path d="M10 4v12M4 10h12"/></svg></button>
+      <button class="ic" title="Cerca"><svg viewBox="0 0 20 20"><circle cx="9" cy="9" r="5"/><path d="M13 13l4 4"/></svg></button>
+      <span class="spazio"></span>
+      <button class="ic" title="Spegni Tess"><svg viewBox="0 0 20 20"><path d="M10 4v6"/><path d="M6 6.5a6 6 0 1 0 8 0"/></svg></button>
+    </nav>
+    <aside class="tendina">
+      <div class="tendina-testa"><span class="occhiello">Conversazioni</span></div>
+      <div class="gruppo">Oggi</div>
+      <div class="chat attiva"><span class="nome">Sonno di questa settimana</span><span class="ora">15:55</span></div>
+      <div class="chat"><span class="nome">Che giorno è oggi</span><span class="ora">15:39</span></div>
+      <div class="gruppo">Ultimi 30 giorni</div>
+      <div class="chat"><span class="nome">Guardiamo le emozioni</span><span class="ora">28 ott</span></div>
+      <div class="chat"><span class="nome">Esami che mancano</span><span class="ora">24 ott</span></div>
+    </aside>
+    <main class="pagina">
+      <header class="testa">
+        <div><h3>Sonno di questa settimana</h3><span class="stato"><i class="pallino"></i> in ascolto</span></div>
+        <button class="ic"><svg viewBox="0 0 20 20"><circle cx="5" cy="10" r="1.4" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+      </header>
+      <div class="flusso">
+        <div class="colonna">
+          <div class="separa">Oggi</div>
+          <div class="riga tua"><div class="bolla tua">Quanto ho dormito martedì?</div></div>
+          <div class="riga">
+            <div class="faccia">T</div>
+            <div class="gruppetto">
+              <div class="bolla tess"><b>8h20.</b></div>
+              <div class="bolla tess">Più della media della settimana, che sta a 8h02.</div>
+              <span class="orario">15:55</span>
+            </div>
+          </div>
+          <div class="riga tua"><div class="bolla tua">E i passi dello stesso giorno?</div></div>
+          <div class="riga">
+            <div class="faccia">T</div>
+            <div class="gruppetto">
+              <div class="bolla tess">Martedì 27 i passi non sono stati registrati.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="barra">
+        <div class="barra-dentro">
+          <div class="campo">
+            <input placeholder="Chiedi a Tess dei tuoi dati…">
+            <span class="levetta" title="dati accesi"></span>
+            <button class="invia"><svg viewBox="0 0 20 20"><path d="M10 16V5"/><path d="M5 10l5-5 5 5"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <ul class="note">
+    <li>Due risposte di fila restano attaccate: una faccia sola, un orario solo</li>
+    <li>La colonnina di icone non sparisce mai: l'elenco si apre e si chiude accanto a lei</li>
+    <li>La levetta dei dati sta dentro al campo, non sotto: una riga in meno</li>
+  </ul>
+</section>
+
+<!-- =================================================== C -->
+<section class="variante C">
+  <div class="intest">
+    <span class="lettera">C</span>
+    <div>
+      <h2>Scheda</h2>
+      <p>La chat è un riquadro appoggiato sulla pagina, come gli altri della Dashboard. L'elenco entra da sinistra solo quando serve.</p>
+    </div>
+  </div>
+  <div class="telaio">
+    <div class="scheda">
+      <header class="testa">
+        <button class="ic" title="Conversazioni"><svg viewBox="0 0 20 20"><path d="M4 6h12M4 10h12M4 14h8"/></svg></button>
+        <div><h3>Sonno di questa settimana</h3></div>
+        <span class="etichetta-modello"><i class="pallino"></i> gemma · dati accesi</span>
+        <button class="ic"><svg viewBox="0 0 20 20"><circle cx="5" cy="10" r="1.4" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+      </header>
+      <div class="flusso">
+        <div class="colonna">
+          <div class="msg-tu"><div class="bolla-tu">Quanto ho dormito martedì?</div></div>
+          <div class="msg-tess">
+            <div class="filo"></div>
+            <div class="risposta"><b>8h20.</b> Più della media della settimana, che sta a 8h02.</div>
+          </div>
+          <div class="msg-tu"><div class="bolla-tu">E i passi dello stesso giorno?</div></div>
+          <div class="msg-tess">
+            <div class="filo"></div>
+            <div class="risposta">Martedì 27 i passi non sono stati registrati.</div>
+          </div>
+        </div>
+      </div>
+      <div class="barra">
+        <div class="barra-dentro">
+          <div class="campo">
+            <input placeholder="Chiedi a Tess dei tuoi dati…">
+            <button class="invia"><svg viewBox="0 0 20 20"><path d="M10 16V5"/><path d="M5 10l5-5 5 5"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="velo"></div>
+    <aside class="cassetto">
+      <div class="tendina-testa">
+        <span class="occhiello">Conversazioni</span>
+        <button class="ic"><svg viewBox="0 0 20 20"><path d="M12 5 7 10l5 5"/></svg></button>
+      </div>
+      <button class="nuova"><svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 4v12M4 10h12"/></svg> Nuova conversazione</button>
+      <div class="gruppo">Oggi</div>
+      <div class="chat attiva"><span class="nome">Sonno di questa settimana</span><span class="ora">15:55</span></div>
+      <div class="chat"><span class="nome">Che giorno è oggi</span><span class="ora">15:39</span></div>
+      <div class="gruppo">Ultimi 30 giorni</div>
+      <div class="chat"><span class="nome">Guardiamo le emozioni</span><span class="ora">28 ott</span></div>
+      <div class="chat"><span class="nome">Esami che mancano</span><span class="ora">24 ott</span></div>
+    </aside>
+  </div>
+  <ul class="note">
+    <li>Il riquadro è lo stesso linguaggio delle altre pagine: bordo da 1px, angoli da 18</li>
+    <li>L'elenco è un cassetto: si apre sopra la chat e si richiude, non ruba larghezza fissa</li>
+    <li>Un filo rosa a sinistra al posto della bolla: si capisce chi parla senza riempire di colore</li>
+  </ul>
+</section>
+
+</div>
+<script>
+document.querySelectorAll('.interruttore-tema button').forEach(b=>{
+  b.onclick=()=>{
+    document.documentElement.dataset.tema=b.dataset.vai;
+    document.querySelectorAll('.interruttore-tema button').forEach(x=>
+      x.setAttribute('aria-pressed', String(x===b)));
+  };
+});
+</script>
+</body>
+</html>

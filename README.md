@@ -292,6 +292,29 @@ su 14», così si vede su quanto poggia.
 
 Sono confronti fra medie, non cause: dicono dove guardare.
 
+## Il primo piano è oggi
+
+In modo «giorni» la finestra è la settimana del calendario, da lunedì a
+domenica: **l'ultima barra è la domenica**, che di mercoledì deve ancora
+arrivare. I riquadri però accendevano proprio quella, e il numero grande
+parlava di lei: di fatto raccontavano un giorno futuro e vuoto al posto di
+oggi. Adesso la barra accesa e il numero grande sono quelli di **oggi**
+quando oggi è nella finestra (Passi, Sonno, Ore di studio, Ore di lavoro); se
+guardi una settimana passata è l'ultimo giorno di quella settimana, e la nota
+dice sempre di che giorno si tratta — «oggi», «ieri», «25/10».
+
+**Passi** adesso ha il suo numero grande, come il Sonno: quanti passi oggi e
+a che punto sei dell'obiettivo.
+
+**Battito** con «oggi» resta su **un giorno**. Se oggi non ci sono ancora
+misure mostra l'ultimo giorno che ne ha, dicendolo («ieri · 8 ore misurate ·
+da 58 a 132 bpm»): prima in quel caso passava di nascosto agli ultimi sette
+giorni, e la pastiglia diceva «oggi» sopra al grafico di una settimana.
+
+**Indicatori** scrive a destra **di quando è** il numero — «ieri», «5 giorni
+fa» — invece di ripetere la lunghezza del periodo, che è già nella pastiglia
+in cima: un battito di tre giorni fa non è il battito di adesso.
+
 ## Giorno per giorno, dove serve
 
 Ogni riquadro che mostra un andamento lascia scendere fino al giorno singolo:

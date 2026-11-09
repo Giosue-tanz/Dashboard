@@ -199,6 +199,10 @@ class GraficoBarre(BaseGrafico):
         self.serie: list[tuple[str, str]] = []
         self.orizzontale = False
         self.evidenzia_ultima = False
+        # quale barra è «quella di adesso»: -1 vuol dire nessuna. Con le
+        # settimane del calendario l'ultima barra è la domenica, che di
+        # mercoledì deve ancora arrivare: accendere quella era una bugia
+        self.evidenziata = -1
         self.crescita = 1.0        # 0..1 mentre le barre salgono
         self.riferimento: float | None = None      # linea dell'obiettivo
 
@@ -325,8 +329,11 @@ class GraficoBarre(BaseGrafico):
                 rect = QRectF(x, area.bottom() - altezza, largo, max(1.0, altezza))
                 colore = QColor(self.serie[s][1] if s < len(self.serie)
                                 else PALETTE_GRAFICI[s % 12])
-                if self.evidenzia_ultima and g != n_gruppi - 1:
-                    colore.setAlpha(110)
+                if self.evidenzia_ultima:
+                    quale = (self.evidenziata if self.evidenziata >= 0
+                             else n_gruppi - 1)
+                    if g != quale:
+                        colore.setAlpha(110)
                 p.setPen(Qt.NoPen); p.setBrush(colore)
                 # candele a pastiglia, come One UI: raggio pieno, mai spigoli
                 raggio = largo / 2

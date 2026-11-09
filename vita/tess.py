@@ -22,13 +22,14 @@ import urllib.error
 import urllib.request
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import (QEvent, QPoint, QRect, QSize, QThread, QTimer, Qt,
-                            Signal)
-from PySide6.QtGui import QFontMetrics
-from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QMenu, QMessageBox,
-                               QPushButton, QScrollArea, QSizePolicy,
-                               QVBoxLayout, QWidget)
+from PySide6.QtCore import (QEasingCurve, QEvent, QPoint, QPropertyAnimation,
+                            QRect, QSize, QThread, QTimer, Qt, Signal)
+from PySide6.QtGui import QColor, QFontMetrics
+from PySide6.QtWidgets import (QApplication, QFrame, QGraphicsDropShadowEffect,
+                               QHBoxLayout, QLabel, QLineEdit, QListWidget,
+                               QListWidgetItem, QMenu, QMessageBox,
+                               QPlainTextEdit, QPushButton, QScrollArea,
+                               QSizePolicy, QVBoxLayout, QWidget)
 
 from . import punteggi as calcolo
 from .componenti import BarraAttesa, BottonePannello, Interruttore
@@ -683,20 +684,26 @@ def istruzioni(db) -> str:
 class Messaggio(QWidget):
     """Un messaggio in pagina.
 
-    Tess parla **senza bolla**: il tondo con la sua iniziale, il nome, e poi
-    il testo largo quanto la pagina — una risposta lunga si legge come un
-    testo, non come un cartello. Quello che scrivi tu resta in una bolla a
-    destra, e l'occhio capisce subito di chi è la riga. È il modo in cui lo
-    fa l'app di Tess, ed è anche il modo in cui si legge meglio.
+    Tess parla **senza bolla**: un filo della sua tinta a sinistra e il testo
+    largo quanto la pagina — una risposta lunga si legge come un testo, non
+    come un cartello. Quello che scrivi tu resta in una bolla a destra, in
+    grigio: l'occhio capisce di chi è la riga senza blocchi di colore.
 
-    Sotto, al passaggio del mouse, compare «Copia»: il posto è già suo anche
-    quando non si vede, così la chat non salta su e giù.
+    Sotto, al passaggio del mouse, compaiono le azioni — copia, e per le tue
+    domande anche modifica — con l'eliminazione per tutti. Il posto della riga
+    è già suo anche quando non si vede, così la chat non salta su e giù.
     """
 
-    def __init__(self, chi: str, testo: str, colori: dict, parent=None):
+    modificato = Signal(int, str)        # id della riga, testo nuovo
+    eliminato = Signal(int)
+
+    def __init__(self, chi: str, testo: str, colori: dict,
+                 id_messaggio: int = 0, parent=None):
         super().__init__(parent)
         self.chi = chi
         self.c = colori
+        self.id_messaggio = id_messaggio
+        self.editor: QPlainTextEdit | None = None
         self.setObjectName("ContenutoSezione")
         self.setAttribute(Qt.WA_StyledBackground, True)
         lay = QVBoxLayout(self)
@@ -709,69 +716,141 @@ class Messaggio(QWidget):
         self.testo.setObjectName("BollaTu" if chi == "tu" else "TestoTess")
         self.testo.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
 
-        riga = QHBoxLayout()
-        riga.setContentsMargins(0, 0, 0, 0)
-        riga.setSpacing(10)
+        self.riga = QHBoxLayout()
+        self.riga.setContentsMargins(0, 0, 0, 0)
+        self.riga.setSpacing(11)
         if chi == "tu":
-            riga.addStretch(1)
-            riga.addWidget(self.testo)
+            self.riga.addStretch(1)
+            self.riga.addWidget(self.testo)
         else:
-            self.segno = QLabel("T")
-            self.segno.setObjectName("SegnoTess")
-            self.segno.setAlignment(Qt.AlignCenter)
-            colonna = QVBoxLayout()
-            colonna.setContentsMargins(0, 0, 0, 0)
-            colonna.setSpacing(2)
-            self.et_nome = QLabel("Tess")
-            self.et_nome.setObjectName("NomeTess")
-            colonna.addWidget(self.et_nome)
-            colonna.addWidget(self.testo)
-            riga.addWidget(self.segno, 0, Qt.AlignTop)
-            riga.addLayout(colonna, 1)
-        lay.addLayout(riga)
+            # un filo verticale alto quanto la risposta, al posto del tondo
+            self.filo = QFrame()
+            self.filo.setObjectName("FiloTess")
+            self.riga.addWidget(self.filo)
+            self.riga.addWidget(self.testo, 1)
+        lay.addLayout(self.riga)
 
-        self.b_copia = QPushButton("Copia")
-        self.b_copia.setObjectName("AzioneMessaggio")
-        self.b_copia.setCursor(Qt.PointingHandCursor)
-        self.b_copia.setFocusPolicy(Qt.NoFocus)
-        self.b_copia.clicked.connect(self._copia)
-        self.b_copia.setVisible(False)
-        fila = QHBoxLayout()
-        fila.setContentsMargins(40 if chi != "tu" else 0, 0, 0, 0)
-        fila.setSpacing(6)
+        self.azioni = QHBoxLayout()
+        self.azioni.setContentsMargins(0 if chi == "tu" else 13, 0, 0, 0)
+        self.azioni.setSpacing(2)
         if chi == "tu":
-            fila.addStretch(1)
-        fila.addWidget(self.b_copia)
+            self.azioni.addStretch(1)
+        self.bottoni: list[QPushButton] = []
+        self.b_copia = self._azione("Copia", self._copia)
+        if chi == "tu":
+            self.b_modifica = self._azione("Modifica", self.apri_modifica)
+        self.b_elimina = self._azione("Elimina", self._chiedi_elimina)
         if chi != "tu":
-            fila.addStretch(1)
-        lay.addLayout(fila)
+            self.azioni.addStretch(1)
+        lay.addLayout(self.azioni)
         self._misura()
 
-    def _misura(self) -> None:
-        """Il tondo e la riga delle azioni seguono il carattere."""
-        self.b_copia.ensurePolished()
-        alto = max(18, QFontMetrics(self.b_copia.font()).height() + 4)
-        self.b_copia.setFixedHeight(alto)
-        # il posto della riga resta occupato anche a bottone nascosto
-        self.layout().itemAt(1).layout().setContentsMargins(
-            40 if self.chi != "tu" else 0, 0, 0, 0)
-        if self.chi != "tu":
-            lato = max(26, QFontMetrics(self.et_nome.font()).height() + 12)
-            self.segno.setFixedSize(lato, lato)
-            self.segno.setStyleSheet(f"border-radius: {lato // 2}px;")
+    def _azione(self, nome: str, cosa) -> QPushButton:
+        b = QPushButton(nome)
+        b.setObjectName("AzioneMessaggio")
+        b.setCursor(Qt.PointingHandCursor)
+        b.setFocusPolicy(Qt.NoFocus)
+        b.clicked.connect(cosa)
+        b.setVisible(False)
+        self.azioni.addWidget(b)
+        self.bottoni.append(b)
+        return b
 
+    def _misura(self) -> None:
+        """Le azioni e il filo seguono il carattere del foglio di stile."""
+        self.b_copia.ensurePolished()
+        alto = max(16, QFontMetrics(self.b_copia.font()).height())
+        for b in self.bottoni:
+            b.setFixedHeight(alto)
+        self.azioni.setContentsMargins(0 if self.chi == "tu" else 13, 0, 0, 0)
+
+    # ------------------------------------------------------------ azioni
     def _copia(self) -> None:
         QApplication.clipboard().setText(self.testo.text())
         self.b_copia.setText("Copiato")
         QTimer.singleShot(1200, lambda: self.b_copia.setText("Copia"))
 
+    def _chiedi_elimina(self) -> None:
+        self.eliminato.emit(self.id_messaggio)
+
+    def apri_modifica(self) -> None:
+        """Il testo diventa una casella, lì dov'è: niente finestre."""
+        if self.editor is not None:
+            return
+        self.editor = QPlainTextEdit(self.testo.text())
+        self.editor.setObjectName("ModificaMessaggio")
+        self.editor.setTabChangesFocus(True)
+        self.editor.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.editor.textChanged.connect(self._adatta_editor)
+        self.testo.hide()
+        indice = self.riga.count() - 1 if self.chi == "tu" else 1
+        self.riga.insertWidget(indice, self.editor, 1)
+
+        self.conferma = QWidget()
+        self.conferma.setObjectName("ContenutoSezione")
+        fila = QHBoxLayout(self.conferma)
+        fila.setContentsMargins(0, 2, 0, 0)
+        fila.setSpacing(8)
+        nota = QLabel("Le risposte dopo questa verranno rifatte")
+        nota.setObjectName("NotaScheda")
+        b_annulla = QPushButton("Annulla")
+        b_annulla.setObjectName("Segmento")
+        b_annulla.clicked.connect(self.chiudi_modifica)
+        b_salva = QPushButton("Salva e richiedi")
+        b_salva.setObjectName("Primario")
+        b_salva.clicked.connect(self._salva)
+        fila.addStretch(1)
+        fila.addWidget(nota)
+        fila.addWidget(b_annulla)
+        fila.addWidget(b_salva)
+        self.layout().addWidget(self.conferma)
+        for b in self.bottoni:
+            b.setVisible(False)
+        self._adatta_editor()
+        self.editor.setFocus()
+        cursore = self.editor.textCursor()
+        cursore.movePosition(cursore.MoveOperation.End)
+        self.editor.setTextCursor(cursore)
+
+    def _adatta_editor(self) -> None:
+        if self.editor is None:
+            return
+        doc = self.editor.document()
+        doc.setTextWidth(self.editor.viewport().width())
+        alto = int(doc.size().height()) + 16
+        self.editor.setFixedHeight(max(38, min(alto, 260)))
+
+    def chiudi_modifica(self) -> None:
+        if self.editor is None:
+            return
+        self.editor.setParent(None)
+        self.editor.deleteLater()
+        self.editor = None
+        self.conferma.setParent(None)
+        self.conferma.deleteLater()
+        self.testo.show()
+
+    def _salva(self) -> None:
+        if self.editor is None:
+            return
+        nuovo = self.editor.toPlainText().strip()
+        self.chiudi_modifica()
+        if nuovo and nuovo != self.testo.text():
+            self.testo.setText(nuovo)
+            self.modificato.emit(self.id_messaggio, nuovo)
+
+    # ------------------------------------------------------------ aspetto
     def enterEvent(self, ev):
         super().enterEvent(ev)
-        self.b_copia.setVisible(bool(self.testo.text().strip()))
+        if self.editor is None:
+            vero = bool(self.testo.text().strip()) and self.id_messaggio > 0
+            for b in self.bottoni:
+                b.setVisible(vero)
 
     def leaveEvent(self, ev):
         super().leaveEvent(ev)
-        self.b_copia.setVisible(False)
+        for b in self.bottoni:
+            b.setVisible(False)
 
     def changeEvent(self, ev):
         super().changeEvent(ev)
@@ -972,8 +1051,8 @@ class RiquadroTess(QWidget):
         dentro = QWidget()
         dentro.setObjectName("ContenutoSezione")
         self.lay_chat = QVBoxLayout(dentro)
-        self.lay_chat.setContentsMargins(2, 2, 8, 2)
-        self.lay_chat.setSpacing(4)
+        self.lay_chat.setContentsMargins(2, 14, 8, 6)
+        self.lay_chat.setSpacing(7)
         self.lay_chat.addStretch(1)
         # la conversazione sta in una colonna larga al massimo novecento
         # pixel, in mezzo alla pagina: una riga di testo lunga due schermi
@@ -989,12 +1068,14 @@ class RiquadroTess(QWidget):
         fila_centro.addStretch(1)
         self.chat.setWidget(centro)
         self.bolle: list[QLabel] = []
+        # i messaggi in pagina, per ritrovarli quando si correggono
+        self.in_pagina: list[Messaggio] = []
 
         # a sinistra le conversazioni di prima: un clic e torni lì
         self.colonna_chat = QWidget()
         self.colonna_chat.setObjectName("ContenutoSezione")
         lato = QVBoxLayout(self.colonna_chat)
-        lato.setContentsMargins(0, 0, 10, 0)
+        lato.setContentsMargins(10, 12, 10, 12)
         lato.setSpacing(8)
         riga_cima = QHBoxLayout()
         riga_cima.setContentsMargins(0, 0, 0, 0)
@@ -1033,17 +1114,20 @@ class RiquadroTess(QWidget):
 
         # a colonna chiusa il bottone si sposta in cima alla chat, dove sta
         # nelle app: lì si capisce che riapre il pannello
+        # in testata, sempre: un clic apre il cassetto, un altro lo richiude
         self.linguetta = BottonePannello(colori, False)
         self.linguetta.imposta(False)
-        self.linguetta.clicked.connect(lambda: self.piega_colonna(True))
-        self.linguetta.hide()
+        self.linguetta.setToolTip("Le tue conversazioni")
+        self.linguetta.clicked.connect(
+            lambda: self.piega_colonna(not self.colonna_aperta))
 
         # la testa della conversazione aperta: nome e «⋯», come nell'app
         self.testa_chat = QWidget()
-        self.testa_chat.setObjectName("ContenutoSezione")
+        self.testa_chat.setObjectName("TestataChat")
+        self.testa_chat.setAttribute(Qt.WA_StyledBackground, True)
         testa = QHBoxLayout(self.testa_chat)
-        testa.setContentsMargins(0, 0, 0, 0)
-        testa.setSpacing(8)
+        testa.setContentsMargins(12, 10, 12, 10)
+        testa.setSpacing(10)
         self.et_chat = QLabel("")
         self.et_chat.setObjectName("TitoloChat")
         self.b_chat = QPushButton("⋯")
@@ -1055,24 +1139,10 @@ class RiquadroTess(QWidget):
         self.b_chat.clicked.connect(self._menu_questa_chat)
         testa.addWidget(self.linguetta)
         testa.addWidget(self.et_chat, 1)
+        # la pastiglia del modello e dei dati si aggiunge qui sotto, appena
+        # l'interruttore esiste
+        self.testa_layout = testa
         testa.addWidget(self.b_chat)
-
-        colonna_destra = QVBoxLayout()
-        colonna_destra.setContentsMargins(0, 0, 0, 0)
-        colonna_destra.setSpacing(6)
-        colonna_destra.addWidget(self.testa_chat)
-        colonna_destra.addWidget(self.chat, 1)
-        self.colonna_destra = colonna_destra
-
-        fianco = QHBoxLayout()
-        fianco.setContentsMargins(0, 0, 0, 0)
-        fianco.setSpacing(12)
-        fianco.addWidget(self.colonna_chat)
-        fianco.addLayout(colonna_destra, 1)
-        self.riga_chat = QWidget()
-        self.riga_chat.setObjectName("ContenutoSezione")
-        self.riga_chat.setLayout(fianco)
-        lay.addWidget(self.riga_chat, 1)
 
         # -------------------------------------------------- barra in fondo
         self.campo = QLineEdit()
@@ -1122,15 +1192,59 @@ class RiquadroTess(QWidget):
         self.riga_barra.setObjectName("BarraTess")
         self.riga_barra.setLayout(self.barra)
         self.riga_barra.setMaximumWidth(900)
-        # sotto alla colonna della conversazione, non più larga di lei
+        # dentro la scheda, in fondo alla colonna di lettura
         self.sotto = QWidget()
         self.sotto.setObjectName("ContenutoSezione")
         fila_sotto = QHBoxLayout(self.sotto)
-        fila_sotto.setContentsMargins(0, 0, 0, 0)
+        fila_sotto.setContentsMargins(14, 6, 14, 14)
         fila_sotto.addStretch(1)
         fila_sotto.addWidget(self.riga_barra, 20)
         fila_sotto.addStretch(1)
-        lay.addWidget(self.sotto)
+
+        # la pastiglia in testata: come sta il motore e se i dati sono accesi
+        self.pastiglia = QWidget()
+        self.pastiglia.setObjectName("PastigliaModello")
+        self.pastiglia.setAttribute(Qt.WA_StyledBackground, True)
+        fila_p = QHBoxLayout(self.pastiglia)
+        fila_p.setContentsMargins(10, 3, 6, 3)
+        fila_p.setSpacing(8)
+        self.et_modello = QLabel("dati")
+        self.et_modello.setObjectName("NomeModello")
+        self.et_modello.setToolTip(self.b_dati.toolTip())
+        fila_p.addWidget(self.et_modello)
+        fila_p.addWidget(self.b_dati)
+        self.testa_layout.insertWidget(self.testa_layout.count() - 1,
+                                       self.pastiglia)
+        self.dati.hide()               # l'interruttore adesso vive in testata
+
+        # ------------------------------------------ la scheda che tiene tutto
+        # stesso riquadro delle altre pagine: la conversazione ci sta dentro,
+        # testata compresa, e l'elenco dei nomi ci entra sopra come un cassetto
+        self.scheda = QFrame()
+        self.scheda.setObjectName("SchedaChat")
+        dentro_scheda = QVBoxLayout(self.scheda)
+        dentro_scheda.setContentsMargins(0, 0, 0, 0)
+        dentro_scheda.setSpacing(0)
+        dentro_scheda.addWidget(self.testa_chat)
+        dentro_scheda.addWidget(self.chat, 1)
+        dentro_scheda.addWidget(self.sotto)
+        lay.addWidget(self.scheda, 1)
+        self.riga_chat = self.scheda        # il nome di prima, per chi lo usa
+
+        self.velo = QWidget(self.scheda)
+        self.velo.setObjectName("VeloChat")
+        self.velo.setAttribute(Qt.WA_StyledBackground, True)
+        self.velo.mousePressEvent = lambda _ev: self.piega_colonna(False)
+        self.velo.hide()
+        self.colonna_chat.setParent(self.scheda)
+        self.colonna_chat.setObjectName("CassettoChat")
+        self.colonna_chat.setAttribute(Qt.WA_StyledBackground, True)
+        ombra = QGraphicsDropShadowEffect(self.colonna_chat)
+        ombra.setBlurRadius(36); ombra.setXOffset(12); ombra.setYOffset(0)
+        ombra.setColor(QColor(0, 0, 0, 90))
+        self.colonna_chat.setGraphicsEffect(ombra)
+        self.colonna_chat.hide()
+        self._anim_cassetto = None
 
         self._misura_barra()
         self._mostra_stato(False)
@@ -1248,7 +1362,8 @@ class RiquadroTess(QWidget):
         self.chat_id = chat_id
         for riga in self.db.conversazione_tess(chat_id):
             self.messaggi.append({"role": riga["ruolo"], "content": riga["testo"]})
-            self._scrivi("tu" if riga["ruolo"] == "user" else "tess", riga["testo"])
+            self._scrivi("tu" if riga["ruolo"] == "user" else "tess",
+                         riga["testo"], riga["id"])
         self.aggiorna_elenco()
 
     @staticmethod
@@ -1332,26 +1447,59 @@ class RiquadroTess(QWidget):
 
     # ------------------------------------------------- la colonna dei nomi
     def piega_colonna(self, aperta: bool) -> None:
-        """Apre o chiude l'elenco dei nomi, e si ricorda la scelta."""
+        """Fa entrare o uscire il cassetto dei nomi, e si ricorda la scelta."""
+        if not hasattr(self, "scheda"):
+            return
         self.colonna_aperta = aperta
         self.db.imposta("tess_colonna", "1" if aperta else "0")
-        self._sistema_colonna()
+        self._misura_cassetto()
+        larghezza = self.colonna_chat.width()
+        alto = self.testa_chat.height()
+        dentro, fuori = QPoint(1, alto), QPoint(-larghezza - 20, alto)
+        if self._anim_cassetto is not None:
+            self._anim_cassetto.stop()
+        if aperta:
+            self.colonna_chat.move(fuori)
+            self.colonna_chat.show()
+            self.velo.show()
+            self.velo.raise_()
+            self.colonna_chat.raise_()
+        anim = QPropertyAnimation(self.colonna_chat, b"pos", self)
+        anim.setDuration(170)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim.setEndValue(dentro if aperta else fuori)
+        if not aperta:
+            anim.finished.connect(self.colonna_chat.hide)
+            self.velo.hide()
+        self._anim_cassetto = anim
+        anim.start()
+
+    def _misura_cassetto(self) -> None:
+        """Dà al cassetto e al velo la misura giusta dentro la scheda."""
+        alto = self.testa_chat.height()
+        altezza = max(0, self.scheda.height() - alto - 1)
+        larghezza = max(176, min(232, int(self.scheda.width() * 0.36)))
+        self.colonna_chat.setFixedWidth(larghezza)
+        self.colonna_chat.resize(larghezza, altezza)
+        self.velo.setGeometry(1, alto, max(0, self.scheda.width() - 2), altezza)
 
     def _sistema_colonna(self) -> None:
-        """Decide se si vede la colonna o solo la linguetta.
-
-        Oltre alla tua scelta conta lo spazio: in un riquadro stretto la
-        colonna si ritira comunque, perché si mangerebbe la chat.
-        """
-        larga = self.width() > 700
-        aperta = larga and self.colonna_aperta
+        """Rimette il cassetto al suo posto quando la scheda cambia misura."""
+        if not hasattr(self, "scheda"):
+            return
+        self._misura_cassetto()
+        aperta = self.colonna_aperta
+        corre = (self._anim_cassetto is not None
+                 and self._anim_cassetto.state() == QPropertyAnimation.Running)
+        if corre:
+            return
+        alto = self.testa_chat.height()
+        self.colonna_chat.move(1 if aperta else -self.colonna_chat.width() - 20, alto)
         self.colonna_chat.setVisible(aperta)
-        self.linguetta.setVisible(larga and not aperta)
-        self.b_piega.imposta(True)
-        # la barra in fondo sta sotto alla conversazione, non sotto a tutto:
-        # con la colonna aperta si sposta di quanto è larga lei
-        scarto = (self.colonna_chat.width() + 12) if aperta else 0
-        self.sotto.layout().setContentsMargins(scarto, 0, 0, 0)
+        self.velo.setVisible(aperta)
+        if aperta:
+            self.velo.raise_()
+            self.colonna_chat.raise_()
 
     # ---------------------------------------------------------- rinominare
     def rinomina_chat(self, voce) -> None:
@@ -1427,8 +1575,43 @@ class RiquadroTess(QWidget):
         else:
             self.aggiorna_elenco()
 
+    # ------------------------------------------------- un messaggio solo
+    def _elimina_messaggio(self, id_messaggio: int) -> None:
+        """Toglie un messaggio dalla conversazione, in pagina e nell'archivio."""
+        if not id_messaggio or not self.chat_id:
+            return
+        risposta = QMessageBox.question(
+            self, "Elimina messaggio",
+            "Tolgo questo messaggio dalla conversazione?\n\n"
+            "Resta tutto il resto; Tess non lo vedrà più nemmeno quando "
+            "rilegge la chat.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if risposta != QMessageBox.Yes:
+            return
+        self.db.elimina_messaggio_tess(id_messaggio)
+        if self.db.conversazione_tess(self.chat_id):
+            self.carica_chat(self.chat_id)
+        else:                       # era l'ultimo rimasto: la chat non c'è più
+            self.db.elimina_conversazione_tess(self.chat_id)
+            self.pulisci()
+
+    def _modifica_messaggio(self, id_messaggio: int, testo: str) -> None:
+        """Corregge una domanda e rifà la risposta da lì in poi.
+
+        Le risposte che venivano dopo rispondevano a un'altra domanda: restano
+        solo i messaggi precedenti, e Tess riparte da quello corretto.
+        """
+        if not id_messaggio or not self.chat_id:
+            return
+        self.db.modifica_messaggio_tess(id_messaggio, testo)
+        self.db.taglia_da_messaggio_tess(self.chat_id, id_messaggio)
+        self.carica_chat(self.chat_id)
+        if self.pronta and not (self.conversazione and self.conversazione.isRunning()):
+            self._interroga(testo)
+
     def _svuota_bolle(self) -> None:
         self.messaggi.clear()
+        self.in_pagina.clear()
         while self.lay_chat.count() > 1:
             voce = self.lay_chat.takeAt(0)
             w = voce.widget()
@@ -1452,13 +1635,20 @@ class RiquadroTess(QWidget):
         self.campo.clear()
         if not self.chat_id:
             self.chat_id = datetime.now().isoformat(timespec="seconds")
-        self._scrivi("tu", domanda)
-        self.messaggi.append({"role": "user", "content": domanda})
         nuova = not self.db.conversazione_tess(self.chat_id)
-        self.db.salva_messaggio_tess(self.chat_id, "user", domanda)
+        id_riga = self.db.salva_messaggio_tess(self.chat_id, "user", domanda)
+        self._scrivi("tu", domanda, id_riga)
+        self.messaggi.append({"role": "user", "content": domanda})
         if nuova:
             self.aggiorna_elenco()
+        self._interroga(domanda)
 
+    def _interroga(self, domanda: str) -> None:
+        """Manda al motore quello che c'è in `self.messaggi`.
+
+        Sta a parte da `invia` perché la stessa domanda si rifà quando ne
+        correggi una di prima: lì il messaggio in pagina c'è già.
+        """
         sistema = [{"role": "system", "content": istruzioni(self.db)}]
         if self.b_dati.acceso():
             try:
@@ -1497,7 +1687,11 @@ class RiquadroTess(QWidget):
         self.b_invia.setEnabled(True)
         if self._in_corso:
             self.messaggi.append({"role": "assistant", "content": self._in_corso})
-            self.db.salva_messaggio_tess(self.chat_id, "assistant", self._in_corso)
+            id_riga = self.db.salva_messaggio_tess(self.chat_id, "assistant",
+                                                   self._in_corso)
+            # adesso che è finita ha una riga nell'archivio: si può togliere
+            if self.in_pagina:
+                self.in_pagina[-1].id_messaggio = id_riga
 
     def _errore(self, messaggio: str) -> None:
         self.b_invia.setEnabled(True)
@@ -1505,11 +1699,18 @@ class RiquadroTess(QWidget):
         self._mostra_stato(self.motore.attiva())
 
     # ------------------------------------------------- disegno della chat
-    def _scrivi(self, chi: str, testo: str) -> QLabel:
-        """Aggiunge un messaggio: il tuo in una bolla a destra, quello di
-        Tess senza bolla, col suo segno e il suo nome."""
-        messaggio = Messaggio(chi, testo, self.c)
+    def _scrivi(self, chi: str, testo: str, id_messaggio: int = 0) -> QLabel:
+        """Aggiunge un messaggio: il tuo in una bolla a destra, quello di Tess
+        col suo filo a sinistra.
+
+        `id_messaggio` è la riga nell'archivio: senza, il messaggio non si può
+        né correggere né togliere (è il caso di quello che sta arrivando).
+        """
+        messaggio = Messaggio(chi, testo, self.c, id_messaggio)
+        messaggio.modificato.connect(self._modifica_messaggio)
+        messaggio.eliminato.connect(self._elimina_messaggio)
         self.lay_chat.insertWidget(self.lay_chat.count() - 1, messaggio)
+        self.in_pagina.append(messaggio)
         self.bolle.append(messaggio.testo)
         self._larghezza_bolle()
         for ritardo in (0, 60):          # dopo che il riquadro si è assestato

@@ -600,6 +600,12 @@ class Database:
         self.conn.commit()
         return nuove
 
+    def ultimo_giorno_battiti(self, entro: str = "") -> str:
+        """L'ultimo giorno con delle ore di battito, non oltre `entro`."""
+        riga = self.uno("SELECT MAX(data) ultimo FROM battiti WHERE data <= ?",
+                        (entro or "9999-12-31",))
+        return (riga["ultimo"] or "") if riga else ""
+
     def battiti_del_giorno(self, giorno: str) -> list[sqlite3.Row]:
         """Le ore di una giornata, in ordine."""
         return self.query(
@@ -802,11 +808,31 @@ class Database:
                 "base": ponderata * 110 / 30 if ponderata else 0.0}
 
     # -------------------------------------------------------------- Tess
-    def salva_messaggio_tess(self, conversazione: str, ruolo: str, testo: str) -> None:
-        self.esegui(
+    def salva_messaggio_tess(self, conversazione: str, ruolo: str,
+                             testo: str) -> int:
+        """Scrive un messaggio e ne restituisce l'identificativo.
+
+        Serve a chi poi vuole correggerlo o cancellarlo: la bolla in pagina si
+        porta dietro l'id della riga."""
+        return self.esegui(
             "INSERT INTO tess_chat(conversazione, ruolo, testo, quando) "
             "VALUES(?,?,?,?)",
             (conversazione, ruolo, testo, datetime.now().isoformat(timespec="seconds")))
+
+    def modifica_messaggio_tess(self, id_: int, testo: str) -> None:
+        self.esegui("UPDATE tess_chat SET testo=? WHERE id=?", (testo, id_))
+
+    def elimina_messaggio_tess(self, id_: int) -> None:
+        self.esegui("DELETE FROM tess_chat WHERE id=?", (id_,))
+
+    def taglia_da_messaggio_tess(self, conversazione: str, id_: int) -> None:
+        """Toglie tutto quello che viene **dopo** un messaggio.
+
+        È quello che serve quando correggi una domanda: le risposte che
+        seguivano parlavano di un'altra domanda e non valgono più.
+        """
+        self.esegui("DELETE FROM tess_chat WHERE conversazione=? AND id>?",
+                    (conversazione, id_))
 
     def conversazione_tess(self, conversazione: str) -> list[sqlite3.Row]:
         return self.query(

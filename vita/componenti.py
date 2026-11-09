@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QCheckBox, QDateEdit, QFrame, QHBoxLayout, QLabel
 from .grafici import Anello, Sparkline
 from .tema import scurisci, su_colore as su_tinta, trasparente
 from .utils import (MODI_PERIODO, QUANTI_PREDEFINITI, data_it, intervalli,
-                    media, nome_intervallo, numero, ultimi_giorni)
+                    media, nome_intervallo, numero, relativa, ultimi_giorni)
 
 FACCE = ["😖", "😣", "😕", "😐", "🙂", "😊", "😄", "🤩"]
 
@@ -774,17 +774,25 @@ def dati_battito(db, scelta: str) -> tuple[list, int, str]:
         giorno = (date.today() - timedelta(days=1 if scelta == "ieri" else 0)
                   ).isoformat()
         righe = db.battiti_del_giorno(giorno)
+        quando = scelta
         if not righe:
-            # la mattina presto il braccialetto non ha ancora misurato nulla:
-            # invece di un riquadro vuoto si mostrano gli ultimi giorni
-            dati, riposo, _ = dati_battito(db, "7")
-            return dati, riposo, (f"{scelta} non ancora misurato · "
-                                  "ultimi 7 giorni" if dati else "")
+            # Il braccialetto non misura di continuo, e la mattina presto di
+            # oggi non c'è ancora niente. Prima in quel caso il riquadro
+            # passava di nascosto a sette giorni: la pastiglia diceva «oggi»
+            # sopra a un grafico della settimana. Adesso resta su un giorno —
+            # l'ultimo che ha misure — e dice quale.
+            ultimo = db.ultimo_giorno_battiti(giorno)
+            if ultimo:
+                righe = db.battiti_del_giorno(ultimo)
+                quando = relativa(ultimo)
+        if not righe:
+            return [], 0, "nessuna misura, per ora"
         dati = [(r["quando"][11:16], r["minimo"] or r["valore"], r["valore"],
                  r["massimo"] or r["valore"]) for r in righe]
         bassi = [r["minimo"] or r["valore"] for r in righe]
         alti = [r["massimo"] or r["valore"] for r in righe]
-        nota = f"{len(righe)} ore misurate · da {min(bassi)} a {max(alti)} bpm"
+        nota = (f"{quando} · {len(righe)} ore misurate · "
+                f"da {min(bassi)} a {max(alti)} bpm")
         riposo = min(bassi)
     else:
         elenco = ultimi_giorni(int(scelta))
@@ -813,6 +821,11 @@ def righe_indicatori(db, colori: dict, quanti: int) -> list[tuple[str, QWidget]]
     def valori(campo):
         return [float(r[campo]) for r in dati.values() if r[campo]]
 
+    def con_data(campo):
+        """I valori col giorno a cui appartengono, dal più vecchio."""
+        return [(g, float(dati[g][campo])) for g in elenco
+                if g in dati and dati[g][campo]]
+
     obiettivo_acqua = db.leggi_num("obiettivo_acqua", PREDEFINITI["obiettivo_acqua"])
     voci = [
         ("❤", "Battito a riposo", "battito", "bpm", COLORE_BATTITO, 0),
@@ -820,13 +833,17 @@ def righe_indicatori(db, colori: dict, quanti: int) -> list[tuple[str, QWidget]]
         ("💧", "Acqua", "acqua", "L", "#6c8cff", obiettivo_acqua),
         ("◐", "Stress", "stress", "", "#f0b429", 0),
     ]
+    oggi_iso = date.today().isoformat()
     fatte = []
     for simbolo, nome, campo, unita, colore, obiettivo in voci:
         serie = valori(campo)
         if not serie and not (oggi and oggi[campo]):
             continue
-        attuale = (float(oggi[campo]) if oggi and oggi[campo]
-                   else (serie[-1] if serie else 0))
+        storia = con_data(campo)
+        if oggi and oggi[campo]:
+            attuale, giorno = float(oggi[campo]), oggi_iso
+        else:
+            giorno, attuale = storia[-1] if storia else ("", 0.0)
         decimali = 0 if campo in ("battito", "hrv", "stress") else 1
         if obiettivo:
             quota = int(min(100, attuale / obiettivo * 100))
@@ -842,9 +859,12 @@ def righe_indicatori(db, colori: dict, quanti: int) -> list[tuple[str, QWidget]]
         nota = (f"obiettivo {numero(obiettivo, 1)} {unita}" if obiettivo
                 else f"media {numero(media(serie), decimali)} {unita}"
                 if serie else "")
+        # a destra **di quando è** il numero, non quanto è lungo il periodo:
+        # il periodo lo dice già la pastiglia in cima al riquadro, e un
+        # battito di tre giorni fa non è il battito di adesso
         fatte.append((campo, RigaMisura(
             colori, simbolo, nome, nota, f"{numero(attuale, decimali)} {unita}",
-            f"{quanti} giorni", quota, colore)))
+            relativa(giorno) if giorno else f"{quanti} giorni", quota, colore)))
     return fatte
 
 
@@ -1140,10 +1160,33 @@ class NavigatorePeriodo(QWidget):
         """Gli intervalli da disegnare: (etichetta, dal, al)."""
         return intervalli(self.modo, self.quanti.get(self.modo, 0), self.scarto)
 
+    def indice_adesso(self) -> int:
+        """Quale delle finestre contiene oggi. -1 se oggi non si vede.
+
+        In «giorni» la finestra è la settimana del calendario: l'ultima
+        barra è la domenica, che di mercoledì deve ancora arrivare. Chi
+        disegna accende questa, non l'ultima.
+        """
+        from datetime import date
+        oggi = date.today().isoformat()
+        for i, (_nome, dal, al) in enumerate(self.finestre()):
+            if dal <= oggi <= al:
+                return i
+        return -1
+
     def scelto(self) -> tuple[str, str]:
-        """L'intervallo in primo piano: l'ultimo, quello del numero grande."""
+        """L'intervallo in primo piano: quello di oggi, se si vede.
+
+        Era sempre l'ultimo della fila, e in «giorni» l'ultimo è la domenica
+        che deve ancora venire: il numero grande parlava di un giorno futuro
+        invece che di oggi.
+        """
         finestre = self.finestre()
-        return (finestre[-1][1], finestre[-1][2]) if finestre else ("", "")
+        if not finestre:
+            return ("", "")
+        quale = self.indice_adesso()
+        scelta = finestre[quale if quale >= 0 else -1]
+        return (scelta[1], scelta[2])
 
     def esteso(self) -> tuple[str, str]:
         """Tutto quello che si vede: dal primo giorno all'ultimo."""
@@ -1154,6 +1197,19 @@ class NavigatorePeriodo(QWidget):
         # in «giorni» il nome è quello di tutta la settimana, non dell'ultimo
         dal, al = self.esteso() if self.modo == "giorni" else self.scelto()
         return nome_intervallo(self.modo, dal, al, self.scarto) if dal else ""
+
+    def nome_scelto(self) -> str:
+        """Come si chiama il periodo in primo piano.
+
+        In «giorni» è un giorno solo e si dice come si dice un giorno —
+        «oggi», «ieri», «09/11» — non come si dice una settimana.
+        """
+        dal, al = self.scelto()
+        if not dal:
+            return ""
+        if self.modo == "giorni":
+            return relativa(dal)
+        return nome_intervallo(self.modo, dal, al, self.scarto)
 
     def _mostra(self) -> None:
         self.et_quando.imposta(self.nome())

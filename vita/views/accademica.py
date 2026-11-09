@@ -346,11 +346,17 @@ class VistaAccademica(VistaSezioni):
         riferimento = {"giorni": obiettivo / 7, "settimane": obiettivo,
                        "mesi": obiettivo * 30 / 7}[self.nav_studio.modo]
         self.g_studio.riferimento = riferimento
+        # la barra accesa è quella di adesso, non l'ultima della fila: in
+        # «giorni» l'ultima è la domenica, che di mercoledì deve ancora venire
+        adesso = self.nav_studio.indice_adesso()
+        self.g_studio.evidenziata = adesso
         self.g_studio.imposta_dati(dati, [("studio", "#b07cff")])
 
-        scelto = totali[-1] if totali else 0
+        quale = adesso if adesso >= 0 else len(totali) - 1
+        scelto = totali[quale] if totali else 0
         self.et_studio.setText(durata(scelto))
-        precedenti = media(totali[:-1]) if len(totali) > 1 else 0
+        altri = [t for i, t in enumerate(totali) if i != quale]
+        precedenti = media(altri) if altri else 0
         scostamento = scelto - precedenti
         segno = "+" if scostamento >= 0 else "−"
         self.et_scarto.setText(f"{segno}{durata(abs(scostamento))}")
@@ -358,7 +364,7 @@ class VistaAccademica(VistaSezioni):
             f"color: {self.c['entrata'] if scostamento >= 0 else self.c['uscita']};"
             f" font-size: 15px; font-weight: 700;")
         self.et_studio_nota.setText(
-            f"obiettivo {durata(riferimento)} · "
+            f"{self.nav_studio.nome_scelto()} · obiettivo {durata(riferimento)} · "
             f"media delle altre {durata(precedenti)}")
         quanti = len(finestre)
         self.contenitore.sezioni["studio"].imposta_nota(

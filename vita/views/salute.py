@@ -191,6 +191,18 @@ class VistaSalute(VistaSezioni):
         # quaranta pixel sono altezza che il grafico si tiene
         self.nav_passi = NavigatorePeriodo(self.c, "giorni")
         self.nav_passi.cambiato.connect(self._aggiorna_passi)
+        # il numero grande è quello del giorno che stai guardando — oggi,
+        # se oggi è nella finestra: come nel riquadro del sonno
+        self.et_passi = EtichettaAlta("—")
+        self.et_passi.setObjectName("ValoreScheda")
+        self.et_passi_nota = etichetta("", "NotaScheda")
+        self.et_passi_nota.setAlignment(Qt.AlignRight | Qt.AlignBottom)
+        testa_passi = QHBoxLayout()
+        testa_passi.setSpacing(10)
+        testa_passi.addWidget(self.et_passi)
+        testa_passi.addStretch(1)
+        testa_passi.addWidget(self.et_passi_nota)
+        lay.addLayout(testa_passi)
         self.g_passi = GraficoBarre(self.c)
         self.g_passi.formato = lambda v: numero(v, 0)
         self.g_passi.evidenzia_ultima = True
@@ -677,7 +689,13 @@ class VistaSalute(VistaSezioni):
         self.et_costanza.setText(riassunto)
 
     def _aggiorna_passi(self) -> None:
-        """I passi nel modo scelto: un giorno per barra, o una settimana, o un mese."""
+        """I passi nel modo scelto: un giorno per barra, o una settimana, o un mese.
+
+        Il numero grande è quello del periodo in primo piano: **oggi**, se
+        oggi è nella finestra che stai guardando. Prima il riquadro diceva
+        solo la media della settimana, e per sapere quanti passi avevi fatto
+        oggi bisognava andarli a cercare nell'anello di «Oggi».
+        """
         finestre = self.nav_passi.finestre()
         giornaliero = self.db.leggi_num("obiettivo_passi",
                                         PREDEFINITI["obiettivo_passi"])
@@ -692,7 +710,19 @@ class VistaSalute(VistaSezioni):
         # l'obiettivo è al giorno: su settimane e mesi va moltiplicato
         quanti_giorni = {"giorni": 1, "settimane": 7, "mesi": 30}[self.nav_passi.modo]
         self.g_passi.riferimento = giornaliero * quanti_giorni
+        self.g_passi.evidenziata = self.nav_passi.indice_adesso()
         self.g_passi.imposta_dati(barre, [("passi", self.c["accento"])])
+
+        dal, al = self.nav_passi.scelto()
+        dentro = self.db.giorni_salute(dal, al)
+        adesso = sum(float(r["passi"]) for r in dentro.values() if r["passi"])
+        quota = adesso / self.g_passi.riferimento if self.g_passi.riferimento else 0
+        self.et_passi.setText(numero(adesso, 0) if adesso else "—")
+        self.et_passi_nota.setText(
+            f"{self.nav_passi.nome_scelto()} · {quota * 100:.0f}% "
+            f"dell'obiettivo" if adesso
+            else f"{self.nav_passi.nome_scelto()} · nessun passo registrato")
+
         raggiunti = sum(1 for v in valori if v >= self.g_passi.riferimento)
         self.contenitore.sezioni["passi"].imposta_nota(
             f"media {numero(media(valori), 0)} · obiettivo raggiunto "
@@ -756,8 +786,11 @@ class VistaSalute(VistaSezioni):
         tutte = [float(r["sonno"]) for r in dati.values() if r["sonno"]]
 
         if ultimo is None:
+            # dire «nessuna notte registrata» suona come «mai»: qui vuol dire
+            # solo che in questa finestra non ce ne sono
             self.et_sonno.setText("—")
-            self.et_sonno_nota.setText("nessuna notte registrata")
+            self.et_sonno_nota.setText(
+                f"nessuna notte {self.nav_sonno.nome()}")
             self.fasi.imposta_dati([])
             self.et_fasi.setText("")
             self._barre_sonno(finestre, dati)
@@ -827,6 +860,7 @@ class VistaSalute(VistaSezioni):
             barre.append((etichetta_barra, [valore]))
             if dentro:
                 valori.extend(dentro)
+        self.g_sonno.evidenziata = self.nav_sonno.indice_adesso()
         self.g_sonno.imposta_dati(barre, [("sonno", "#6c8cff")])
         self.contenitore.sezioni["sonno"].imposta_nota(
             f"media {durata(media(valori))} su {len(valori)} notti"

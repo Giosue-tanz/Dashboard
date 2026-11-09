@@ -434,8 +434,8 @@ def foglio_stile(c: dict, scala: float = 1.0,
 
     /* la chat di Tess */
     QLabel#BollaTu {{
-        background: {c['accento']}; color: {su_accento};
-        border-radius: 17px; padding: 10px 14px; font-size: {p(13)};
+        background: {tocco}; color: {c['testo']};
+        border-radius: 15px; padding: 9px 14px; font-size: {p(13)};
     }}
     QLabel#BollaTess {{
         background: {c['pannello2']}; color: {c['testo']};
@@ -496,6 +496,11 @@ def foglio_stile(c: dict, scala: float = 1.0,
         background: {c['accento']}; color: {su_accento};
         font-size: {p(12)}; font-weight: 750;
     }}
+    /* il filo verticale al posto della bolla: dice chi parla senza colorare */
+    QFrame#FiloTess {{
+        background: {colore_area('tess', chiaro)}; border: none;
+        border-radius: 1px; max-width: 2px; min-width: 2px;
+    }}
     QLabel#NomeTess {{
         color: {c['testo2']}; font-size: {p(11)}; font-weight: 700;
     }}
@@ -511,11 +516,39 @@ def foglio_stile(c: dict, scala: float = 1.0,
         background: {tocco}; color: {c['testo']};
     }}
 
+    /* ------------------------------------------- la scheda della chat */
+    /* stesso linguaggio dei riquadri delle altre pagine: fondo pannello,
+       un bordo da 1px, angoli da 18 */
+    QFrame#SchedaChat {{
+        background: {c['pannello']}; border: 1px solid {c['bordo']};
+        border-radius: 18px;
+    }}
+    QWidget#TestataChat {{
+        background: transparent; border: none;
+        border-bottom: 1px solid {c['bordo']};
+    }}
+    QWidget#PastigliaModello {{
+        background: {c['pannello2']}; border: 1px solid {c['bordo']};
+        border-radius: {q(13)};
+    }}
+    QLabel#NomeModello {{ color: {c['testo2']}; font-size: {p(11)}; }}
+    /* il cassetto delle conversazioni: entra sopra la chat, sotto la testata */
+    QWidget#CassettoChat {{
+        background: {c['pannello']}; border: none;
+        border-right: 1px solid {c['bordo']};
+        border-bottom-left-radius: 17px;
+    }}
+    /* appena un'ombra sul contenuto mentre il cassetto è aperto */
+    QWidget#VeloChat {{
+        background: {trasparente('#000000', 0.12 if chiaro else 0.38)}; border: none;
+    }}
+
     /* la barra in fondo: una pastiglia sola che tiene tutto */
     QWidget#BarraTess {{
-        background: {c['pannello2']}; border: 1px solid transparent;
-        border-radius: {q(25)};
+        background: {c['pannello2']}; border: 1px solid {c['bordo']};
+        border-radius: {q(16)};
     }}
+    QWidget#BarraTess:focus-within {{ border-color: {c['accento']}; }}
     QLineEdit#CampoTess {{
         background: transparent; border: none; padding: 4px 10px;
         font-size: {p(13)};

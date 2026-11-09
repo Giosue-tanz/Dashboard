@@ -379,17 +379,18 @@ class VistaCarriera(VistaSezioni):
             minuti = self.db.minuti_lavoro(dal, al)
             totali.append(minuti)
             dati.append((nome_barra, [float(minuti)]))
+        self.g_ore.evidenziata = self.nav_ore.indice_adesso()
         self.g_ore.imposta_dati(dati, [("ore", "#6c8cff")])
 
-        # in «giorni» la finestra è la settimana intera: il numero grande è
-        # quello della settimana, come dice il nome del periodo
-        dal, al = (self.nav_ore.esteso() if self.nav_ore.modo == "giorni"
-                   else self.nav_ore.scelto())
+        # il numero grande è quello del periodo in primo piano: in «giorni»
+        # è **oggi**, non la domenica in fondo alla settimana
+        dal, al = self.nav_ore.scelto()
         unita = {"giorni": "giorno", "settimane": "settimana",
                  "mesi": "mese"}[self.nav_ore.modo]
         self.et_ore.setText(durata(self.db.minuti_lavoro(dal, al)))
         self.et_ore_nota.setText(
-            f"{self.nav_ore.nome()} · media {durata(media(totali))} per {unita}")
+            f"{self.nav_ore.nome_scelto()} · media {durata(media(totali))} "
+            f"per {unita}")
         dal_anno, al_anno = anno_corrente()
         minuti_anno = self.db.minuti_lavoro(dal_anno, al_anno)
         incassi_anno = self.db.totale_incassi(dal_anno, al_anno)

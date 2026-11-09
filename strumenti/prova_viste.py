@@ -191,6 +191,50 @@ def main() -> int:
         assert riquadro.interruttore is not None
     prova("Braccialetto: sta fermo finché non glielo dici", braccialetto)
 
+    def oggi_in_primo_piano():
+        """In «giorni» il numero grande è quello di oggi, non della domenica.
+
+        La finestra è la settimana del calendario: l'ultima barra è la
+        domenica, che di mercoledì deve ancora arrivare. Accendere quella, o
+        raccontarla come «il periodo scelto», era una bugia.
+        """
+        from datetime import date as _d
+        vista = f.viste[i_salute]
+        for nav in (vista.nav_passi, vista.nav_sonno):
+            nav.imposta_modo("giorni")
+            nav.torna_a_oggi()
+            finestre = nav.finestre()
+            indice = nav.indice_adesso()
+            assert indice >= 0, "oggi non è nella settimana corrente?"
+            assert finestre[indice][1] == _d.today().isoformat(), finestre[indice]
+            assert nav.scelto()[0] == _d.today().isoformat(), nav.scelto()
+            assert nav.nome_scelto() == "oggi", nav.nome_scelto()
+        posa(80)
+        assert vista.et_passi_nota.text().startswith("oggi"), \
+            vista.et_passi_nota.text()
+        assert vista.g_passi.evidenziata == vista.nav_passi.indice_adesso()
+        # e una settimana indietro oggi non c'è: nessuna barra «di adesso»
+        vista.nav_passi.scorri(1)
+        assert vista.nav_passi.indice_adesso() == -1
+        vista.nav_passi.torna_a_oggi()
+    prova("Salute: in «giorni» il primo piano è oggi", oggi_in_primo_piano)
+
+    def battito_di_un_giorno():
+        """Con «oggi» il riquadro resta su **un giorno**, e dice quale.
+
+        Prima, se oggi non c'erano misure, passava di nascosto agli ultimi
+        sette giorni: la pastiglia diceva «oggi» sopra al grafico della
+        settimana.
+        """
+        from vita.componenti import dati_battito
+        dati, _riposo, nota = dati_battito(db, "oggi")
+        if not dati:
+            return                      # archivio senza battiti: niente da dire
+        ore = all(":" in e for e, *_ in dati)
+        assert ore, f"non sono ore di una giornata: {[e for e, *_ in dati][:4]}"
+        assert nota.split(" ·")[0] in ("oggi", "ieri") or "/" in nota.split(" ·")[0], nota
+    prova("Battito: «oggi» resta su un giorno", battito_di_un_giorno)
+
     def consegna():
         """Una consegna di dati deve finire in archivio **e** nei grafici.
 
