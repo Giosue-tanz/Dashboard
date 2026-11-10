@@ -247,10 +247,15 @@ non ci va. Il guaio è che così misuri lo stress e nell'app non succede
 niente, e sembra un guasto.
 
 Adesso il riquadro del braccialetto lo dice: **«4 misure di stress senza
-punteggio»**, e il suggerimento sotto il mouse spiega cosa è successo. Perché
-il braccialetto certi giorni il punteggio lo manda (42, 24) e altri no, non
-lo sappiamo: la cosa da provare è ricollegarlo al telefono una volta, perché
-potrebbe essere Samsung Health a calcolarlo.
+punteggio»**, e il suggerimento sotto il mouse spiega cosa è successo.
+
+**Non è un guasto, ed è una misura che a volte non riesce.** Il punteggio lo
+calcola il braccialetto da solo, dalla variabilità del battito: se il
+cinturino è lento, se ti muovi, se la pelle è fredda, la lettura non viene e
+lui scrive la sessione con zero dentro invece di inventarsi un numero. Il 9
+novembre ha dato zero cinque volte di fila e il 10 alle 02:42, nel sonno, ha
+dato 12: il motore c'è, è la singola misura che può andare a vuoto. Rifarla
+da fermo, con il cinturino aderente, è tutto quello che serve.
 
 ## I pezzi dei lotti grandi, ricuciti anche dopo
 
@@ -263,6 +268,20 @@ una sola, in `lotti.cuci`, non due gemelle che prima o poi divergono.
 
 Così sono tornati i passi del 30 ottobre (4.226, erano zero) e sedici ore di
 battito.
+
+## «Rimetti l'ora»: l'unica cosa che gli scriviamo
+
+Dashboard **legge** dal braccialetto e basta: chiede i lotti, li conferma,
+chiede la batteria. Non tocca né le sue impostazioni né quello che ha in
+pancia. L'unica eccezione è il bottone **«Rimetti l'ora»** nel riquadro del
+braccialetto, e parte solo se glielo chiedi tu, con una conferma davanti:
+manda ora, fuso e lingua — lo stesso messaggio che il telefono gli manda a
+ogni collegamento, il passo 3 dell'adozione.
+
+Serve perché da quando il compagno è questo PC quel messaggio non glielo
+manda più nessuno. Il giorno del braccialetto se lo conta lui, col suo
+orologio, quindi non è detto che rimetta a posto un contatore impuntato — ma
+è l'unica leva che abbiamo, e non rischia niente.
 
 ## Quello che scrive il braccialetto, e quello che scrivi tu
 

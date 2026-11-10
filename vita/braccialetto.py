@@ -17,8 +17,8 @@ from datetime import date
 from .utils import data_it
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import (QHBoxLayout, QPushButton, QSizePolicy,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QHBoxLayout, QMessageBox, QPushButton,
+                               QSizePolicy, QVBoxLayout, QWidget)
 
 from .banda import CARTELLA_LOTTI, DISPONIBILE, Braccialetto, cerca_braccialetto
 from .componenti import (DisposizioneFluida, EtichettaAlta,
@@ -111,8 +111,23 @@ class RiquadroBraccialetto(QWidget):
             "Chiede al braccialetto i dati che ha raccolto da solo: passi, "
             "sonno, battito, stress.")
         self.b_sincronizza.clicked.connect(self._cerca_dati)
+        # L'unico messaggio che Dashboard **scrive** sul braccialetto, e solo
+        # se glielo chiedi tu. È quello che il telefono gli manda a ogni
+        # collegamento: ora, fuso e lingua. Da quando il compagno è questo PC
+        # nessuno glielo manda più, e il giorno del braccialetto si regge solo
+        # sul suo orologio.
+        self.b_ora = QPushButton("Rimetti l'ora")
+        self.b_ora.setObjectName("Segmento")
+        self.b_ora.setMinimumHeight(34)
+        self.b_ora.setEnabled(False)
+        self.b_ora.setToolTip(
+            "Manda al braccialetto ora, fuso e lingua: è l'unica cosa che\n"
+            "Dashboard gli scrive, ed è quella che gli manda il telefono\n"
+            "a ogni collegamento. Chiede conferma prima di farlo.")
+        self.b_ora.clicked.connect(self._rimetti_ora)
         fila.addWidget(self.b_salva)
         fila.addWidget(self.b_sincronizza)
+        fila.addWidget(self.b_ora)
         lay.addLayout(fila)
 
         self._giorni_scritti: set[str] = set()
@@ -156,10 +171,12 @@ class RiquadroBraccialetto(QWidget):
             self.banda.spegni()
             self.et_battito.setText("—")
             self.b_sincronizza.setEnabled(False)
+            self.b_ora.setEnabled(False)
 
     def _stato(self, codice: str, frase: str) -> None:
         self.et_stato.setText(frase)
         self.b_sincronizza.setEnabled(codice == "pronta")
+        self.b_ora.setEnabled(codice == "pronta")
         if codice in ("assente", "sconosciuto", "spento"):
             self.interruttore.imposta(False)
 
@@ -196,6 +213,29 @@ class RiquadroBraccialetto(QWidget):
         self._ripesca()
         self.et_stato.setText("Chiedo al braccialetto quello che ha…")
         self.banda.sincronizza(0)
+
+    def _rimetti_ora(self) -> None:
+        """Ora, fuso e lingua al braccialetto. È l'unica cosa che gli scriviamo.
+
+        Da quando il compagno è questo PC, il messaggio che il telefono manda
+        a ogni collegamento non glielo manda più nessuno. Non è detto che
+        serva a qualcosa — il giorno del braccialetto se lo conta lui — ma è
+        l'unica leva che abbiamo, e non tocca né i dati né le impostazioni
+        della sua schermata.
+        """
+        if QMessageBox.question(
+                self, "Rimettere l'ora?",
+                "Manda al braccialetto l'ora di questo computer, il fuso e la "
+                "lingua.\n\nÈ l'unica cosa che Dashboard gli scrive, ed è lo "
+                "stesso messaggio che gli manda il telefono a ogni "
+                "collegamento. Non tocca i dati che ha in pancia.",
+                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        if self.banda.sistema_ora():
+            self.et_stato.setText("Ora, fuso e lingua mandati al braccialetto.")
+        else:
+            self.et_stato.setText("Non sono riuscito a scrivergli: riprova "
+                                  "quando dice «pronto».")
 
     def _ripesca(self) -> None:
         """Rilegge i lotti già scaricati, prima di chiederne di nuovi.

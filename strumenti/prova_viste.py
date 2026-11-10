@@ -466,6 +466,22 @@ def main() -> int:
         assert cuci([(0, a), (1, b), (2, c)])[0] == a + b + c
     prova("Lotti: i pezzi si ricuciono", pezzi_ricuciti)
 
+    def ora_non_parte_da_sola():
+        """«Rimetti l'ora» scrive sul braccialetto: non deve partire da sé.
+
+        È l'unico messaggio che Dashboard gli scrive. Il bottone nasce
+        spento, si accende solo quando il braccialetto è pronto, e chiede
+        conferma: niente di tutto questo deve succedere per un clic distratto.
+        """
+        riquadro = f.viste[i_salute].riquadro_banda
+        assert not riquadro.b_ora.isEnabled(), "il bottone nasce acceso!"
+        assert riquadro.b_ora.toolTip(), "non dice cosa fa"
+        riquadro._stato("pronta", "Braccialetto pronto.")
+        assert riquadro.b_ora.isEnabled(), "da pronto doveva accendersi"
+        riquadro._stato("spento", "Braccialetto lasciato libero.")
+        assert not riquadro.b_ora.isEnabled(), "da spento doveva spegnersi"
+    prova("Braccialetto: l'ora non si scrive per sbaglio", ora_non_parte_da_sola)
+
     def rete_su_disco():
         """«Cerca dati» rilegge prima quello che è già stato scaricato.
 
