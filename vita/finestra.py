@@ -9,7 +9,7 @@ from PySide6.QtGui import QColor, QIcon, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QGraphicsOpacityEffect,
                                QGridLayout, QHBoxLayout, QLabel, QMainWindow,
                                QPushButton, QSizePolicy, QSpacerItem, QStackedWidget,
-                               QStatusBar, QVBoxLayout, QWidget)
+                               QVBoxLayout, QWidget)
 
 from . import punteggi as calcolo
 from .componenti import separatore
@@ -20,7 +20,7 @@ from .icone_nav import (RISORSE, icona, icona_menu, logo_app,
                         percorso_logo)
 from .tema import (AREE, SCALE, colore_area, colori,
                    foglio_stile, frecce_spin, luminosita, su_colore)
-from .utils import durata, euro, numero
+from .utils import euro, numero
 from .views.abitudini import VistaAbitudini
 from .views.accademica import VistaAccademica
 from .views.carriera import VistaCarriera
@@ -150,8 +150,12 @@ class FinestraPrincipale(QMainWindow):
         lay.addWidget(self._barra())
         lay.addWidget(self._contenuto(), 1)
 
-        self.setStatusBar(QStatusBar())
-        self.statusBar().setSizeGripEnabled(False)
+        # Niente barra di stato. Diceva sempre le stesse cinque cose — le ore
+        # della settimana, da dove viene la finanza, dov'è l'archivio, che non
+        # c'è rete — e nessuna di quelle è una cosa che si guarda: le ore
+        # stanno in Carriera e in Accademica, la sorgente e il percorso nelle
+        # impostazioni. Occupava una riga in fondo a ogni pagina per non dire
+        # niente di nuovo.
         self._scorciatoie()
         self.applica_tema(db.leggi("tema", "scuro"))
         self.vai(0)
@@ -469,15 +473,6 @@ class FinestraPrincipale(QMainWindow):
         for chiave, widget in self.punteggi.items():
             widget.imposta(dati[chiave])
 
-        from .utils import settimana_corrente
-        dal, al = settimana_corrente()
-        studio = self.db.minuti_studio(dal, al)
-        lavoro = self.db.minuti_lavoro(dal, al)
-        self.statusBar().showMessage(
-            f"questa settimana: {durata(studio)} di studio · {durata(lavoro)} di lavoro"
-            f"   ·   finanza da {self.fonte.nome}"
-            f"   ·   archivio locale: {self.db.percorso}"
-            "   ·   nessuna connessione di rete")
 
     @staticmethod
     def _palette(c: dict) -> QPalette:
