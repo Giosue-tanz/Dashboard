@@ -384,6 +384,24 @@ def main() -> int:
         assert vista.tess_anteprima.text() == istruzioni(db)
     prova("Tess: «solo le mie» non ripete la cornice", istruzioni_solo_mie)
 
+    def scelta_modello():
+        """Il modello si cambia dalla chat, e la scelta resta.
+
+        Col motore spento l'elenco è vuoto: il menu lo deve dire invece di
+        non fare niente, e la pastiglia deve mostrare comunque un nome.
+        """
+        assert r.b_modello.text().strip(), "la pastiglia del modello è vuota"
+        assert r.b_modello.toolTip(), "non dice quale modello sta rispondendo"
+        assert r.nome_corto("qwen3:4b-instruct") == "qwen3 4b"
+        assert r.nome_corto("Tess:latest") == "Tess"
+        assert r.nome_corto("gemma3:4b") == "gemma3 4b"
+        # la scelta si ricorda, anche se quel modello adesso non c'è
+        db.imposta("tess_modello", "qwen3:8b")
+        assert db.leggi("tess_modello", "") == "qwen3:8b"
+        db.imposta("tess_modello", "")
+        r._scrivi_modello()
+    prova("Tess: il modello si sceglie dalla chat", scelta_modello)
+
     def colonna():
         # il pannello non sparisce di colpo: si stringe in 170 ms, e si
         # nasconde a corsa finita. Si aspetta che abbia finito.

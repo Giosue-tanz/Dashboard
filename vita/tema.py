@@ -542,6 +542,15 @@ def foglio_stile(c: dict, scala: float = 1.0,
         border-radius: {q(13)};
     }}
     QLabel#NomeModello {{ color: {c['testo2']}; font-size: {p(11)}; }}
+    /* quale cervello sta rispondendo: si clicca, e si vede che si clicca */
+    QPushButton#SceltaModello {{
+        background: transparent; border: none; border-radius: {q(10)};
+        padding: 2px 8px; color: {c['testo2']}; font-size: {p(11)};
+        font-weight: 650;
+    }}
+    QPushButton#SceltaModello:hover {{
+        background: {trasparente(rosa, 0.18)}; color: {rosa};
+    }}
     /* il pannello delle conversazioni, a destra: un riquadro suo, come i
        pannelli laterali di NotebookLM. La conversazione invece non sta in
        nessuna scatola: è testo sulla pagina. */

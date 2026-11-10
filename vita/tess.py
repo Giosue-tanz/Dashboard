@@ -98,16 +98,53 @@ class Motore:
         except Exception:
             return False
 
-    def modello(self) -> str:
-        """Il modello da usare: quello col nome di Tess, se c'è."""
+    def modelli(self) -> list[str]:
+        """I modelli installati nel motore, in ordine alfabetico.
+
+        L'embedder resta fuori: serve a cercare dentro i testi, non a
+        rispondere, e offrirlo nella scelta vorrebbe dire offrire una cosa
+        che non sa parlare.
+        """
         try:
-            disponibili = [m["name"] for m in self.chiama("/api/tags").get("models", [])]
+            nomi = [m["name"] for m in self.chiama("/api/tags").get("models", [])]
         except Exception:
-            return self.nome
+            return []
+        return sorted(n for n in nomi
+                      if n.split(":")[0].lower() not in ("embedder",))
+
+    def modello(self) -> str:
+        """Il modello da usare: quello scelto, se è ancora installato.
+
+        Senza una scelta vale quello col nome di Tess — che è come è sempre
+        stato, e resta il comportamento di chi non ha mai aperto il menu.
+        """
+        disponibili = self.modelli()
+        if not disponibili:
+            return self.db.leggi("tess_modello", "") or self.nome
+        scelto = self.db.leggi("tess_modello", "")
+        if scelto and scelto in disponibili:
+            return scelto
         for nome in disponibili:
             if nome.split(":")[0].lower() == self.nome.lower():
                 return nome
-        return disponibili[0] if disponibili else self.nome
+        return disponibili[0]
+
+    def scegli_modello(self, nome: str) -> None:
+        """Cambia il modello, e **toglie dalla VRAM quello di prima**.
+
+        Con quattro giga non ci stanno in due: senza scaricare il vecchio, il
+        nuovo entrerebbe a metà in scheda e a metà sul processore, e sarebbe
+        lento senza che si capisca perché.
+        """
+        vecchio = self.modello()
+        self.db.imposta("tess_modello", nome)
+        if vecchio and vecchio != nome:
+            try:    # keep_alive 0 = scaricalo adesso
+                self.chiama("/api/generate",
+                            {"model": vecchio, "prompt": "", "keep_alive": 0},
+                            attesa=20)
+            except Exception:
+                pass
 
     def accendi(self) -> tuple[bool, str]:
         """Avvia il servizio del motore (non l'interfaccia web, qui non serve)."""
@@ -1257,11 +1294,22 @@ class RiquadroTess(QWidget):
         fila_p = QHBoxLayout(self.pastiglia)
         fila_p.setContentsMargins(10, 3, 6, 3)
         fila_p.setSpacing(8)
+        # Quale cervello sta rispondendo, e come cambiarlo. Sta qui e non
+        # nelle impostazioni perché è una cosa che si cambia *mentre* parli:
+        # la stessa domanda a due modelli diversi è il modo in cui si capisce
+        # quale dei due serve.
+        self.b_modello = QPushButton("")
+        self.b_modello.setObjectName("SceltaModello")
+        self.b_modello.setCursor(Qt.PointingHandCursor)
+        self.b_modello.setFocusPolicy(Qt.NoFocus)
+        self.b_modello.clicked.connect(self._menu_modello)
+        fila_p.addWidget(self.b_modello)
         self.et_modello = QLabel("dati")
         self.et_modello.setObjectName("NomeModello")
         self.et_modello.setToolTip(self.b_dati.toolTip())
         fila_p.addWidget(self.et_modello)
         fila_p.addWidget(self.b_dati)
+        self._scrivi_modello()
         # la pastiglia dei dati prima del «⋯»: i comandi della conversazione
         # restano gli ultimi, accanto al pannello
         self.testa_layout.insertWidget(self.testa_layout.count() - 2,
@@ -1397,6 +1445,54 @@ class RiquadroTess(QWidget):
             if not self.bolle:
                 self._scrivi("tess", "Ci sono. Cosa guardiamo?")
         self.campo.setFocus()
+
+    # ------------------------------------------------------- il modello
+    @staticmethod
+    def nome_corto(modello: str) -> str:
+        """«qwen3:4b-instruct» → «qwen3 4b»: il nome che ci sta nella pastiglia."""
+        base = (modello or "").split(":")
+        testa = base[0]
+        coda = base[1] if len(base) > 1 else ""
+        if coda in ("", "latest"):
+            return testa
+        return f"{testa} {coda.split('-')[0]}"
+
+    def _scrivi_modello(self) -> None:
+        """Il nome sulla pastiglia, col suggerimento che dice quello intero."""
+        modello = self.motore.modello()
+        self.b_modello.setText(f"{self.nome_corto(modello)}  \u25be")
+        quanti = len(self.motore.modelli())
+        self.b_modello.setToolTip(
+            f"Sta rispondendo {modello}.\n"
+            + (f"Clicca per cambiarlo: ce ne sono {quanti} installati."
+               if quanti > 1 else
+               "È l'unico modello installato in questo motore."))
+
+    def _menu_modello(self) -> None:
+        """L'elenco dei modelli installati: uno solo acceso alla volta."""
+        disponibili = self.motore.modelli()
+        menu = QMenu(self)
+        if not disponibili:
+            azione = menu.addAction("Il motore è spento: non so cosa c'è")
+            azione.setEnabled(False)
+        corrente = self.motore.modello()
+        for nome in disponibili:
+            azione = menu.addAction(nome)
+            azione.setCheckable(True)
+            azione.setChecked(nome == corrente)
+            azione.triggered.connect(
+                lambda _=False, n=nome: self._cambia_modello(n))
+        menu.exec(self.b_modello.mapToGlobal(
+            QPoint(0, self.b_modello.height() + 2)))
+
+    def _cambia_modello(self, nome: str) -> None:
+        if nome == self.motore.modello():
+            return
+        self.motore.scegli_modello(nome)
+        self._scrivi_modello()
+        self.et_stato.setText(
+            f"Adesso risponde {nome}: entra in scheda video alla prima "
+            "domanda, e quella risposta ci mette qualche secondo in più.")
 
     def spegni(self) -> None:
         self.motore.spegni()
