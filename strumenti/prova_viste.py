@@ -243,6 +243,36 @@ def main() -> int:
     prova("Finanza: Finance entra tutto, e due volte non raddoppia",
           finanza_dentro)
 
+    def icone_come_finance():
+        """La stessa categoria deve avere la stessa faccia di qua e di là.
+
+        Il catalogo è copiato da Finance parola per parola: se qualcuno lo
+        tocca solo da una parte, «Benzina» arriva con la pompa in una app e
+        con l'etichetta bianca nell'altra.
+        """
+        from vita.icone_categorie import (etichetta_categoria, icona_suggerita,
+                                          solo_nome, tutte_le_icone)
+        assert len(tutte_le_icone()) >= 170, len(tutte_le_icone())
+        assert icona_suggerita("Benzina") == "⛽"
+        assert icona_suggerita("Spesa alimentare") == "🛒"
+        assert icona_suggerita("Stipendio", "entrata") == "💼"
+        # «etf» non si deve trovare dentro «Netflix»
+        assert icona_suggerita("Netflix") == "📺", icona_suggerita("Netflix")
+        # andata e ritorno: l'icona si toglie e resta il nome
+        for nome in ("Caffè", "Spesa alimentare", "Altro"):
+            ic = icona_suggerita(nome)
+            assert solo_nome(etichetta_categoria(nome, ic)) == nome, nome
+        # una categoria nuova nasce con la sua icona, e sceglierla a mano vince
+        banco5 = tempfile.mkdtemp(prefix="icone-")
+        mio = Database(os.path.join(banco5, "v.db"))
+        mio.aggiungi_categoria("Benzina", "uscita")
+        assert mio.icone_categorie().get("Benzina") == "⛽"
+        mio.imposta_icona_categoria("Benzina", "uscita", "🚗")
+        mio.aggiungi_categoria("Benzina", "uscita")      # non la ririscrive
+        assert mio.icone_categorie().get("Benzina") == "🚗"
+        shutil.rmtree(banco5, ignore_errors=True)
+    prova("Finanza: le icone sono quelle di Finance", icone_come_finance)
+
     def ricorrenti_non_raddoppiano():
         """Le ricorrenti si generano una volta sola per scadenza."""
         banco4 = tempfile.mkdtemp(prefix="ricorrenti-")

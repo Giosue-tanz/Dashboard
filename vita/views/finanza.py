@@ -16,6 +16,7 @@ from ..componenti import (ContenutoStat, NavigatorePeriodo, RigaMisura,
                           abilita_deselezione, etichetta, stile_tabella)
 from ..dialoghi import DialogoMovimento, DialogoObiettivo
 from ..grafici import GraficoBarre, GraficoCiambella, GraficoLinea
+from ..icone_categorie import etichetta_categoria
 from ..tema import PALETTE_GRAFICI
 from ..utils import (FINESTRE, PERIODI, anno_corrente, data_it, euro,
                      intervallo, intervallo_precedente, mese_corrente,
@@ -204,7 +205,8 @@ class VistaFinanza(VistaSezioni):
                  self.db.query("SELECT nome, colore FROM categorie WHERE colore<>''")}
         conti = [r["nome"] for r in self.db.conti()]
         return DialogoMovimento(self._categorie(), voce, parent=self,
-                                conti=conti, colori=self.c, tinte=tinte)
+                                conti=conti, colori=self.c, tinte=tinte,
+                                icone=self.db.icone_categorie())
 
     def _salva_movimento(self, d: dict) -> None:
         """Salva il movimento e tiene categorie e conto per la prossima volta."""
@@ -349,8 +351,12 @@ class VistaFinanza(VistaSezioni):
         dal, al = intervallo(self.periodo("ripartizione"))
         voci = self.fonte.per_categoria("uscita", dal, al)[:10]
         totale = sum(v for _, v in voci)
+        icone = self.db.icone_categorie()
+        tinte = {r["nome"]: r["colore"] for r in self.db.query(
+            "SELECT nome, colore FROM categorie WHERE colore<>''")}
         self.g_torta.imposta_dati(
-            [(nome, valore, PALETTE_GRAFICI[i % len(PALETTE_GRAFICI)])
+            [(etichetta_categoria(nome, icone.get(nome)), valore,
+              tinte.get(nome) or PALETTE_GRAFICI[i % len(PALETTE_GRAFICI)])
              for i, (nome, valore) in enumerate(voci)],
             euro(totale) if totale else "—", "di uscite")
 
@@ -435,6 +441,7 @@ class VistaFinanza(VistaSezioni):
         if dal < "1900":
             dal, al = "", ""
         voci = self.fonte.movimenti(dal, al, limite=400)
+        icone = self.db.icone_categorie()
         self.tab.setRowCount(len(voci))
         for i, m in enumerate(voci):
             cella = QTableWidgetItem(relativa(m["data"]))
@@ -444,8 +451,10 @@ class VistaFinanza(VistaSezioni):
             # la prima categoria è quella che possiede l'importo; le altre
             # si contano accanto, senza allungare la colonna
             altre = self.db.altre_categorie(m.get("categorie"))
+            nome_cat = m.get("categoria", "")
             cella_cat = QTableWidgetItem(
-                m.get("categoria", "") + (f"  +{len(altre)}" if altre else ""))
+                etichetta_categoria(nome_cat, icone.get(nome_cat))
+                + (f"  +{len(altre)}" if altre else ""))
             if altre:
                 cella_cat.setToolTip("anche: " + ", ".join(altre))
             self.tab.setItem(i, 1, cella_cat)

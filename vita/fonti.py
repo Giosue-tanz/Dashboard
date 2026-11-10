@@ -255,7 +255,7 @@ def porta_dentro_finance(db, percorso: str = "") -> dict:
             tipo = r["tipo"] if r["tipo"] in ("entrata", "uscita") else "uscita"
             gia = db.valore("SELECT COUNT(*) FROM categorie WHERE nome=? AND tipo=?",
                             (r["nome"], tipo))
-            db.aggiungi_categoria(r["nome"], tipo)
+            db.aggiungi_categoria(r["nome"], tipo, (r["icona"] or "").strip())
             colore = (r["colore"] or "").strip()
             if colore:
                 db.esegui("UPDATE categorie SET colore=? WHERE nome=? AND tipo=?",

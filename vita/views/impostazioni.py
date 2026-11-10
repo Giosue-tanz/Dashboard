@@ -21,6 +21,8 @@ from ..db import DATA_DIR
 from .. import blocco, salvataggio
 from ..fonti import (PERCORSO_FINANCE, finance_presente,
                      porta_dentro_finance)
+from ..icone_categorie import (ICONA_PREDEFINITA, SelettoreIcona,
+                               etichetta_categoria, solo_nome)
 from ..punteggi import PREDEFINITI
 from ..tema import SCALE
 from ..utils import durata, euro, numero
@@ -233,6 +235,9 @@ class VistaImpostazioni(VistaBase):
             "NotaScheda"))
         self.tab_categorie = QTableWidget(0, 2)
         self.tab_categorie.setHorizontalHeaderLabels(["Categoria", "Tipo"])
+        self.tab_categorie.doubleClicked.connect(self._scegli_icona_categoria)
+        self.tab_categorie.setToolTip(
+            "Doppio clic su una categoria per cambiarle l'icona.")
         self.tab_categorie.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tab_categorie.setSelectionBehavior(QTableWidget.SelectRows)
         intestazione = self.tab_categorie.horizontalHeader()
@@ -253,9 +258,13 @@ class VistaImpostazioni(VistaBase):
         togli_cat.clicked.connect(self._togli_categoria)
         scheda.aggiungi_layout(riga(self.nome_categoria, self.tipo_categoria,
                                     aggiungi_cat, togli_cat))
-        scheda.aggiungi(etichetta(
+        scheda.aggiungi(EtichettaACapo(
+            "L'icona la propone il nome — «Benzina» arriva con la pompa — ed è "
+            "lo stesso catalogo dell'app Finance, così la stessa categoria ha "
+            "la stessa faccia di qua e di là. Doppio clic su una riga per "
+            "sceglierne un'altra fra 174.\n"
             "Togliere una categoria non tocca i movimenti già scritti: sparisce "
-            "solo dall'elenco che si propone.", "NotaScheda"))
+            "solo dall'elenco che si propone."))
         lay.addWidget(scheda)
 
         scheda = Scheda("Budget mensili (archivio interno)")
@@ -469,12 +478,27 @@ class VistaImpostazioni(VistaBase):
         self.nome_categoria.clear()
         self.aggiorna()
 
+    def _scegli_icona_categoria(self) -> None:
+        """Il catalogo delle icone per la categoria scelta."""
+        righe = self.tab_categorie.selectionModel().selectedRows()
+        if not righe:
+            return
+        cella = self.tab_categorie.item(righe[0].row(), 0)
+        nome = solo_nome(cella.text())
+        tipo = cella.data(Qt.UserRole)
+        corrente = self.db.icone_categorie().get(nome, ICONA_PREDEFINITA)
+        dlg = SelettoreIcona(corrente, self)
+        if dlg.exec():
+            self.db.imposta_icona_categoria(nome, tipo, dlg.scelta)
+            self.fonte_cambiata.emit()
+            self.aggiorna()
+
     def _togli_categoria(self) -> None:
         righe = self.tab_categorie.selectionModel().selectedRows()
         if not righe:
             return
         cella = self.tab_categorie.item(righe[0].row(), 0)
-        nome, tipo = cella.text(), cella.data(Qt.UserRole)
+        nome, tipo = solo_nome(cella.text()), cella.data(Qt.UserRole)
         self.db.togli_categoria(nome, tipo)
         self.aggiorna()
 
@@ -1002,9 +1026,10 @@ class VistaImpostazioni(VistaBase):
 
         categorie = [(nome, tipo) for tipo in ("entrata", "uscita")
                      for nome in self.db.categorie(tipo)]
+        icone = self.db.icone_categorie()
         self.tab_categorie.setRowCount(len(categorie))
         for i, (nome, tipo) in enumerate(categorie):
-            cella = QTableWidgetItem(nome)
+            cella = QTableWidgetItem(etichetta_categoria(nome, icone.get(nome)))
             cella.setData(Qt.UserRole, tipo)
             self.tab_categorie.setItem(i, 0, cella)
             self.tab_categorie.setItem(i, 1, QTableWidgetItem(tipo))

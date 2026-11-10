@@ -916,6 +916,27 @@ l'app chiusa due mesi, all'apertura arrivano le due rate che mancano, ognuna
 col suo giorno. Quelli già scritti non tornano: `ultima_generazione` si
 ricorda dov'era arrivata, quindi cancellarne uno a mano lo cancella davvero.
 
+### Le icone delle categorie
+
+Ogni categoria porta un'icona, e la propone il suo nome: «Benzina» arriva con
+la pompa, «Stipendio» con la ventiquattrore, «Netflix» con la televisione —
+e non con il grafico degli ETF, perché il confronto parte da un confine di
+parola. Sono emoji: nessun file da distribuire, nessuna dipendenza, e le
+colora il sistema. Doppio clic su una categoria in **Impostazioni → Finanza →
+Categorie dei movimenti** apre il catalogo, 174 icone divise per gruppi e
+cercabili per nome. L'icona scelta a mano non se la riprende più nessun
+suggerimento.
+
+Il catalogo (`vita/icone_categorie.py`) è **lo stesso dell'app Finance**,
+copiato parola per parola di proposito: le due applicazioni devono proporre
+la stessa icona per lo stesso nome, se no un movimento portato dentro si
+vedrebbe diverso da uno scritto qui. Sono due repository separati e non c'è
+un pacchetto in comune — se il catalogo di Finance cambia, questo va
+ricopiato, e una prova lo controlla.
+
+Le icone compaiono nell'elenco dei movimenti, nella ciambella delle uscite,
+nella finestra del movimento e nell'elenco delle categorie.
+
 ### Categorie di entrata e di uscita
 
 Gli elenchi sono due e distinti — «Lavoro» fra le entrate, «Bollette» fra le

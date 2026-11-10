@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDateEdit,
 from .componenti import (CampoData, CampoDurata, CursoreVoto,
                          DisposizioneFluida, Etichetta, SceltaSonno,
                          ZonaRilascio, minuti_ore)
+from .icone_categorie import etichetta_categoria, solo_nome
 from .db import (AREE, STATI_ESAME, STATI_PROGETTO, TIPI_ALLENAMENTO,
                  TIPI_PROGETTO)
 from .tema import AREE as TINTE
@@ -810,7 +811,7 @@ class DialogoMovimento(DialogoBase):
     """
 
     def __init__(self, categorie, voce=None, parent=None, conti=None,
-                 colori=None, tinte=None):
+                 colori=None, tinte=None, icone=None):
         super().__init__(
             "Modifica movimento" if voce else "Nuovo movimento", parent,
             nota="Entrata o uscita. La categoria in alto è quella che possiede "
@@ -820,6 +821,7 @@ class DialogoMovimento(DialogoBase):
         self.id = v.get("id")
         self.c = colori or {}
         self.tinte = dict(tinte or {})
+        self.icone = dict(icone or {})
         if isinstance(categorie, dict):
             self.elenchi = {t: list(categorie.get(t, [])) for t in ("entrata", "uscita")}
         else:                       # un elenco solo: vale per tutti e due i tipi
@@ -880,7 +882,7 @@ class DialogoMovimento(DialogoBase):
         metterla anche fra le altre vorrebbe dire scriverla due volte.
         """
         self._scelte_extra = self.extra() | self._scelte_extra
-        principale = self.categoria.currentText().strip()
+        principale = solo_nome(self.categoria.currentText())
         while self.fluida.count():
             elemento = self.fluida.takeAt(0)
             w = elemento.widget()
@@ -890,7 +892,8 @@ class DialogoMovimento(DialogoBase):
         for nome in self.elenchi.get(self.tipo.currentText(), []):
             if nome == principale:
                 continue
-            chip = Etichetta(nome, self.tinte.get(nome, "#7c8cff"), self.c)
+            chip = Etichetta(etichetta_categoria(nome, self.icone.get(nome)),
+                             self.tinte.get(nome, "#7c8cff"), self.c)
             chip.setChecked(nome in self._scelte_extra)
             self.fluida.addWidget(chip)
             self.chip[nome] = chip
@@ -902,15 +905,22 @@ class DialogoMovimento(DialogoBase):
     def _riempi_categorie(self, tipo: str, scelta: str = "") -> None:
         """Rimette nell'elenco le categorie del tipo scelto, tenendo la scelta."""
         elenco = self.elenchi.get(tipo, [])
+        scelta = solo_nome(scelta)
         self.categoria.blockSignals(True)
         self.categoria.clear()
-        self.categoria.addItems(elenco)
-        self.categoria.setCurrentText(scelta if scelta in elenco else
-                                      (elenco[0] if elenco else ""))
+        # il nome viaggia con la sua icona davanti; chi legge `dati()` la
+        # toglie, così scriverne una nuova a mano continua a funzionare
+        self.categoria.addItems(
+            [etichetta_categoria(n, self.icone.get(n)) for n in elenco])
+        self.categoria.setCurrentText(
+            etichetta_categoria(scelta, self.icone.get(scelta))
+            if scelta in elenco else
+            (etichetta_categoria(elenco[0], self.icone.get(elenco[0]))
+             if elenco else ""))
         self.categoria.blockSignals(False)
 
     def dati(self) -> dict:
-        principale = self.categoria.currentText().strip() or "Altro"
+        principale = solo_nome(self.categoria.currentText()) or "Altro"
         return {"id": self.id, "data": self.data.date().toString("yyyy-MM-dd"),
                 "tipo": self.tipo.currentText(), "importo": self.importo.value(),
                 "categoria": principale,

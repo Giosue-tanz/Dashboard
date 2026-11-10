@@ -1248,7 +1248,12 @@ class Database:
             righe = self.query("SELECT DISTINCT nome FROM categorie ORDER BY nome")
         return [r["nome"] for r in righe]
 
-    def aggiungi_categoria(self, nome: str, tipo: str) -> None:
+    def aggiungi_categoria(self, nome: str, tipo: str, icona: str = "") -> None:
+        """Una categoria nuova, con l'icona che il suo nome suggerisce.
+
+        L'icona la propone `vita/icone_categorie.py`, lo stesso catalogo che
+        usa Finance: «Benzina» arriva con la pompa da tutte e due le parti.
+        """
         nome = (nome or "").strip()
         if not nome or tipo not in ("entrata", "uscita"):
             return
@@ -1256,6 +1261,22 @@ class Database:
             "SELECT COALESCE(MAX(ordine),0)+1 FROM categorie WHERE tipo=?", (tipo,)))
         self.esegui("INSERT OR IGNORE INTO categorie(nome, tipo, ordine) "
                     "VALUES(?,?,?)", (nome, tipo, ordine))
+        if not icona:
+            from .icone_categorie import icona_suggerita
+            icona = icona_suggerita(nome, tipo)
+        # l'icona si mette solo se non ce n'è già una: quella scelta a mano
+        # non si lascia riscrivere da un suggerimento
+        self.esegui("UPDATE categorie SET icona=? WHERE nome=? AND tipo=? "
+                    "AND icona=''", (icona, nome, tipo))
+
+    def imposta_icona_categoria(self, nome: str, tipo: str, icona: str) -> None:
+        self.esegui("UPDATE categorie SET icona=? WHERE nome=? AND tipo=?",
+                    (icona, nome, tipo))
+
+    def icone_categorie(self) -> dict[str, str]:
+        """Per ogni nome di categoria, la sua icona. Serve a chi disegna."""
+        return {r["nome"]: r["icona"] for r in
+                self.query("SELECT nome, icona FROM categorie WHERE icona<>''")}
 
     def togli_categoria(self, nome: str, tipo: str) -> None:
         """Toglie la categoria dall'elenco; i movimenti già scritti non cambiano."""
