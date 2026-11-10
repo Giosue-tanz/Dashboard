@@ -809,11 +809,17 @@ class DialogoMovimento(DialogoBase):
     una categoria nuova entra nell'elenco al salvataggio.
     """
 
-    def __init__(self, categorie, voce=None, parent=None):
-        super().__init__("Modifica movimento" if voce else "Nuovo movimento", parent,
-                         nota="Entrata o uscita, con la sua categoria.")
+    def __init__(self, categorie, voce=None, parent=None, conti=None,
+                 colori=None, tinte=None):
+        super().__init__(
+            "Modifica movimento" if voce else "Nuovo movimento", parent,
+            nota="Entrata o uscita. La categoria in alto è quella che possiede "
+                 "l'importo — finisce nel budget e nella ciambella; le altre "
+                 "servono a ritrovarlo.")
         v = dict(voce) if voce else {}
         self.id = v.get("id")
+        self.c = colori or {}
+        self.tinte = dict(tinte or {})
         if isinstance(categorie, dict):
             self.elenchi = {t: list(categorie.get(t, [])) for t in ("entrata", "uscita")}
         else:                       # un elenco solo: vale per tutti e due i tipi
@@ -833,7 +839,65 @@ class DialogoMovimento(DialogoBase):
         self._riempi_categorie(self.tipo.currentText(), v.get("categoria", ""))
         self.tipo.currentTextChanged.connect(
             lambda tipo: self._riempi_categorie(tipo, self.categoria.currentText()))
+        self.conto = self.campo("Conto", QComboBox())
+        self.conto.setEditable(True)
+        self.conto.setToolTip("Su che conto è passato: contante, carta, conto "
+                              "corrente.\nScrivine uno nuovo e resta.")
+        elenco_conti = list(conti or [])
+        self.conto.addItems([""] + elenco_conti)
+        self.conto.setCurrentText(v.get("conto", "") or
+                                  (elenco_conti[0] if elenco_conti and not voce
+                                   else ""))
         self.descrizione = self.campo("Descrizione", QLineEdit(v.get("descrizione", "")))
+
+        # --------------------------------------------- le categorie in più
+        riquadro = QWidget()
+        riquadro.setObjectName("ContenutoSezione")
+        self.fluida = DisposizioneFluida(riquadro, 0, 6)
+        self.chip: dict[str, Etichetta] = {}
+        self._scelte_extra = set(
+            x.strip() for x in str(v.get("categorie", "")).split(",") if x.strip())
+        # le pastiglie vanno a capo da sole e possono essere tante: dentro
+        # un'area che scorre, se no la finestra crescerebbe a dismisura o
+        # taglierebbe l'ultima riga
+        scorri = QScrollArea()
+        scorri.setObjectName("ContenutoSezione")
+        scorri.viewport().setObjectName("ContenutoSezione")
+        scorri.setWidgetResizable(True)
+        scorri.setFrameShape(QScrollArea.NoFrame)
+        scorri.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scorri.setMinimumHeight(98)
+        scorri.setWidget(riquadro)
+        self.campo("Altre categorie", scorri)
+        self._rifai_chip()
+        self.tipo.currentTextChanged.connect(lambda _t: self._rifai_chip())
+        self.categoria.currentTextChanged.connect(lambda _t: self._rifai_chip())
+
+    def _rifai_chip(self) -> None:
+        """Le pastiglie delle altre categorie: quelle del tipo scelto, meno la prima.
+
+        La categoria principale non compare qui: è già scelta sopra, e
+        metterla anche fra le altre vorrebbe dire scriverla due volte.
+        """
+        self._scelte_extra = self.extra() | self._scelte_extra
+        principale = self.categoria.currentText().strip()
+        while self.fluida.count():
+            elemento = self.fluida.takeAt(0)
+            w = elemento.widget()
+            if w is not None:
+                w.hide(); w.setParent(None); w.deleteLater()
+        self.chip.clear()
+        for nome in self.elenchi.get(self.tipo.currentText(), []):
+            if nome == principale:
+                continue
+            chip = Etichetta(nome, self.tinte.get(nome, "#7c8cff"), self.c)
+            chip.setChecked(nome in self._scelte_extra)
+            self.fluida.addWidget(chip)
+            self.chip[nome] = chip
+
+    def extra(self) -> set:
+        """Le altre categorie accese adesso."""
+        return {nome for nome, chip in self.chip.items() if chip.isChecked()}
 
     def _riempi_categorie(self, tipo: str, scelta: str = "") -> None:
         """Rimette nell'elenco le categorie del tipo scelto, tenendo la scelta."""
@@ -846,9 +910,12 @@ class DialogoMovimento(DialogoBase):
         self.categoria.blockSignals(False)
 
     def dati(self) -> dict:
+        principale = self.categoria.currentText().strip() or "Altro"
         return {"id": self.id, "data": self.data.date().toString("yyyy-MM-dd"),
                 "tipo": self.tipo.currentText(), "importo": self.importo.value(),
-                "categoria": self.categoria.currentText().strip() or "Altro",
+                "categoria": principale,
+                "categorie": ", ".join(sorted(self.extra() - {principale})),
+                "conto": self.conto.currentText().strip(),
                 "descrizione": self.descrizione.text().strip()}
 
 

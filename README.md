@@ -867,6 +867,55 @@ In **Impostazioni → Finanza** si sceglie da dove arrivano i movimenti:
 
 Dashboard non scrive **mai** nell'archivio di Finance: lo apre in sola lettura.
 
+### Portare dentro Finance, una volta per tutte
+
+**Impostazioni → Finanza → «Porta dentro tutto»** copia qui dentro l'intero
+archivio di Finance: conti, categorie (col loro colore), movimenti, budget,
+obiettivi e ricorrenti. Poi la sorgente passa da sola all'archivio interno —
+che è quello che rende i movimenti modificabili — e Finance non serve più
+aprirla. Da riga di comando:
+
+```bash
+python3 strumenti/importa_finance.py --scrivi
+```
+
+Si può rilanciare quante volte si vuole: quello che è già entrato non entra
+due volte. Il confronto si fa su data, tipo, importo, categoria e
+descrizione, **contando i doppioni**: due caffè identici lo stesso giorno
+sono due movimenti, non uno, e cercare «ne esiste uno uguale?» ne avrebbe
+lasciato fuori uno — col saldo che non tornava più con quello di Finance.
+
+### Più categorie per un movimento
+
+Un movimento può portarne quante ne vuoi. La **prima** — quella scelta in
+alto nella finestra — è la padrona dell'importo: è lei che finisce nel budget
+e nella ciambella delle uscite. Le altre si accendono come pastiglie e
+servono a ritrovarlo.
+
+È una scelta, non una mancanza: contare venti euro di pranzo sia in
+«Ristoranti» sia in «Tempo libero» vorrebbe dire quaranta euro di uscite che
+non hai mai speso. Nell'elenco dei movimenti la categoria principale porta un
+`+2` accanto quando ce ne sono altre, e il suggerimento le dice tutte.
+
+### I conti
+
+Ogni movimento dice su che conto è passato — contante, carta, conto corrente.
+Il saldo di un conto è quello di partenza più quello che ci è entrato meno
+quello che ne è uscito, e **Saldo dei conti** in Finanza li mostra tutti.
+Scrivendo un conto nuovo nella finestra del movimento, quello entra
+nell'elenco; il saldo di partenza si mette in **Impostazioni → Finanza → I
+conti**. I movimenti senza conto si contano a parte, sotto «Senza conto», se
+no la somma dei conti non tornerebbe col saldo totale.
+
+### Movimenti che tornano da soli
+
+Affitto, abbonamenti, stipendio: in **Impostazioni → Finanza → Movimenti che
+tornano da soli** si dice cosa, quanto, ogni quanto e da quando. Si scrivono
+all'apertura di Dashboard, uno per ogni scadenza passata — se hai tenuto
+l'app chiusa due mesi, all'apertura arrivano le due rate che mancano, ognuna
+col suo giorno. Quelli già scritti non tornano: `ultima_generazione` si
+ricorda dov'era arrivata, quindi cancellarne uno a mano lo cancella davvero.
+
 ### Categorie di entrata e di uscita
 
 Gli elenchi sono due e distinti — «Lavoro» fra le entrate, «Bollette» fra le

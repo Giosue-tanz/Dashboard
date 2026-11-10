@@ -123,6 +123,13 @@ class FinestraPrincipale(QMainWindow):
     def __init__(self, db: Database):
         super().__init__()
         self.db = db
+        # i movimenti che tornano da soli si scrivono all'apertura: se hai
+        # tenuto l'app chiusa per due mesi, qui dentro arrivano le due rate
+        # che mancano, una per il loro giorno
+        try:
+            db.genera_ricorrenti()
+        except Exception:           # una ricorrente storta non blocca l'avvio
+            pass
         self.fonte = fonte_finanza(db)
         self.tema = db.leggi("tema", "scuro")
         self.c = colori(db.leggi("tema", "scuro"))

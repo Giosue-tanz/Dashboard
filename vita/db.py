@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -170,6 +170,32 @@ CREATE TABLE IF NOT EXISTS categorie (
     ordine INTEGER NOT NULL DEFAULT 0,
     UNIQUE(nome, tipo)
 );
+-- I conti su cui passa il denaro: contante, carta, conto corrente. Ogni
+-- movimento ne nomina uno; il saldo di un conto è il suo iniziale più
+-- quello che ci è entrato meno quello che ne è uscito.
+CREATE TABLE IF NOT EXISTS conti (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL UNIQUE,
+    saldo_iniziale REAL NOT NULL DEFAULT 0,
+    tipo TEXT NOT NULL DEFAULT 'Conto corrente',
+    ordine INTEGER NOT NULL DEFAULT 0
+);
+-- I movimenti che tornano da soli: affitto, abbonamenti, stipendio. Si
+-- generano quando arriva il giorno, e `ultima_generazione` evita i doppioni.
+CREATE TABLE IF NOT EXISTS ricorrenti (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    descrizione TEXT NOT NULL,
+    tipo TEXT NOT NULL DEFAULT 'uscita',
+    importo REAL NOT NULL DEFAULT 0,
+    categoria TEXT NOT NULL DEFAULT 'Altro',
+    categorie TEXT NOT NULL DEFAULT '',
+    conto TEXT NOT NULL DEFAULT '',
+    frequenza TEXT NOT NULL DEFAULT 'mensile', -- mensile|settimanale|annuale
+    giorno INTEGER NOT NULL DEFAULT 1,
+    inizio TEXT NOT NULL DEFAULT '',
+    ultima_generazione TEXT NOT NULL DEFAULT '',
+    attiva INTEGER NOT NULL DEFAULT 1
+);
 CREATE TABLE IF NOT EXISTS budget (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     categoria TEXT NOT NULL UNIQUE,
@@ -246,6 +272,17 @@ COLONNE_AGGIUNTE = (
     # corrisponde nell'archivio interno: è lo stesso denaro, scritto una volta
     ("incassi", "categoria", "TEXT NOT NULL DEFAULT 'Lavoro'"),
     ("incassi", "movimento_id", "INTEGER"),
+    # Un movimento può portare **più categorie**. La prima — quella in
+    # `categoria` — è la padrona dell'importo: è lei che finisce nel budget
+    # e nella ciambella, se no un pranzo da venti euro conterebbe venti in
+    # «Ristoranti» e venti in «Tempo libero» e i totali non tornerebbero più.
+    # Le altre stanno qui, separate da virgole, e servono a ritrovarlo.
+    ("movimenti", "categorie", "TEXT NOT NULL DEFAULT ''"),
+    # su che conto è passato: contante, carta, conto corrente
+    ("movimenti", "conto", "TEXT NOT NULL DEFAULT ''"),
+    # le categorie si possono colorare, come le emozioni
+    ("categorie", "colore", "TEXT NOT NULL DEFAULT ''"),
+    ("categorie", "icona", "TEXT NOT NULL DEFAULT ''"),
 )
 
 # Categorie di partenza, divise per tipo: si aggiungono dalle impostazioni o
@@ -286,6 +323,15 @@ TIPI_PROGETTO = ["cliente", "personale", "studio", "passivo"]
 STATI_ESAME = {"previsto": "Previsto", "corso": "In corso", "superato": "Superato"}
 AREE = {"emozioni": "Emozioni", "carriera": "Carriera", "accademica": "Accademica",
         "salute": "Salute", "finanza": "Finanza"}
+
+
+def _avanti_mesi(giorno: date, quanti: int) -> date:
+    """Lo stesso giorno del mese, `quanti` mesi dopo; il 31 si accorcia."""
+    totale = giorno.year * 12 + (giorno.month - 1) + quanti
+    anno, mese = totale // 12, totale % 12 + 1
+    ultimo = [31, 29 if anno % 4 == 0 and (anno % 100 or anno % 400 == 0) else 28,
+              31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mese - 1]
+    return date(anno, mese, min(giorno.day, ultimo))
 
 
 def copia_archivio(sorgente, destinazione: str) -> str:
@@ -360,7 +406,7 @@ class Database:
         if tabella not in {"voci", "emozioni", "allenamenti", "progetti", "lavoro",
                            "incassi", "esami", "studio", "percorsi", "scadenze",
                            "abitudini", "movimenti", "budget", "obiettivi", "salute",
-                           "categorie"}:
+                           "categorie", "conti", "ricorrenti"}:
             raise ValueError("tabella non valida")
         if tabella == "incassi":
             # via l'incasso, via anche l'entrata gemella
@@ -1041,8 +1087,53 @@ class Database:
             sql += f" LIMIT {int(limite)}"
         return self.query(sql, tuple(par))
 
+    @staticmethod
+    def altre_categorie(testo) -> list[str]:
+        """Le categorie in più di un movimento, dalla stringa separata da virgole."""
+        return [x.strip() for x in str(testo or "").split(",") if x.strip()]
+
+    def conti(self) -> list[sqlite3.Row]:
+        """I conti con dentro il loro saldo: iniziale più entrate meno uscite."""
+        return self.query(
+            "SELECT c.*, c.saldo_iniziale + COALESCE((SELECT SUM(CASE m.tipo "
+            "WHEN 'entrata' THEN m.importo ELSE -m.importo END) FROM movimenti m "
+            "WHERE m.conto = c.nome), 0) AS saldo "
+            "FROM conti c ORDER BY c.ordine, c.nome")
+
+    def salva_conto(self, d: dict) -> int:
+        campi = ("nome", "saldo_iniziale", "tipo")
+        if d.get("id"):
+            vecchio = self.valore("SELECT nome FROM conti WHERE id=?", (d["id"],),
+                                  default="")
+            self.esegui("UPDATE conti SET " + ", ".join(f"{c}=?" for c in campi) +
+                        " WHERE id=?", tuple(d[c] for c in campi) + (d["id"],))
+            if vecchio and vecchio != d["nome"]:
+                # il conto rinominato se li porta dietro, i suoi movimenti
+                self.esegui("UPDATE movimenti SET conto=? WHERE conto=?",
+                            (d["nome"], vecchio))
+            return int(d["id"])
+        ordine = int(self.valore("SELECT COALESCE(MAX(ordine),0)+1 FROM conti"))
+        return self.esegui(
+            "INSERT INTO conti(nome, saldo_iniziale, tipo, ordine) VALUES(?,?,?,?)",
+            (d["nome"], float(d["saldo_iniziale"]), d["tipo"], ordine))
+
+    def elimina_conto(self, id_: int) -> None:
+        """Via il conto dall'elenco; i movimenti restano, senza conto."""
+        nome = self.valore("SELECT nome FROM conti WHERE id=?", (id_,), default="")
+        self.esegui("DELETE FROM conti WHERE id=?", (id_,))
+        if nome:
+            self.esegui("UPDATE movimenti SET conto='' WHERE conto=?", (nome,))
+
     def salva_movimento(self, d: dict) -> int:
-        campi = ("data", "tipo", "importo", "categoria", "descrizione")
+        campi = ("data", "tipo", "importo", "categoria", "descrizione",
+                 "categorie", "conto")
+        d = dict(d)
+        d.setdefault("categorie", "")
+        d.setdefault("conto", "")
+        # la prima categoria è quella che possiede l'importo: se per sbaglio
+        # ricompare anche fra le altre, lì si toglie
+        d["categorie"] = ", ".join(
+            x for x in self.altre_categorie(d["categorie"]) if x != d["categoria"])
         if d.get("id"):
             self.esegui("UPDATE movimenti SET " + ", ".join(f"{c}=?" for c in campi) +
                         " WHERE id=?", tuple(d[c] for c in campi) + (d["id"],))
@@ -1054,8 +1145,85 @@ class Database:
                 (d["data"], float(d["importo"]), d["categoria"], d["id"]))
             return int(d["id"])
         return self.esegui(
-            "INSERT INTO movimenti(" + ",".join(campi) + ") VALUES(?,?,?,?,?)",
-            tuple(d[c] for c in campi))
+            "INSERT INTO movimenti(" + ",".join(campi) + ") VALUES("
+            + ",".join("?" * len(campi)) + ")", tuple(d[c] for c in campi))
+
+    # ------------------------------------------------------- ricorrenti
+    RICORRENTI = ("descrizione", "tipo", "importo", "categoria", "categorie",
+                  "conto", "frequenza", "giorno", "inizio",
+                  "ultima_generazione", "attiva")
+
+    def ricorrenti(self, solo_attive: bool = False) -> list[sqlite3.Row]:
+        sql = "SELECT * FROM ricorrenti"
+        if solo_attive:
+            sql += " WHERE attiva=1"
+        return self.query(sql + " ORDER BY descrizione")
+
+    def salva_ricorrente(self, d: dict) -> int:
+        d = dict(d)
+        for campo, difetto in (("categorie", ""), ("conto", ""),
+                               ("ultima_generazione", ""), ("attiva", 1),
+                               ("giorno", 1), ("frequenza", "mensile"),
+                               ("inizio", date.today().isoformat())):
+            d.setdefault(campo, difetto)
+        campi = self.RICORRENTI
+        if d.get("id"):
+            self.esegui("UPDATE ricorrenti SET " + ", ".join(f"{c}=?" for c in campi)
+                        + " WHERE id=?", tuple(d[c] for c in campi) + (d["id"],))
+            return int(d["id"])
+        return self.esegui(
+            "INSERT INTO ricorrenti(" + ",".join(campi) + ") VALUES("
+            + ",".join("?" * len(campi)) + ")", tuple(d[c] for c in campi))
+
+    def genera_ricorrenti(self, entro: str = "") -> int:
+        """Scrive i movimenti delle ricorrenti arrivate a scadenza.
+
+        Torna quanti ne ha scritti. `ultima_generazione` è la data dell'ultimo
+        movimento creato: da lì si riparte, così rilanciarla non fa doppioni
+        nemmeno se l'app resta aperta per giorni.
+        """
+        entro = entro or date.today().isoformat()
+        scritti = 0
+        for r in self.ricorrenti(solo_attive=True):
+            for giorno in self._scadenze_ricorrente(dict(r), entro):
+                self.salva_movimento({
+                    "data": giorno, "tipo": r["tipo"], "importo": float(r["importo"]),
+                    "categoria": r["categoria"], "descrizione": r["descrizione"],
+                    "categorie": r["categorie"], "conto": r["conto"]})
+                self.esegui("UPDATE ricorrenti SET ultima_generazione=? WHERE id=?",
+                            (giorno, r["id"]))
+                scritti += 1
+        return scritti
+
+    @staticmethod
+    def _scadenze_ricorrente(r: dict, entro: str) -> list[str]:
+        """Le date ancora da scrivere, fino a `entro` compreso.
+
+        Si parte da `inizio` e si va avanti di una frequenza alla volta;
+        quelle fino a `ultima_generazione` sono già state scritte e si
+        saltano. Vuol dire che spostando indietro `ultima_generazione` si
+        rigenera, e che cancellare un movimento non lo fa tornare da solo.
+        """
+        if not r.get("inizio"):
+            return []
+        inizio = date.fromisoformat(r["inizio"])
+        fine = date.fromisoformat(entro)
+        fatto = (date.fromisoformat(r["ultima_generazione"])
+                 if r.get("ultima_generazione") else None)
+        fuori: list[str] = []
+        corrente = inizio
+        for _ in range(400):            # una rete: non si cicla all'infinito
+            if corrente > fine:
+                break
+            if fatto is None or corrente > fatto:
+                fuori.append(corrente.isoformat())
+            if r.get("frequenza") == "settimanale":
+                corrente = corrente + timedelta(days=7)
+            elif r.get("frequenza") == "annuale":
+                corrente = _avanti_mesi(corrente, 12)
+            else:
+                corrente = _avanti_mesi(corrente, 1)
+        return fuori
 
     def obiettivi(self) -> list[sqlite3.Row]:
         return self.query("SELECT * FROM obiettivi ORDER BY scadenza='', scadenza, nome")

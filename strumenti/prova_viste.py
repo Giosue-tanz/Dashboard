@@ -172,6 +172,92 @@ def main() -> int:
         vista.nav_andamento.imposta_modo("giorni")
     prova("Grafici: quando sono vuoti dicono perché", grafico_vuoto_spiega)
 
+    # ---- la finanza dentro Dashboard: trasferimento, più categorie, conti
+    def finanza_dentro():
+        """Tutto Finance dentro l'archivio, e due volte non raddoppia.
+
+        È denaro: se il trasferimento sbaglia un movimento il saldo non
+        torna più, e non se ne accorge nessuno finché non si va a contare.
+        """
+        from vita.fonti import FonteLocale, porta_dentro_finance
+        import sqlite3 as _s
+        banco2 = tempfile.mkdtemp(prefix="finance-")
+        finto = os.path.join(banco2, "finanze.db")
+        c = _s.connect(finto)
+        c.executescript("""
+            CREATE TABLE conti(id INTEGER PRIMARY KEY, nome TEXT,
+                               saldo_iniziale REAL, tipo TEXT);
+            CREATE TABLE categorie(id INTEGER PRIMARY KEY, nome TEXT, tipo TEXT,
+                                   colore TEXT, icona TEXT);
+            CREATE TABLE movimenti(id INTEGER PRIMARY KEY, data TEXT, tipo TEXT,
+                                   importo REAL, categoria TEXT, conto TEXT,
+                                   descrizione TEXT, etichette TEXT);
+            CREATE TABLE budget(id INTEGER PRIMARY KEY, categoria TEXT, mensile REAL);
+            CREATE TABLE obiettivi(id INTEGER PRIMARY KEY, nome TEXT, obiettivo REAL,
+                                   accantonato REAL, scadenza TEXT, note TEXT);
+            CREATE TABLE ricorrenti(id INTEGER PRIMARY KEY, descrizione TEXT,
+                                    tipo TEXT, importo REAL, categoria TEXT,
+                                    conto TEXT, frequenza TEXT, giorno INTEGER,
+                                    inizio TEXT, ultima_generazione TEXT,
+                                    attiva INTEGER);
+            INSERT INTO conti VALUES(1,'Carta',100.0,'Carta');
+            INSERT INTO categorie VALUES(1,'Caffè','uscita','#ff9f45','');
+            -- due caffè identici lo stesso giorno: sono due, non uno
+            INSERT INTO movimenti VALUES(1,'2026-03-02','uscita',1.5,'Caffè',
+                                         'Carta','','dolce');
+            INSERT INTO movimenti VALUES(2,'2026-03-02','uscita',1.5,'Caffè',
+                                         'Carta','','dolce');
+            INSERT INTO movimenti VALUES(3,'2026-03-03','entrata',50.0,'Regali',
+                                         'Carta','nonna','');
+            INSERT INTO budget VALUES(1,'Caffè',20.0);
+        """)
+        c.commit(); c.close()
+
+        banco3 = tempfile.mkdtemp(prefix="dashboard-")
+        mio = Database(os.path.join(banco3, "v.db"))
+        entrati = porta_dentro_finance(mio, finto)
+        assert entrati["movimenti"] == 3, entrati
+        assert entrati["conti"] == 1 and entrati["budget"] == 1, entrati
+        locale = FonteLocale(mio)
+        assert len(locale.movimenti()) == 3, len(locale.movimenti())
+        # 100 di partenza − 1,5 − 1,5 + 50
+        assert abs(locale.saldo() - 147.0) < 0.005, locale.saldo()
+        # rilanciarlo non raddoppia niente
+        assert porta_dentro_finance(mio, finto)["movimenti"] == 0
+        assert len(locale.movimenti()) == 3
+        assert abs(locale.saldo() - 147.0) < 0.005
+        # le etichette di Finance diventano le categorie in più
+        d = {"data": "2026-03-04", "tipo": "uscita", "importo": 20.0,
+             "categoria": "Spesa", "descrizione": "",
+             "categorie": "Casa, Spesa, Tempo libero", "conto": "Carta"}
+        mio.salva_movimento(d)
+        riga_m = dict(mio.movimenti(limite=1)[0])
+        assert riga_m["categorie"] == "Casa, Tempo libero", riga_m["categorie"]
+        assert riga_m["conto"] == "Carta"
+        # la ciambella conta l'importo una volta sola, sulla prima categoria
+        totale = sum(v for _n, v in locale.per_categoria(
+            "uscita", "0001-01-01", "9999-12-31"))
+        assert abs(totale - 23.0) < 0.005, totale
+        shutil.rmtree(banco2, ignore_errors=True)
+        shutil.rmtree(banco3, ignore_errors=True)
+    prova("Finanza: Finance entra tutto, e due volte non raddoppia",
+          finanza_dentro)
+
+    def ricorrenti_non_raddoppiano():
+        """Le ricorrenti si generano una volta sola per scadenza."""
+        banco4 = tempfile.mkdtemp(prefix="ricorrenti-")
+        mio = Database(os.path.join(banco4, "v.db"))
+        mio.salva_ricorrente({"descrizione": "Affitto", "tipo": "uscita",
+                              "importo": 450.0, "categoria": "Casa",
+                              "frequenza": "mensile", "inizio": "2026-08-01"})
+        assert mio.genera_ricorrenti("2026-11-10") == 4
+        assert mio.genera_ricorrenti("2026-11-10") == 0
+        assert mio.genera_ricorrenti("2026-12-10") == 1
+        assert len(mio.movimenti()) == 5
+        shutil.rmtree(banco4, ignore_errors=True)
+    prova("Finanza: le ricorrenti non si generano due volte",
+          ricorrenti_non_raddoppiano)
+
     # ---- la finestra dell'andamento, misura per misura
     w = FinestraAndamento(db, f.c, "passi", parent=f)
     w.show(); posa(150)

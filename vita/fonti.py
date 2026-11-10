@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from collections import Counter
 from datetime import date
 
 from .utils import mese_corrente
@@ -34,10 +35,22 @@ class FonteLocale:
     def disponibile(self) -> bool:
         return True
 
+    def _iniziale(self) -> float:
+        """Da dove si parte: la somma dei conti, o il saldo iniziale di una volta.
+
+        Finché i conti non ci sono, vale il numero unico scritto nelle
+        impostazioni; appena ce n'è anche uno solo, comandano loro — se no
+        il saldo verrebbe contato due volte.
+        """
+        conti = float(self.db.valore(
+            "SELECT COALESCE(SUM(saldo_iniziale),0) FROM conti", default=0.0))
+        quanti = int(self.db.valore("SELECT COUNT(*) FROM conti", default=0))
+        return conti if quanti else self.db.leggi_num("saldo_iniziale", 0.0)
+
     def saldo(self) -> float:
         ent = self.db.valore("SELECT COALESCE(SUM(importo),0) FROM movimenti WHERE tipo='entrata'")
         usc = self.db.valore("SELECT COALESCE(SUM(importo),0) FROM movimenti WHERE tipo='uscita'")
-        return float(ent) - float(usc) + self.db.leggi_num("saldo_iniziale", 0.0)
+        return float(ent) - float(usc) + self._iniziale()
 
     def totali_periodo(self, dal: str, al: str) -> tuple[float, float]:
         ent = self.db.valore(
@@ -70,7 +83,7 @@ class FonteLocale:
         m = self.db.valore(
             "SELECT COALESCE(SUM(CASE WHEN tipo='entrata' THEN importo ELSE -importo END),0) "
             "FROM movimenti WHERE data <= ?", (giorno,))
-        return float(m) + self.db.leggi_num("saldo_iniziale", 0.0)
+        return float(m) + self._iniziale()
 
     def budget(self) -> list[tuple[str, float, float]]:
         dal, al = mese_corrente()
@@ -87,8 +100,18 @@ class FonteLocale:
                 for r in self.db.obiettivi()]
 
     def conti(self) -> list[tuple[str, float]]:
-        """Un conto solo: qui i movimenti non sono divisi per conto."""
-        return [("Archivio interno", self.saldo())]
+        """I conti col loro saldo. Senza conti, uno solo con dentro tutto."""
+        righe = [(r["nome"], float(r["saldo"])) for r in self.db.conti()]
+        if not righe:
+            return [("Archivio interno", self.saldo())]
+        # i movimenti senza conto non stanno in nessun cassetto: si dicono
+        # a parte, se no la somma dei conti non torna col saldo totale
+        senza = float(self.db.valore(
+            "SELECT COALESCE(SUM(CASE WHEN tipo='entrata' THEN importo "
+            "ELSE -importo END),0) FROM movimenti WHERE conto=''", default=0.0))
+        if abs(senza) >= 0.005:
+            righe.append(("Senza conto", senza))
+        return righe
 
 
 class FonteFinance:
@@ -200,6 +223,111 @@ class FonteFinance:
         if self.conn is not None:
             self.conn.close()
             self.conn = None
+
+
+def porta_dentro_finance(db, percorso: str = "") -> dict:
+    """Copia **tutto** l'archivio di Finance dentro quello di Dashboard.
+
+    Conti, categorie (col colore), movimenti, budget, obiettivi e
+    ricorrenti. Si può rilanciare quante volte si vuole: un movimento
+    uguale a uno già portato dentro non entra due volte — stessa data,
+    stesso tipo, stesso importo, stessa categoria e stessa descrizione.
+
+    Non tocca l'archivio di Finance: lo apre in sola lettura. Finito,
+    la finanza di Dashboard può vivere da sola, e i movimenti si scrivono
+    qui dentro.
+    """
+    conto = {k: 0 for k in ("conti", "categorie", "movimenti", "budget",
+                            "obiettivi", "ricorrenti")}
+    fonte = FonteFinance(percorso)
+    if not fonte.disponibile():
+        return conto
+    try:
+        for r in fonte._righe("SELECT * FROM conti ORDER BY id"):
+            if db.valore("SELECT COUNT(*) FROM conti WHERE nome=?", (r["nome"],)):
+                continue
+            db.salva_conto({"nome": r["nome"],
+                            "saldo_iniziale": float(r["saldo_iniziale"] or 0),
+                            "tipo": r["tipo"] or "Conto corrente"})
+            conto["conti"] += 1
+
+        for r in fonte._righe("SELECT * FROM categorie ORDER BY id"):
+            tipo = r["tipo"] if r["tipo"] in ("entrata", "uscita") else "uscita"
+            gia = db.valore("SELECT COUNT(*) FROM categorie WHERE nome=? AND tipo=?",
+                            (r["nome"], tipo))
+            db.aggiungi_categoria(r["nome"], tipo)
+            colore = (r["colore"] or "").strip()
+            if colore:
+                db.esegui("UPDATE categorie SET colore=? WHERE nome=? AND tipo=?",
+                          (colore, r["nome"], tipo))
+            if not gia:
+                conto["categorie"] += 1
+
+        # Quelli che ci sono già, contati: **due caffè identici nello stesso
+        # giorno sono due movimenti**, non uno. Cercare «ne esiste uno
+        # uguale?» ne avrebbe lasciato fuori uno dei due — e il saldo non
+        # sarebbe più tornato con quello di Finance.
+        gia = Counter(
+            (r["data"], r["tipo"], round(float(r["importo"]), 2),
+             r["categoria"], r["descrizione"])
+            for r in db.query("SELECT data, tipo, importo, categoria, descrizione "
+                              "FROM movimenti"))
+        for r in fonte.movimenti():
+            etichette = r.get("etichette") or ""
+            chiave = (r["data"], r["tipo"], round(float(r["importo"]), 2),
+                      r.get("categoria") or "Altro", r.get("descrizione") or "")
+            if gia[chiave] > 0:
+                gia[chiave] -= 1
+                continue
+            db.salva_movimento({
+                "data": r["data"], "tipo": r["tipo"],
+                "importo": float(r["importo"]),
+                "categoria": r.get("categoria") or "Altro",
+                "descrizione": r.get("descrizione") or "",
+                # le etichette di Finance diventano le categorie in più:
+                # sono la stessa idea, un movimento che sta in più caselle
+                "categorie": etichette,
+                "conto": r.get("conto") or ""})
+            conto["movimenti"] += 1
+
+        for r in fonte._righe("SELECT * FROM budget ORDER BY id"):
+            if db.valore("SELECT COUNT(*) FROM budget WHERE categoria=?",
+                         (r["categoria"],)):
+                continue
+            db.salva_budget(r["categoria"], float(r["mensile"] or 0))
+            conto["budget"] += 1
+
+        for r in fonte._righe("SELECT * FROM obiettivi ORDER BY id"):
+            if db.valore("SELECT COUNT(*) FROM obiettivi WHERE nome=?", (r["nome"],)):
+                continue
+            db.salva_obiettivo({"nome": r["nome"],
+                                "obiettivo": float(r["obiettivo"] or 0),
+                                "accantonato": float(r["accantonato"] or 0),
+                                "scadenza": r["scadenza"] or "",
+                                "note": r["note"] or ""})
+            conto["obiettivi"] += 1
+
+        for r in fonte._righe("SELECT * FROM ricorrenti ORDER BY id"):
+            if db.valore("SELECT COUNT(*) FROM ricorrenti WHERE descrizione=? "
+                         "AND ABS(importo-?) < 0.005",
+                         (r["descrizione"], float(r["importo"] or 0))):
+                continue
+            db.salva_ricorrente({
+                "descrizione": r["descrizione"], "tipo": r["tipo"],
+                "importo": float(r["importo"] or 0),
+                "categoria": r["categoria"] or "Altro", "categorie": "",
+                "conto": r["conto"] or "", "frequenza": r["frequenza"] or "mensile",
+                "giorno": int(r["giorno"] or 1), "inizio": r["inizio"] or "",
+                "ultima_generazione": r["ultima_generazione"] or "",
+                "attiva": int(r["attiva"] or 0)})
+            conto["ricorrenti"] += 1
+
+        # il saldo iniziale di Dashboard non serve più: ce l'hanno i conti
+        if conto["conti"]:
+            db.imposta("saldo_iniziale", "0")
+    finally:
+        fonte.chiudi()
+    return conto
 
 
 def fonte_finanza(db):

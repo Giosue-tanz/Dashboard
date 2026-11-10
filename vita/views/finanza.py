@@ -114,9 +114,9 @@ class VistaFinanza(VistaSezioni):
         self.aggiungi("obiettivi", self.scorrevole(self.cont_obiettivi))
 
         # ----------------------------------------------------- movimenti
-        self.tab = QTableWidget(0, 4)
+        self.tab = QTableWidget(0, 5)
         self.tab.setHorizontalHeaderLabels(
-            ["Data", "Categoria", "Descrizione", "Importo"])
+            ["Data", "Categoria", "Descrizione", "Conto", "Importo"])
         self.tab.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tab.setSelectionBehavior(QTableWidget.SelectRows)
         self.tab.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -124,7 +124,7 @@ class VistaFinanza(VistaSezioni):
         self.tab.doubleClicked.connect(self._modifica_movimento)
         self.tab.setMinimumHeight(60)
         h = self.tab.horizontalHeader()
-        for colonna in (0, 1, 3):
+        for colonna in (0, 1, 3, 4):
             h.setSectionResizeMode(colonna, QHeaderView.ResizeToContents)
         h.setSectionResizeMode(2, QHeaderView.Stretch)
         abilita_deselezione(self.tab)
@@ -170,7 +170,7 @@ class VistaFinanza(VistaSezioni):
         if not self.fonte.modificabile:
             self._avviso_sola_lettura()
             return
-        dlg = DialogoMovimento(self._categorie(), parent=self)
+        dlg = self._dialogo_movimento()
         if dlg.exec():
             self._salva_movimento(dlg.dati())
 
@@ -198,9 +198,24 @@ class VistaFinanza(VistaSezioni):
             elenchi[tipo] = salvate + sorted(set(viste) - set(salvate))
         return elenchi
 
+    def _dialogo_movimento(self, voce=None):
+        """La finestra del movimento, con sotto mano categorie, conti e tinte."""
+        tinte = {r["nome"]: r["colore"] for r in
+                 self.db.query("SELECT nome, colore FROM categorie WHERE colore<>''")}
+        conti = [r["nome"] for r in self.db.conti()]
+        return DialogoMovimento(self._categorie(), voce, parent=self,
+                                conti=conti, colori=self.c, tinte=tinte)
+
     def _salva_movimento(self, d: dict) -> None:
-        """Salva il movimento e tiene la categoria nuova per la prossima volta."""
+        """Salva il movimento e tiene categorie e conto per la prossima volta."""
         self.db.aggiungi_categoria(d["categoria"], d["tipo"])
+        for extra in self.db.altre_categorie(d.get("categorie")):
+            self.db.aggiungi_categoria(extra, d["tipo"])
+        conto = (d.get("conto") or "").strip()
+        if conto and not self.db.valore(
+                "SELECT COUNT(*) FROM conti WHERE nome=?", (conto,)):
+            self.db.salva_conto({"nome": conto, "saldo_iniziale": 0.0,
+                                 "tipo": "Conto corrente"})
         self.db.salva_movimento(d)
         self._ricarica()
 
@@ -246,7 +261,7 @@ class VistaFinanza(VistaSezioni):
         voce = self.db.uno("SELECT * FROM movimenti WHERE id=?", (id_,)) if id_ else None
         if voce is None:
             return
-        dlg = DialogoMovimento(self._categorie(), voce, parent=self)
+        dlg = self._dialogo_movimento(voce)
         if dlg.exec():
             self._salva_movimento(dlg.dati())
 
@@ -426,8 +441,16 @@ class VistaFinanza(VistaSezioni):
             cella.setData(Qt.UserRole, m.get("id"))
             cella.setToolTip(data_it(m["data"]))
             self.tab.setItem(i, 0, cella)
-            self.tab.setItem(i, 1, QTableWidgetItem(m.get("categoria", "")))
+            # la prima categoria è quella che possiede l'importo; le altre
+            # si contano accanto, senza allungare la colonna
+            altre = self.db.altre_categorie(m.get("categorie"))
+            cella_cat = QTableWidgetItem(
+                m.get("categoria", "") + (f"  +{len(altre)}" if altre else ""))
+            if altre:
+                cella_cat.setToolTip("anche: " + ", ".join(altre))
+            self.tab.setItem(i, 1, cella_cat)
             self.tab.setItem(i, 2, QTableWidgetItem(m.get("descrizione", "")))
+            self.tab.setItem(i, 3, QTableWidgetItem(m.get("conto", "") or "—"))
             entrata = m.get("tipo") == "entrata"
             importo = QTableWidgetItem(
                 ("+" if entrata else "−") + euro(abs(float(m.get("importo", 0)))))
@@ -435,7 +458,7 @@ class VistaFinanza(VistaSezioni):
             from PySide6.QtGui import QColor
             importo.setForeground(QColor(self.c["entrata"] if entrata
                                          else self.c["uscita"]))
-            self.tab.setItem(i, 3, importo)
+            self.tab.setItem(i, 4, importo)
         nota = "" if self.fonte.modificabile else " · sola lettura"
         self.contenitore.sezioni["ultimi"].imposta_nota(
             f"{len(voci)} movimenti{nota}")

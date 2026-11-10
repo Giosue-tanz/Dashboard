@@ -4,7 +4,7 @@ from __future__ import annotations
 import csv
 import os
 import shutil
-from datetime import datetime
+from datetime import date, datetime
 
 from PySide6.QtCore import QObject, Qt, QTime, Signal
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
@@ -14,12 +14,13 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBo
                                QTableWidget, QTableWidgetItem, QTimeEdit,
                                QVBoxLayout, QWidget)
 
-from ..componenti import (CampoDurata, DisposizioneFluida, EtichettaACapo,
-                          Interruttore, Scheda, etichetta, riga, separatore,
-                          stile_tabella)
+from ..componenti import (CampoData, CampoDurata, DisposizioneFluida,
+                          EtichettaACapo, Interruttore, Scheda, etichetta,
+                          riga, separatore, stile_tabella)
 from ..db import DATA_DIR
 from .. import blocco, salvataggio
-from ..fonti import PERCORSO_FINANCE, finance_presente
+from ..fonti import (PERCORSO_FINANCE, finance_presente,
+                     porta_dentro_finance)
 from ..punteggi import PREDEFINITI
 from ..tema import SCALE
 from ..utils import durata, euro, numero
@@ -205,6 +206,26 @@ class VistaImpostazioni(VistaBase):
         scheda.aggiungi_layout(riga(None, salva))
         lay.addWidget(scheda)
 
+        scheda = Scheda("Porta dentro Finance")
+        nota_porta = EtichettaACapo(
+            "Copia qui dentro tutto quello che c'è in Finance: conti, "
+            "categorie, movimenti, budget, obiettivi e ricorrenti. "
+            "L'archivio di Finance non si tocca — si apre in sola lettura — e "
+            "si può rilanciare quante volte vuoi: quello che è già entrato "
+            "non entra due volte.\n"
+            "Finito, la finanza di Dashboard vive da sola e i movimenti si "
+            "scrivono qui, senza aprire più l'altra app.")
+        nota_porta.setObjectName("NotaScheda")
+        scheda.aggiungi(nota_porta)
+        self.b_porta_finance = QPushButton("Porta dentro tutto")
+        self.b_porta_finance.setObjectName("Primario")
+        self.b_porta_finance.clicked.connect(self._porta_dentro_finance)
+        self.esito_porta = EtichettaACapo("")
+        self.esito_porta.setObjectName("NotaScheda")
+        scheda.aggiungi_layout(riga(None, self.b_porta_finance))
+        scheda.aggiungi(self.esito_porta)
+        lay.addWidget(scheda)
+
         scheda = Scheda("Categorie dei movimenti")
         scheda.aggiungi(etichetta(
             "Due elenchi distinti: uno per le entrate, uno per le uscite. "
@@ -258,8 +279,134 @@ class VistaImpostazioni(VistaBase):
         scheda.aggiungi_layout(riga(self.categoria_budget, self.importo_budget,
                                     aggiungi, togli))
         lay.addWidget(scheda)
+
+        scheda = Scheda("I conti")
+        nota_conti = EtichettaACapo(
+            "Dove passa il denaro: contante, carta, conto corrente. Il saldo "
+            "di un conto è quello di partenza più quello che ci è entrato "
+            "meno quello che ne è uscito.\n"
+            "Rinominare un conto se li porta dietro i suoi movimenti; "
+            "toglierlo no: quei movimenti restano, senza conto.")
+        nota_conti.setObjectName("NotaScheda")
+        scheda.aggiungi(nota_conti)
+        self.tab_conti = QTableWidget(0, 3)
+        self.tab_conti.setHorizontalHeaderLabels(["Conto", "Di partenza", "Saldo"])
+        self.tab_conti.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tab_conti.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tab_conti.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.Stretch)
+        self.tab_conti.setMinimumHeight(130)
+        self.tab_conti.setMaximumHeight(180)
+        stile_tabella(self.tab_conti, 30)
+        scheda.aggiungi(self.tab_conti)
+        self.nome_conto = QLineEdit()
+        self.nome_conto.setPlaceholderText("nome del conto")
+        self.iniziale_conto = QDoubleSpinBox()
+        self.iniziale_conto.setRange(-999999, 999999)
+        self.iniziale_conto.setSuffix(" €")
+        self.iniziale_conto.setToolTip("Quanto c'era prima del primo movimento")
+        aggiungi_conto = QPushButton("Aggiungi o aggiorna")
+        aggiungi_conto.clicked.connect(self._salva_conto)
+        togli_conto = QPushButton("Togli")
+        togli_conto.clicked.connect(self._togli_conto)
+        scheda.aggiungi_layout(riga(self.nome_conto, self.iniziale_conto,
+                                    aggiungi_conto, togli_conto))
+        lay.addWidget(scheda)
+
+        scheda = Scheda("Movimenti che tornano da soli")
+        nota_ric = EtichettaACapo(
+            "Affitto, abbonamenti, stipendio: si scrivono da sé quando arriva "
+            "il giorno, all'apertura di Dashboard. Quelli già scritti non "
+            "tornano: se ne cancelli uno a mano resta cancellato.")
+        nota_ric.setObjectName("NotaScheda")
+        scheda.aggiungi(nota_ric)
+        self.tab_ricorrenti = QTableWidget(0, 4)
+        self.tab_ricorrenti.setHorizontalHeaderLabels(
+            ["Cosa", "Quanto", "Ogni", "Dal"])
+        self.tab_ricorrenti.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tab_ricorrenti.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tab_ricorrenti.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.Stretch)
+        self.tab_ricorrenti.setMinimumHeight(120)
+        self.tab_ricorrenti.setMaximumHeight(170)
+        stile_tabella(self.tab_ricorrenti, 30)
+        scheda.aggiungi(self.tab_ricorrenti)
+        self.desc_ric = QLineEdit()
+        self.desc_ric.setPlaceholderText("es. Affitto")
+        self.importo_ric = QDoubleSpinBox()
+        self.importo_ric.setRange(0, 999999); self.importo_ric.setSuffix(" €")
+        self.tipo_ric = QComboBox(); self.tipo_ric.addItems(["uscita", "entrata"])
+        self.categoria_ric = QLineEdit()
+        self.categoria_ric.setPlaceholderText("categoria")
+        self.frequenza_ric = QComboBox()
+        self.frequenza_ric.addItems(["mensile", "settimanale", "annuale"])
+        self.inizio_ric = CampoData("", "dal…")
+        aggiungi_ric = QPushButton("Aggiungi")
+        aggiungi_ric.clicked.connect(self._salva_ricorrente)
+        togli_ric = QPushButton("Togli")
+        togli_ric.clicked.connect(self._togli_ricorrente)
+        scheda.aggiungi_layout(riga(self.desc_ric, self.importo_ric,
+                                    self.tipo_ric, self.categoria_ric))
+        scheda.aggiungi_layout(riga(self.frequenza_ric, self.inizio_ric,
+                                    aggiungi_ric, togli_ric))
+        lay.addWidget(scheda)
         lay.addStretch(1)
         return pagina
+
+    # ------------------------------------------------------------- conti
+    def _conto_scelto(self):
+        righe = self.tab_conti.selectionModel().selectedRows()
+        if not righe:
+            return None
+        return self.tab_conti.item(righe[0].row(), 0).data(Qt.UserRole)
+
+    def _salva_conto(self) -> None:
+        """Un conto nuovo, o il saldo di partenza di uno che c'è già."""
+        nome = self.nome_conto.text().strip()
+        if not nome:
+            return
+        riga_ = self.db.uno("SELECT id FROM conti WHERE nome=?", (nome,))
+        self.db.salva_conto({"id": riga_["id"] if riga_ else None, "nome": nome,
+                             "saldo_iniziale": self.iniziale_conto.value(),
+                             "tipo": "Conto corrente"})
+        self.nome_conto.clear()
+        self.iniziale_conto.setValue(0)
+        self.fonte_cambiata.emit()
+        self.aggiorna()
+
+    def _togli_conto(self) -> None:
+        id_ = self._conto_scelto()
+        if id_ is None:
+            return
+        self.db.elimina_conto(int(id_))
+        self.fonte_cambiata.emit()
+        self.aggiorna()
+
+    # -------------------------------------------------------- ricorrenti
+    def _salva_ricorrente(self) -> None:
+        descrizione = self.desc_ric.text().strip()
+        if not descrizione or self.importo_ric.value() <= 0:
+            return
+        self.db.salva_ricorrente({
+            "descrizione": descrizione, "tipo": self.tipo_ric.currentText(),
+            "importo": self.importo_ric.value(),
+            "categoria": self.categoria_ric.text().strip() or "Altro",
+            "frequenza": self.frequenza_ric.currentText(),
+            "inizio": self.inizio_ric.valore() or date.today().isoformat()})
+        self.db.genera_ricorrenti()
+        self.desc_ric.clear(); self.importo_ric.setValue(0)
+        self.categoria_ric.clear()
+        self.fonte_cambiata.emit()
+        self.aggiorna()
+
+    def _togli_ricorrente(self) -> None:
+        righe = self.tab_ricorrenti.selectionModel().selectedRows()
+        if not righe:
+            return
+        id_ = self.tab_ricorrenti.item(righe[0].row(), 0).data(Qt.UserRole)
+        if id_ is not None:
+            self.db.elimina("ricorrenti", int(id_))
+            self.aggiorna()
 
     def _cambia_fonte(self) -> None:
         self.db.imposta("fonte_finanza", self.fonte_scelta.currentData())
@@ -283,6 +430,34 @@ class VistaImpostazioni(VistaBase):
     def _salva_finanza(self) -> None:
         self.db.imposta("percorso_finance", self.percorso_finance.text().strip())
         self.db.imposta("avvio_finance", self.avvio_finance.text().strip())
+        self.fonte_cambiata.emit()
+        self.aggiorna()
+
+    def _porta_dentro_finance(self) -> None:
+        """Tutto l'archivio di Finance dentro quello di Dashboard."""
+        percorso = self.percorso_finance.text().strip() or PERCORSO_FINANCE
+        if not finance_presente(percorso):
+            self.esito_porta.setText(f"Non trovo nessun archivio in {percorso}.")
+            return
+        if QMessageBox.question(
+                self, "Portare dentro Finance?",
+                f"Copio dentro Dashboard tutto quello che c'è in:\n{percorso}\n\n"
+                "L'archivio di Finance non viene toccato. Dopo, la sorgente "
+                "della finanza passa all'archivio interno, che è quello che "
+                "rende i movimenti modificabili da qui.",
+                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        entrati = porta_dentro_finance(self.db, percorso)
+        quanti = ", ".join(f"{n} {nome}" for nome, n in entrati.items() if n)
+        self.db.imposta("fonte_finanza", "locale")
+        indice = self.fonte_scelta.findData("locale")
+        if indice >= 0:
+            self.fonte_scelta.blockSignals(True)
+            self.fonte_scelta.setCurrentIndex(indice)
+            self.fonte_scelta.blockSignals(False)
+        self.esito_porta.setText(
+            f"Portati dentro: {quanti}." if quanti else
+            "Era già dentro tutto: non è entrato niente di nuovo.")
         self.fonte_cambiata.emit()
         self.aggiorna()
 
@@ -833,6 +1008,30 @@ class VistaImpostazioni(VistaBase):
             cella.setData(Qt.UserRole, tipo)
             self.tab_categorie.setItem(i, 0, cella)
             self.tab_categorie.setItem(i, 1, QTableWidgetItem(tipo))
+
+        conti = self.db.conti()
+        self.tab_conti.setRowCount(len(conti))
+        for i, c in enumerate(conti):
+            cella = QTableWidgetItem(c["nome"])
+            cella.setData(Qt.UserRole, c["id"])
+            self.tab_conti.setItem(i, 0, cella)
+            for colonna, valore in ((1, c["saldo_iniziale"]), (2, c["saldo"])):
+                v = QTableWidgetItem(euro(valore))
+                v.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.tab_conti.setItem(i, colonna, v)
+
+        ricorrenti = self.db.ricorrenti()
+        self.tab_ricorrenti.setRowCount(len(ricorrenti))
+        for i, r in enumerate(ricorrenti):
+            cella = QTableWidgetItem(r["descrizione"])
+            cella.setData(Qt.UserRole, r["id"])
+            self.tab_ricorrenti.setItem(i, 0, cella)
+            importo = QTableWidgetItem(
+                ("+" if r["tipo"] == "entrata" else "−") + euro(r["importo"]))
+            importo.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.tab_ricorrenti.setItem(i, 1, importo)
+            self.tab_ricorrenti.setItem(i, 2, QTableWidgetItem(r["frequenza"]))
+            self.tab_ricorrenti.setItem(i, 3, QTableWidgetItem(r["inizio"]))
 
         voci = self.db.budget()
         self.tab_budget.setRowCount(len(voci))
