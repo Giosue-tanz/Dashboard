@@ -53,6 +53,38 @@ def ore(minuti: float, decimali: int = 1) -> str:
     return numero((minuti or 0) / 60, decimali) + "h"
 
 
+# -------------------------------------------------------------- orari di orologio
+def ore_minuti(testo: str, difetto: int = 0) -> int:
+    """«23:00» diventa 1380 minuti; quello che non si capisce vale il difetto."""
+    try:
+        o, m = testo.split(":")
+        return (int(o) % 24) * 60 + int(m) % 60
+    except (AttributeError, ValueError):
+        return difetto
+
+
+def minuti_ore(minuti: int) -> str:
+    """1380 minuti ridiventa «23:00», qualunque giro di mezzanotte abbia fatto."""
+    minuti = int(round(minuti)) % 1440
+    return f"{minuti // 60:02d}:{minuti % 60:02d}"
+
+
+def minuti_vicini(valore: int, riferimento: int) -> int:
+    """`valore` spostato di un multiplo di 24 ore finché non sta entro dodici
+    ore dal riferimento.
+
+    Serve a mediare orari che scavalcano la mezzanotte senza farli sembrare
+    lontanissimi fra loro: 23:40 (1420) e 00:10 (10) sono vicini di venti
+    minuti, non di ventitré ore e mezza, ed è così che vanno trattati quando
+    se ne fa una media.
+    """
+    while valore - riferimento > 720:
+        valore -= 1440
+    while valore - riferimento < -720:
+        valore += 1440
+    return valore
+
+
 # -------------------------------------------------------------------- date
 def oggi() -> str:
     return date.today().isoformat()

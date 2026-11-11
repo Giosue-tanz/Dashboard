@@ -51,7 +51,10 @@ AREE = {
     "salute":       "#19c2e0",   # turchese: il corpo
     "finanza":      "#22c55e",   # verde: i soldi
     "abitudini":    "#ffa62b",   # ambra: i giorni di fila
-    "tess":         "#f472b6",   # rosa: l'AI
+    # rosso chiaro: l'AI. Stessa famiglia di «emozioni» (349°) ma nove
+    # punti di luce piu' su, cosi' si distinguono nella barra; e sul tema
+    # scuro il testo che ci va sopra passa da 2,6:1 a 7,7:1.
+    "tess":         "#ff7b8c",
     "impostazioni": "#94a3b8",   # ardesia: gli attrezzi
     "cruscotto":    "#16c47f",   # il verde di casa
 }

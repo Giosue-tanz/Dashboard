@@ -16,7 +16,8 @@ from PySide6.QtWidgets import (QCheckBox, QDateEdit, QFrame, QHBoxLayout, QLabel
 from .grafici import Anello, Sparkline
 from .tema import colore_area, luminosita, scurisci, su_colore as su_tinta, trasparente
 from .utils import (MODI_PERIODO, QUANTI_PREDEFINITI, data_it, intervalli,
-                    media, nome_intervallo, numero, relativa, ultimi_giorni)
+                    media, minuti_ore, nome_intervallo, numero, ore_minuti,
+                    relativa, ultimi_giorni)
 
 FACCE = ["😖", "😣", "😕", "😐", "🙂", "😊", "😄", "🤩"]
 
@@ -1575,9 +1576,14 @@ class BarraAttesa(QWidget):
     calcolare, dice solo che qualcosa sta andando avanti.
     """
 
-    def __init__(self, colori: dict, parent=None, altezza: int = 4):
+    def __init__(self, colori: dict, parent=None, altezza: int = 4,
+                 area: str = ""):
         super().__init__(parent)
         self.c = colori
+        # come per `Interruttore`: con `area` la barra prende il colore di
+        # quella pagina invece dell'accento di casa, così l'attesa è dello
+        # stesso colore della cosa che si sta aspettando
+        self.area = area
         self.setFixedHeight(altezza)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._quota = 0.0
@@ -1616,8 +1622,14 @@ class BarraAttesa(QWidget):
         largo = max(40.0, self.width() * 0.3)
         corsa = self.width() + largo
         x = -largo + corsa * self._quota
-        p.setBrush(QColor(self.c["accento"]))
+        p.setBrush(QColor(self._tinta()))
         p.drawRoundedRect(QRectF(x, 0, largo, self.height()), raggio, raggio)
+
+    def _tinta(self) -> str:
+        """Il colore del segmento: quello dell'area, o l'accento di casa."""
+        if not self.area:
+            return self.c["accento"]
+        return colore_area(self.area, luminosita(self.c["fondo"]) > 0.5)
 
 
 class Interruttore(QWidget):

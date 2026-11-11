@@ -417,6 +417,55 @@ def main() -> int:
         r._scrivi_modello()
     prova("Tess: il livello si sceglie dalla chat", scelta_modello)
 
+    def chat_si_vede_generare():
+        """Mandando una domanda, la risposta si deve **vedere scrivere**.
+
+        Prima la chat saltava in coda: la domanda finiva appiccicata al
+        bordo di sotto e la risposta cresceva li' sotto, fuori dallo
+        schermo. La causa vera era `maximum()`: in fondo alla colonna c'e'
+        una molla che tiene i messaggi in alto, e il riquadro e'
+        regolarmente piu' alto delle bolle che contiene — "vai al massimo"
+        finiva nel vuoto sotto l'ultima riga. Adesso si misura la geometria
+        vera delle bolle.
+        """
+        from PySide6.QtCore import QPoint
+        r.pulisci()
+        for n in range(12):            # tanta storia: ci dev'essere da scorrere
+            r._scrivi("tu", f"domanda {n}")
+            r._scrivi("tess", "risposta di prova " * 12)
+        posa(200)
+        vista = r.chat.viewport().height()
+        barra = r.chat.verticalScrollBar()
+        dentro = r.chat.widget()
+
+        r._scrivi("tu", "Quanti passi ho fatto ieri?")
+        r._segue = True
+        r._in_cima = r.in_pagina[-1]
+        posa(200)
+        alto = r._in_cima.mapTo(dentro, QPoint(0, 0)).y() - barra.value()
+        assert 0 <= alto <= 40, f"la domanda non e' in cima: {alto}px"
+        assert vista - alto > vista * 0.8, "non resta spazio per la risposta"
+
+        r._inizia_risposta(); r._in_corso = ""
+        r._aggiungi_pezzo("una risposta breve."); posa(200)
+        assert r._fondo_vero() - barra.value() <= vista, \
+            "la risposta corta finisce fuori dallo schermo"
+
+        for _ in range(10):
+            r._aggiungi_pezzo("parola " * 40)
+        posa(250)
+        assert r._fondo_vero() - barra.value() <= vista + 8, \
+            "la risposta lunga si scrive fuori dallo schermo"
+
+        # e se torni indietro a rileggere, non ti strappa la pagina
+        barra.setValue(max(0, barra.value() - 600))
+        r._segue = False
+        prima = barra.value()
+        r._aggiungi_pezzo("altro testo " * 30); posa(200)
+        assert barra.value() == prima, "ti ha trascinato in fondo mentre rileggevi"
+        r.pulisci()
+    prova("Tess: la risposta si vede scrivere", chat_si_vede_generare)
+
     def fili_non_toccano_archivio():
         """I fili di Tess non devono leggere l'archivio. **Mai.**
 

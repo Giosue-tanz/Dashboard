@@ -1491,7 +1491,7 @@ class RiquadroTess(QWidget):
         colonna.addWidget(self.et_stato, 0, Qt.AlignHCenter)
 
         # mentre si accende: la stessa barra dell'app Tess, più il cronometro
-        self.barra_attesa = BarraAttesa(colori)
+        self.barra_attesa = BarraAttesa(colori, area="tess")
         self.barra_attesa.setFixedWidth(260)
         self.barra_attesa.hide()
         self.et_tempo = QLabel("")
@@ -1514,6 +1514,14 @@ class RiquadroTess(QWidget):
         self.chat.setFrameShape(QScrollArea.NoFrame)
         self.chat.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.chat.setMinimumHeight(90)
+        # «Sto seguendo la risposta che arriva?» Diventa falso appena torni
+        # indietro a rileggere, così il testo che continua ad arrivare non
+        # ti strappa la pagina da sotto gli occhi.
+        self._segue = True
+        # La bolla da tenere in cima finché arriva la risposta: None quando
+        # non c'è niente in attesa.
+        self._in_cima = None
+        self.chat.verticalScrollBar().actionTriggered.connect(self._mosso_a_mano)
         dentro = QWidget()
         dentro.setObjectName("ContenutoSezione")
         self.lay_chat = QVBoxLayout(dentro)
@@ -1688,7 +1696,7 @@ class RiquadroTess(QWidget):
         # Il caricamento del nuovo cervello: una strisciolina stretta accanto
         # al nome, che si muove finché i giga non sono in scheda. Sta qui e
         # non in mezzo alla pagina perché è un lavoro della testata.
-        self.attesa_modello = BarraAttesa(colori, altezza=3)
+        self.attesa_modello = BarraAttesa(colori, altezza=3, area="tess")
         self.attesa_modello.setFixedWidth(46)
         self.attesa_modello.hide()
         fila_p.addWidget(self.attesa_modello)
@@ -2236,6 +2244,12 @@ class RiquadroTess(QWidget):
         id_riga = self.db.salva_messaggio_tess(self.chat_id, "user", domanda)
         self._scrivi("tu", domanda, id_riga)
         self.messaggi.append({"role": "user", "content": domanda})
+        # La domanda in cima alla vista, non in coda: così tutto lo spazio
+        # sotto resta libero per la risposta che sta per arrivare, e la si
+        # vede scrivere. Ci pensa `_assesta`, che `_scrivi` ha già messo in
+        # coda per quando le bolle si saranno sistemate.
+        self._segue = True
+        self._in_cima = self.in_pagina[-1] if self.in_pagina else None
         if nuova:
             self.aggiorna_elenco()
         self._interroga(domanda)
@@ -2295,10 +2309,16 @@ class RiquadroTess(QWidget):
         self._in_corso += testo
         self._bolla_corrente.setText(self._in_corso)
         self._larghezza_bolle()
-        self._in_fondo()
+        # Rinviato al giro dopo. La QLabel ha appena cambiato testo e non ha
+        # ancora ricalcolato la sua altezza: `maximum` vale ancora quanto
+        # valeva prima. Leggendolo subito si scorreva a un fondo vecchio e
+        # il testo nuovo restava sotto il bordo — la risposta si scriveva
+        # fuori dallo schermo, che è il difetto da cui è partito tutto.
+        QTimer.singleShot(0, self._assesta)
 
     def _chiudi_risposta(self) -> None:
         self.b_invia.setEnabled(True)
+        self._in_cima = None        # finita: la vista torna a seguire la coda
         if self._in_corso:
             self.messaggi.append({"role": "assistant", "content": self._in_corso})
             id_riga = self.db.salva_messaggio_tess(self.chat_id, "assistant",
@@ -2308,6 +2328,7 @@ class RiquadroTess(QWidget):
                 self.in_pagina[-1].id_messaggio = id_riga
 
     def _errore(self, messaggio: str) -> None:
+        self._in_cima = None        # anche se è andata male, si riparte
         self.b_invia.setEnabled(True)
         self._bolla_corrente.setText(f"({messaggio})")
         self._mostra_stato(self.motore.attiva())
@@ -2327,9 +2348,43 @@ class RiquadroTess(QWidget):
         self.in_pagina.append(messaggio)
         self.bolle.append(messaggio.testo)
         self._larghezza_bolle()
+        # Un solo punto decide dove va la barra: prima `_scrivi` programmava
+        # sempre un «vai in fondo», che si accavallava con il «porta la
+        # domanda in cima» dell'invio — due meccanismi a contendersi la
+        # stessa barra, e vinceva quello che scattava per ultimo.
         for ritardo in (0, 60):          # dopo che il riquadro si è assestato
-            QTimer.singleShot(ritardo, self._in_fondo)
+            QTimer.singleShot(ritardo, self._assesta)
         return messaggio.testo
+
+    def _assesta(self) -> None:
+        """Dove deve stare la vista adesso. **Unico punto che muove la barra.**
+
+        Tre casi, in ordine:
+
+        1. hai scorso tu da qualche parte → non si tocca niente;
+        2. c'è una domanda appena mandata e la risposta ci sta ancora nello
+           schermo → la domanda resta in cima e il testo riempie il vuoto
+           sotto, che è il momento in cui si guarda scrivere;
+        3. la risposta ha sfondato il bordo → si segue la coda.
+        """
+        if not self._segue:
+            return
+        if self._in_cima is not None and not self._risposta_sfonda():
+            self._mostra_domanda()
+            return
+        self._in_fondo()
+
+    def _risposta_sfonda(self) -> bool:
+        """La risposta è cresciuta oltre il fondo della vista?
+
+        Finché non sfonda, tenere la domanda in cima e andare in coda sono
+        la stessa posizione, e si può restare fermi. Dopo, sono due posti
+        diversi: tenerla in cima vorrebbe dire scrivere fuori dallo schermo.
+        """
+        if self._in_cima is None:
+            return True
+        cima = self._in_cima.mapTo(self.chat.widget(), QPoint(0, 0)).y()
+        return self._fondo_vero() > (cima - 12) + self.chat.viewport().height()
 
     def _larghezza_bolle(self) -> None:
         """La bolla veste il testo; quella di Tess invece non c'è.
@@ -2356,9 +2411,64 @@ class RiquadroTess(QWidget):
             bolla.setMinimumWidth(largo)
             bolla.setMaximumWidth(largo)
 
-    def _in_fondo(self) -> None:
+    def _mosso_a_mano(self, _azione) -> None:
+        """Hai scorso tu: da qui in poi comanda la tua posizione.
+
+        `actionTriggered` scatta solo per rotella, barra e tasti — non per
+        `setValue`, che è quello che fa la chat. Così si distingue il tuo
+        scorrimento dal suo senza confonderli.
+        """
+        QTimer.singleShot(
+            0, lambda: setattr(self, "_segue", self._attaccato_in_fondo()))
+
+    def _attaccato_in_fondo(self) -> bool:
+        """Stiamo guardando la coda della conversazione?
+
+        Serve per non rubare la pagina a chi è tornato indietro a rileggere:
+        finché è lassù, la risposta che arriva non deve trascinarlo in fondo.
+        """
         barra = self.chat.verticalScrollBar()
-        barra.setValue(barra.maximum())
+        dove = self._fondo_vero() + 8 - self.chat.viewport().height()
+        return barra.value() >= min(barra.maximum(), dove) - 48
+
+    def _fondo_vero(self) -> int:
+        """Dove finisce davvero l'ultima bolla, dentro il riquadro che scorre.
+
+        Non si usa `maximum()` perché misura un'altra cosa: in fondo alla
+        colonna c'è una molla che tiene i messaggi in alto, e il riquadro è
+        regolarmente più alto delle bolle che contiene — in una prova, 2810
+        pixel per 1652 di testo. «Vai al massimo» finiva quindi in mezzo al
+        vuoto sotto l'ultima riga, non sull'ultima riga.
+        """
+        if not self.in_pagina:
+            return 0
+        ultima = self.in_pagina[-1]
+        return ultima.mapTo(self.chat.widget(), QPoint(0, 0)).y() + ultima.height()
+
+    def _in_fondo(self) -> None:
+        """L'ultima riga appoggiata al bordo di sotto, non il vuoto che segue."""
+        barra = self.chat.verticalScrollBar()
+        dove = self._fondo_vero() + 8 - self.chat.viewport().height()
+        barra.setValue(max(0, min(barra.maximum(), dove)))
+
+    def _mostra_domanda(self) -> None:
+        """Porta la tua domanda **in cima** alla vista, non in fondo.
+
+        Mandando un messaggio si scorreva in coda, e la domanda finiva
+        appiccicata al bordo di sotto: la risposta cresceva lì sotto, fuori
+        dallo schermo, e non si vedeva scrivere niente. Mettendola in alto,
+        tutto lo spazio sotto resta libero per la risposta che arriva.
+
+        Se però la conversazione è corta e non c'è niente da scorrere, resta
+        tutto dov'è: non c'è nessun «in alto» da raggiungere.
+        """
+        quale = self._in_cima
+        if quale is None:
+            return
+        barra = self.chat.verticalScrollBar()
+        # dove comincia la domanda dentro il riquadro che scorre
+        cima = quale.mapTo(self.chat.widget(), QPoint(0, 0)).y()
+        barra.setValue(min(barra.maximum(), max(0, cima - 12)))
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
