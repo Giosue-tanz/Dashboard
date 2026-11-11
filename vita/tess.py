@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (QApplication, QFrame, QGraphicsDropShadowEffect,
 from . import punteggi as calcolo
 from .componenti import (BarraAttesa, BottoneIcona, BottonePannello,
                          Interruttore)
+from .tema import colore_area, luminosita
 from .utils import (GIORNI, MESI, data_it, data_lunga, durata, euro, media,
                     numero, relativa, settimana_corrente, ultimi_giorni)
 
@@ -98,53 +99,99 @@ class Motore:
         except Exception:
             return False
 
-    def modelli(self) -> list[str]:
-        """I modelli installati nel motore, in ordine alfabetico.
+    # Chi non risponde alle domande, e quindi non si offre nella tendina:
+    # l'embedder cerca dentro i testi, e il vecchio Tess su gemma3 è stato
+    # sostituito da Low, che è più preciso e costa uguale.
+    FUORI_ELENCO = ("embedder", "tess", "gemma3")
 
-        L'embedder resta fuori: serve a cercare dentro i testi, non a
-        rispondere, e offrirlo nella scelta vorrebbe dire offrire una cosa
-        che non sa parlare.
+    def modelli(self) -> list[str]:
+        """I modelli che possono rispondere, nell'ordine dei livelli.
+
+        Low prima di Hard, non in ordine alfabetico: la tendina deve
+        leggersi dal più economico al più caro, come un listino.
         """
         try:
             nomi = [m["name"] for m in self.chiama("/api/tags").get("models", [])]
         except Exception:
             return []
-        return sorted(n for n in nomi
-                      if n.split(":")[0].lower() not in ("embedder",))
+        buoni = [n for n in nomi
+                 if n.split(":")[0].lower() not in self.FUORI_ELENCO]
+        ordine = {chiave: i for i, chiave in enumerate(LIVELLI)}
+        return sorted(buoni, key=lambda n: (ordine.get(n, 99), n))
 
     def modello(self) -> str:
         """Il modello da usare: quello scelto, se è ancora installato.
 
-        Senza una scelta vale quello col nome di Tess — che è come è sempre
-        stato, e resta il comportamento di chi non ha mai aperto il menu.
+        Senza una scelta — o con una scelta che non c'è più, come il vecchio
+        Tess — vale il predefinito: Low, che è quello che si vuole quasi
+        sempre.
         """
         disponibili = self.modelli()
-        if not disponibili:
-            return self.db.leggi("tess_modello", "") or self.nome
         scelto = self.db.leggi("tess_modello", "")
+        if not disponibili:
+            return scelto or MODELLO_PREDEFINITO
         if scelto and scelto in disponibili:
             return scelto
-        for nome in disponibili:
-            if nome.split(":")[0].lower() == self.nome.lower():
-                return nome
+        if MODELLO_PREDEFINITO in disponibili:
+            return MODELLO_PREDEFINITO
         return disponibili[0]
 
+    def modello_svelto(self) -> str:
+        """Il più svelto fra quelli installati.
+
+        `modelli()` torna già in ordine di livello, dal più economico al più
+        caro: il primo è quello che si carica all'accensione.
+        """
+        disponibili = self.modelli()
+        return disponibili[0] if disponibili else MODELLO_PREDEFINITO
+
     def scegli_modello(self, nome: str) -> None:
-        """Cambia il modello, e **toglie dalla VRAM quello di prima**.
+        """Salva il livello scelto, e niente più.
+
+        Qui non si tocca la scheda video: svuotarla e riempirla sono due
+        attese da venti secondi, e se si facessero adesso resterebbe ferma la
+        finestra. Le fa `CambioModello`, in un filo suo.
+        """
+        self.db.imposta("tess_modello", nome)
+
+    def caricati(self) -> list[str]:
+        """I modelli che in questo momento occupano memoria."""
+        try:
+            return [m.get("name", "")
+                    for m in self.chiama("/api/ps").get("models", [])]
+        except Exception:
+            return []
+
+    def libera_vram(self, tranne: str = "") -> list[str]:
+        """Butta fuori dalla scheda tutti i modelli tranne uno. Torna chi è uscito.
+
+        Serve perché `precarica()` li inchioda con `keep_alive -1`: un modello
+        caricato così **non scade mai**, e il vecchio Tess su gemma3 era
+        rimasto lì a tenersi 2,7 dei 4 giga della scheda. Risultato: Low
+        entrava a metà sul processore e Hard quasi tutto, e sembravano rotti
+        quando invece era solo la scheda piena di un modello di ieri.
+        """
+        resta = self._pieno(tranne or self.modello())
+        usciti = []
+        for nome in self.caricati():
+            if nome and self._pieno(nome) != resta:
+                self.scarica(nome)
+                usciti.append(nome)
+        return usciti
+
+    def scarica(self, nome: str) -> None:
+        """Tira fuori un modello dalla VRAM, adesso.
 
         Con quattro giga non ci stanno in due: senza scaricare il vecchio, il
         nuovo entrerebbe a metà in scheda e a metà sul processore, e sarebbe
         lento senza che si capisca perché.
         """
-        vecchio = self.modello()
-        self.db.imposta("tess_modello", nome)
-        if vecchio and vecchio != nome:
-            try:    # keep_alive 0 = scaricalo adesso
-                self.chiama("/api/generate",
-                            {"model": vecchio, "prompt": "", "keep_alive": 0},
-                            attesa=20)
-            except Exception:
-                pass
+        try:        # keep_alive 0 = scaricalo adesso
+            self.chiama("/api/generate",
+                        {"model": nome, "prompt": "", "keep_alive": 0},
+                        attesa=30)
+        except Exception:
+            pass
 
     def accendi(self) -> tuple[bool, str]:
         """Avvia il servizio del motore (non l'interfaccia web, qui non serve)."""
@@ -160,16 +207,28 @@ class Motore:
             return False, (esito.stderr or "").strip() or "Il servizio non è partito."
         return True, ""
 
-    def in_memoria(self) -> bool:
-        """Il modello è già salito in VRAM?"""
+    @staticmethod
+    def _pieno(nome: str) -> str:
+        """«qwen3» → «qwen3:latest»: la forma con cui il motore li chiama."""
+        nome = (nome or "").strip().lower()
+        return nome if ":" in nome else f"{nome}:latest"
+
+    def in_memoria(self, nome: str = "") -> bool:
+        """Quel modello è già salito in VRAM?
+
+        Il confronto è sul nome **intero**, non sulla famiglia: Low e Hard
+        sono entrambi «qwen3», e guardando solo quello si credeva Hard già
+        caricato perché in scheda c'era Low. Risultato: nessun precaricamento,
+        e i venti secondi arrivavano addosso alla prima domanda.
+        """
         try:
             caricati = self.chiama("/api/ps").get("models", [])
         except Exception:
             return False
-        atteso = self.modello().split(":")[0].lower()
-        return any(m["name"].split(":")[0].lower() == atteso for m in caricati)
+        atteso = self._pieno(nome or self.modello())
+        return any(self._pieno(m.get("name", "")) == atteso for m in caricati)
 
-    def precarica(self) -> bool:
+    def precarica(self, nome: str = "") -> bool:
         """Porta il modello in VRAM prima che arrivi la prima domanda.
 
         Il motore risponde subito dopo l'avvio, ma il modello entra in memoria
@@ -178,8 +237,9 @@ class Motore:
         """
         try:
             self.chiama("/api/generate",
-                        {"model": self.modello(), "prompt": "", "keep_alive": -1},
-                        attesa=180)
+                        {"model": nome or self.modello(), "prompt": "",
+                         "keep_alive": -1},
+                        attesa=240)
             return True
         except Exception:
             return False
@@ -190,7 +250,13 @@ class Motore:
 
 
 class Accensione(QThread):
-    """Accende il motore, poi carica il modello: due attese, una sola volta."""
+    """Accende il motore, poi carica il modello: due attese, una sola volta.
+
+    Il modello che carica è **il più svelto**, sempre: all'accensione nessuno
+    ha ancora chiesto niente, e far aspettare mezzo minuto per Hard — che poi
+    magari non serve — è il modo peggiore di cominciare. Hard si prende dalla
+    tendina, quando si sa di averne bisogno.
+    """
 
     fase = Signal(str)                 # «motore» · «modello»
     pronta = Signal(bool, str)
@@ -219,10 +285,36 @@ class Accensione(QThread):
         if not acceso:
             self.pronta.emit(False, "Il motore non risponde sulla sua porta locale.")
             return
+        # qui `modello()` è già il più svelto: la scelta salvata l'ha
+        # azzerata `attiva()` prima di partire
+        self.motore.libera_vram()          # fuori i modelli di ieri
         if not self.motore.in_memoria():
             self.fase.emit("modello")
             self.motore.precarica()
         self.pronta.emit(True, "")
+
+
+class CambioModello(QThread):
+    """Il passaggio da un livello all'altro: fuori il vecchio, dentro il nuovo.
+
+    Sono due viaggi lenti — svuotare quattro giga di VRAM e riempirli — e
+    vanno fatti qui, non nel filo della finestra: è per questo che in testata
+    compare una strisciolina che si muove invece di una finestra bloccata.
+    """
+
+    finito = Signal(bool)
+
+    def __init__(self, motore: Motore, nuovo: str, parent=None):
+        super().__init__(parent)
+        self.motore = motore
+        self.nuovo = nuovo
+
+    def run(self) -> None:
+        # non solo il vecchio: *tutto* quello che non è il nuovo, perché in
+        # quattro giga non ci stanno in due e un modello inchiodato da una
+        # sessione di prima basta a mandare il nuovo sul processore
+        self.motore.libera_vram(self.nuovo)
+        self.finito.emit(self.motore.precarica(self.nuovo))
 
 
 class Risposta(QThread):
@@ -242,16 +334,27 @@ class Risposta(QThread):
         self._fermare = True
 
     def run(self) -> None:
+        # «think: false» — Qwen3 di suo ragiona ad alta voce prima di
+        # rispondere, e quei pensieri li paghi a token. Su Hard, che scrive a
+        # cinque token al secondo, trecento token di ragionamento sono un
+        # minuto di schermo vuoto e poi una risposta tagliata a metà: la prima
+        # prova vera è finita proprio così, con zero parole visibili. Chi
+        # vuole il ragionamento lungo lo chiede nella domanda.
         corpo = json.dumps({
             "model": self.motore.modello(),
             "messages": self.messaggi,
             "stream": True,
+            "think": False,
         }).encode()
         richiesta = urllib.request.Request(
             f"http://{self.motore.host}/api/chat", data=corpo,
             headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(richiesta, timeout=120) as risposta:
+            # 300 e non 120: con Hard il contesto della Dashboard si digerisce
+            # in mezzo minuto prima che esca la prima parola, e una risposta
+            # lunga arriva a un minuto e mezzo. Il conto vale per ogni pezzo
+            # che arriva, non per tutta la risposta.
+            with urllib.request.urlopen(richiesta, timeout=300) as risposta:
                 for riga in risposta:
                     if self._fermare:
                         break
@@ -653,7 +756,39 @@ def contesto(db, fonte, aree: set[str] | None = None,
     return "\n".join(righe)
 
 
-# Come deve comportarsi Tess: si sceglie da Impostazioni → Tess.
+# I due cervelli, chiamati per quello che costano e che rendono, non per il
+# nome del file. I numeri sono **misurati** sulla GTX 1650 da 4 GB, e misurati
+# col contesto vero della Dashboard dentro — duemila token di riassunto — non
+# su un prompt vuoto: a vuoto Low fa 39 token al secondo, ma quello non è un
+# numero che qualcuno vedrà mai.
+#
+# «Hard» è lento per un motivo solo, e vale la pena saperlo: 5,2 GB in una
+# scheda da 4 non ci stanno, quindi metà del modello gira sul processore.
+# Non è un difetto da aggiustare, è aritmetica.
+LIVELLI = {
+    "qwen3:4b-instruct": ("Low", "svelto · 28 token al secondo"),
+    "qwen3:8b": ("Hard", "più capace · 5 token al secondo"),
+}
+# Il modello di partenza: quello che risponde a chi non ha mai aperto la
+# tendina, e quello su cui si ripiega se la scelta salvata non c'è più.
+MODELLO_PREDEFINITO = "qwen3:4b-instruct"
+
+
+def livello(modello: str) -> tuple[str, str]:
+    """(nome del livello, spiegazione) per un modello installato.
+
+    Un modello che non conosciamo tiene il suo nome corto e nessuna
+    spiegazione: meglio di inventargli un livello.
+    """
+    chiave = (modello or "").strip()
+    if chiave in LIVELLI:
+        return LIVELLI[chiave]
+    base = chiave.split(":")[0].lower()
+    if base in LIVELLI:
+        return LIVELLI[base]
+    return (RiquadroTess.nome_corto(chiave) if chiave else "—", "")
+
+
 TONI = {
     "asciutta": "Parla asciutto: nessun giro di parole, nessun complimento.",
     "incoraggiante": "Sii calda e incoraggiante: nota i progressi e dillo, "
@@ -943,6 +1078,151 @@ class Messaggio(QWidget):
         return QSize(60, chiesto.height())
 
 
+class BottoneTendina(QPushButton):
+    """Il nome del livello con accanto una freccina **disegnata**, non scritta.
+
+    Il «▾» di prima era un carattere: col testo grande cresceva storto, e a
+    volte il carattere della macchina non ce l'aveva nemmeno. Qui la punta la
+    fa il pennello, nella misura del testo, e si tinge di rosa al passaggio
+    come il resto della pagina di Tess.
+    """
+
+    def __init__(self, colori: dict, parent=None):
+        super().__init__(parent)
+        self.c = colori
+        self.setObjectName("BottoneTendina")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.NoFocus)
+        self._testo = ""
+
+    def imposta(self, testo: str) -> None:
+        self._testo = testo
+        self.updateGeometry()
+        self.update()
+
+    def sizeHint(self) -> QSize:
+        fm = QFontMetrics(self.font())
+        return QSize(fm.horizontalAdvance(self._testo) + fm.height() + 18,
+                     fm.height() + 8)
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def aggiorna_tema(self, colori: dict) -> None:
+        self.c = colori
+        self.update()
+
+    def paintEvent(self, ev):
+        super().paintEvent(ev)            # il fondo lo mette il foglio di stile
+        from PySide6.QtGui import QPainter, QPen
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        fm = QFontMetrics(self.font())
+        sotto = self.underMouse()
+        colore = QColor(colore_area("tess", luminosita(self.c["fondo"]) > 0.5)
+                        if sotto else self.c["testo2"])
+        p.setPen(colore)
+        p.setFont(self.font())
+        alto = self.height()
+        p.drawText(QRect(9, 0, self.width(), alto), Qt.AlignVCenter, self._testo)
+        # la punta: larga due terzi dell'altezza del carattere, a destra
+        lato = fm.height() * 0.42
+        x0 = 9 + fm.horizontalAdvance(self._testo) + 7
+        cy = alto / 2 - lato * 0.15
+        penna = QPen(colore, max(1.5, fm.height() * 0.11))
+        penna.setCapStyle(Qt.RoundCap)
+        penna.setJoinStyle(Qt.RoundJoin)
+        p.setPen(penna)
+        from PySide6.QtCore import QPointF
+        p.drawPolyline([QPointF(x0, cy - lato * 0.3),
+                        QPointF(x0 + lato / 2, cy + lato * 0.3),
+                        QPointF(x0 + lato, cy - lato * 0.3)])
+
+
+class RigaModello(QWidget):
+    """Una voce della tendina: il livello in grassetto, sotto cosa costa."""
+
+    scelta = Signal(str)
+
+    def __init__(self, modello: str, nome: str, spiega: str, acceso: bool,
+                 parent=None):
+        super().__init__(parent)
+        self.modello = modello
+        self.setObjectName("RigaModello")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setProperty("acceso", "si" if acceso else "no")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(13, 8, 11, 8)
+        lay.setSpacing(10)
+        testi = QVBoxLayout()
+        testi.setContentsMargins(0, 0, 0, 0)
+        testi.setSpacing(1)
+        et_nome = QLabel(nome)
+        et_nome.setObjectName("NomeLivello")
+        testi.addWidget(et_nome)
+        if spiega:
+            et_spiega = QLabel(spiega)
+            et_spiega.setObjectName("SpiegaLivello")
+            testi.addWidget(et_spiega)
+        lay.addLayout(testi, 1)
+        self.segno = QLabel("✓" if acceso else "")
+        self.segno.setObjectName("SegnoLivello")
+        lay.addWidget(self.segno)
+
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.LeftButton:
+            self.scelta.emit(self.modello)
+
+
+class TendinaModelli(QFrame):
+    """La tendina dei livelli: si apre sotto il bottone, si chiude da sola.
+
+    Non è un `QMenu`: lì ogni voce è una riga sola, e qui ogni livello ha
+    bisogno di due — il nome e quello che costa — se no «Hard» sembra solo
+    il migliore, e non si capisce perché uno dovrebbe tenersi «Low».
+    """
+
+    scelto = Signal(str)
+
+    def __init__(self, voci: list[tuple[str, str, str, bool]], parent=None):
+        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
+        self.setObjectName("TendinaModelli")
+        # niente fondo trasparente: con quello il foglio di stile non
+        # disegnava più la scheda, e sul tema scuro «Hard» restava scritto
+        # bianco su bianco
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        ombra = QGraphicsDropShadowEffect(self)
+        ombra.setBlurRadius(26)
+        ombra.setOffset(0, 6)
+        ombra.setColor(QColor(0, 0, 0, 70))
+        self.setGraphicsEffect(ombra)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(7, 7, 7, 7)
+        lay.setSpacing(3)
+        self.righe: list[RigaModello] = []
+        for modello, nome, spiega, acceso in voci:
+            riga = RigaModello(modello, nome, spiega, acceso, self)
+            riga.scelta.connect(self._presa)
+            lay.addWidget(riga)
+            self.righe.append(riga)
+        if not voci:
+            vuoto = QLabel("Il motore è spento: non so cosa c'è")
+            vuoto.setObjectName("SpiegaLivello")
+            vuoto.setContentsMargins(12, 8, 12, 8)
+            lay.addWidget(vuoto)
+        # larga quanto la riga più lunga che ci può stare, misurata col
+        # carattere di adesso: con la scala «molto grande» la tendina
+        # cresceva stretta e le due righe si pigiavano
+        fm = QFontMetrics(self.font())
+        piu_lunga = max((s for _, s in LIVELLI.values()), key=len, default="")
+        self.setMinimumWidth(fm.horizontalAdvance(piu_lunga) + 72)
+
+    def _presa(self, modello: str) -> None:
+        self.scelto.emit(modello)
+        self.close()
+
+
 class VoceChat(QWidget):
     """Una conversazione nell'elenco: il nome, quando, e il «⋯».
 
@@ -1081,6 +1361,7 @@ class RiquadroTess(QWidget):
         self.voci: dict[str, VoceChat] = {}     # le righe dell'elenco, per chat
         self.conversazione: Risposta | None = None
         self.accensione: Accensione | None = None
+        self.cambio: CambioModello | None = None
         self.pronta = False
         self.setObjectName("ContenutoSezione")
 
@@ -1298,12 +1579,16 @@ class RiquadroTess(QWidget):
         # nelle impostazioni perché è una cosa che si cambia *mentre* parli:
         # la stessa domanda a due modelli diversi è il modo in cui si capisce
         # quale dei due serve.
-        self.b_modello = QPushButton("")
-        self.b_modello.setObjectName("SceltaModello")
-        self.b_modello.setCursor(Qt.PointingHandCursor)
-        self.b_modello.setFocusPolicy(Qt.NoFocus)
+        self.b_modello = BottoneTendina(colori)
         self.b_modello.clicked.connect(self._menu_modello)
         fila_p.addWidget(self.b_modello)
+        # Il caricamento del nuovo cervello: una strisciolina stretta accanto
+        # al nome, che si muove finché i giga non sono in scheda. Sta qui e
+        # non in mezzo alla pagina perché è un lavoro della testata.
+        self.attesa_modello = BarraAttesa(colori, altezza=3)
+        self.attesa_modello.setFixedWidth(46)
+        self.attesa_modello.hide()
+        fila_p.addWidget(self.attesa_modello)
         self.et_modello = QLabel("dati")
         self.et_modello.setObjectName("NomeModello")
         self.et_modello.setToolTip(self.b_dati.toolTip())
@@ -1360,15 +1645,18 @@ class RiquadroTess(QWidget):
         if pronta:
             self.aggiorna_elenco()
         self.et_stato.setText(messaggio or (
-            "La tua AI locale: gira sul tuo PC, isolata dalla rete, e risponde "
-            "sui dati della Dashboard. Si accende solo quando glielo dici tu: "
-            "finché è spenta non occupa né memoria né scheda video."))
+            "La tua AI locale: gira sul tuo PC e risponde sui dati della "
+            "Dashboard, che non escono di qui. Si accende solo quando glielo "
+            "dici tu: finché è spenta non occupa né memoria né scheda video."))
         self._adatta_benvenuto()
         self.stato_cambiato.emit(pronta)
 
     def aggiorna_tema(self, colori: dict) -> None:
         self.c = colori
         self.b_dati.aggiorna_tema(colori)
+        self.b_modello.aggiorna_tema(colori)
+        self.attesa_modello.aggiorna_tema(colori)
+        self.barra_attesa.aggiorna_tema(colori)
 
     def sincronizza(self) -> None:
         """Guarda com'è messo il motore adesso e si mette in pari.
@@ -1392,6 +1680,11 @@ class RiquadroTess(QWidget):
         """Accende il motore: è l'unico momento in cui parte qualcosa."""
         if self.pronta or (self.accensione and self.accensione.isRunning()):
             return
+        # Si riparte sempre dal più svelto, come faceva il vecchio Tess che
+        # ne aveva uno solo: la scelta salvata vale per la sessione in cui
+        # l'hai fatta, non per tutte quelle dopo. Vuoto = il predefinito.
+        self.db.imposta("tess_modello", "")
+        self._scrivi_modello()
         self.b_attiva.setEnabled(False)
         self.et_stato.setText("Accendo Tess…")
         self._adatta_benvenuto()
@@ -1458,41 +1751,63 @@ class RiquadroTess(QWidget):
         return f"{testa} {coda.split('-')[0]}"
 
     def _scrivi_modello(self) -> None:
-        """Il nome sulla pastiglia, col suggerimento che dice quello intero."""
+        """Il livello sulla pastiglia; il suggerimento dice il modello intero."""
         modello = self.motore.modello()
-        self.b_modello.setText(f"{self.nome_corto(modello)}  \u25be")
+        nome, spiega = livello(modello)
+        self.b_modello.imposta(nome)
         quanti = len(self.motore.modelli())
         self.b_modello.setToolTip(
-            f"Sta rispondendo {modello}.\n"
-            + (f"Clicca per cambiarlo: ce ne sono {quanti} installati."
+            f"{nome}: sta rispondendo {modello}"
+            + (f" — {spiega}.\n" if spiega else ".\n")
+            + (f"Clicca per cambiare livello: ce ne sono {quanti}."
                if quanti > 1 else
                "È l'unico modello installato in questo motore."))
 
     def _menu_modello(self) -> None:
-        """L'elenco dei modelli installati: uno solo acceso alla volta."""
-        disponibili = self.motore.modelli()
-        menu = QMenu(self)
-        if not disponibili:
-            azione = menu.addAction("Il motore è spento: non so cosa c'è")
-            azione.setEnabled(False)
+        """La tendina dei livelli: uno solo acceso alla volta."""
         corrente = self.motore.modello()
-        for nome in disponibili:
-            azione = menu.addAction(nome)
-            azione.setCheckable(True)
-            azione.setChecked(nome == corrente)
-            azione.triggered.connect(
-                lambda _=False, n=nome: self._cambia_modello(n))
-        menu.exec(self.b_modello.mapToGlobal(
-            QPoint(0, self.b_modello.height() + 2)))
+        voci = []
+        for modello in self.motore.modelli():   # già in ordine di livello
+            nome, spiega = livello(modello)
+            voci.append((modello, nome, spiega, modello == corrente))
+        self.tendina = TendinaModelli(voci, self)
+        self.tendina.scelto.connect(self._cambia_modello)
+        self.tendina.adjustSize()
+        self.tendina.move(self.b_modello.mapToGlobal(
+            QPoint(0, self.b_modello.height() + 4)))
+        self.tendina.show()
 
     def _cambia_modello(self, nome: str) -> None:
+        """Cambia livello e lo porta in scheda subito, senza bloccare niente.
+
+        Il caricamento non si nasconde e non si racconta: la strisciolina in
+        testata si muove finché il nuovo cervello non è in VRAM, e la tendina
+        resta chiusa a chiave per quei secondi — un secondo cambio a metà del
+        primo lascerebbe due modelli in quattro giga.
+        """
         if nome == self.motore.modello():
+            return
+        if self.cambio and self.cambio.isRunning():
             return
         self.motore.scegli_modello(nome)
         self._scrivi_modello()
-        self.et_stato.setText(
-            f"Adesso risponde {nome}: entra in scheda video alla prima "
-            "domanda, e quella risposta ci mette qualche secondo in più.")
+        quale, _ = livello(nome)
+        self.b_modello.setEnabled(False)
+        self.attesa_modello.setToolTip(f"Sto portando {quale} in scheda video…")
+        self.attesa_modello.avvia()
+        self.cambio = CambioModello(self.motore, nome, self)
+        self.cambio.finito.connect(self._modello_caricato)
+        self.cambio.start()
+
+    def _modello_caricato(self, riuscito: bool) -> None:
+        self.attesa_modello.ferma()
+        self.attesa_modello.setToolTip("")
+        self.b_modello.setEnabled(True)
+        self._scrivi_modello()
+        if not riuscito:
+            self._scrivi("tess", "Non sono riuscita a caricare questo livello: "
+                                 "risponde comunque, ma la prima risposta sarà "
+                                 "più lenta.")
 
     def spegni(self) -> None:
         self.motore.spegni()
@@ -1913,7 +2228,7 @@ class RiquadroTess(QWidget):
     # ------------------------------------------------------------ chiusura
     def chiudi(self) -> None:
         """Ferma i fili aperti: la finestra si chiude senza aspettare Tess."""
-        for filo in (self.conversazione, self.accensione):
+        for filo in (self.conversazione, self.accensione, self.cambio):
             if filo and filo.isRunning():
                 if hasattr(filo, "ferma"):
                     filo.ferma()

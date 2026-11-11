@@ -189,6 +189,65 @@ riconosce dalla tinta.
 piena da una parte: si capisce da che parte sta, e cresce col testo. A
 elenco chiuso si sposta in cima alla conversazione, dov'è il suo posto.
 
+### Due cervelli: Low e Hard
+
+In testata, accanto al nome, c'è il livello che sta rispondendo e una
+freccina per cambiarlo. I due si chiamano per quello che costano, non per il
+nome del file, e la tendina dice una cosa sola di ciascuno — quanto è svelto:
+
+| livello | modello | scrive a | quando serve |
+|---|---|---|---|
+| **Low** | `qwen3:4b-instruct` | 28 token al secondo | quasi sempre |
+| **Hard** | `qwen3:8b` | 5 token al secondo | quando la domanda è difficile |
+
+I numeri sono **misurati su questa macchina** (GTX 1650 da 4 GB) col
+contesto vero della Dashboard dentro, duemila token di riassunto: a vuoto
+Low farebbe 39 token al secondo, ma quello è un numero che non vedrà mai
+nessuno. Hard è lento per un motivo solo: 5,2 GB in una scheda da 4 non ci
+stanno, quindi metà del modello gira sul processore. Non è un difetto da
+aggiustare, è aritmetica.
+
+**All'accensione si carica sempre il più svelto**, come faceva il vecchio
+Tess che ne aveva uno solo: quando accendi non hai ancora chiesto niente, e
+far aspettare mezzo minuto per un cervello che magari non serve è il modo
+peggiore di cominciare. Hard te lo prendi dalla tendina quando sai di averne
+bisogno, e vale per quella sessione.
+
+**Al cambio di livello si muove una strisciolina in testata**, accanto al
+nome, finché i giga non sono in scheda: svuotare la VRAM e riempirla sono
+due viaggi lenti, e si fanno in un filo a parte perché la finestra non si
+pianti. Per quei secondi la tendina resta chiusa a chiave — un secondo
+cambio a metà del primo lascerebbe due modelli in quattro giga.
+
+Tre cose, imparate rompendole:
+
+- **`/api/ps` va confrontato sul nome intero.** Low e Hard sono tutti e due
+  «qwen3»: guardando solo la famiglia, il motore credeva Hard già in scheda
+  perché c'era Low, non precaricava niente, e i venti secondi arrivavano
+  addosso alla prima domanda.
+- **`keep_alive: -1` non scade mai.** Il vecchio Tess su gemma3, caricato
+  così in una sessione di settimane prima, si teneva 2,7 dei 4 giga della
+  scheda: Low entrava a metà sul processore e Hard quasi tutto, e sembravano
+  rotti quando era solo la scheda piena di un modello di ieri. Adesso
+  l'accensione **sfratta tutto quello che non è il modello scelto**.
+- **`think: false`.** Qwen3 di suo ragiona ad alta voce prima di rispondere,
+  e quei pensieri li paghi a token. Su Hard la prima prova vera è finita con
+  1.264 caratteri di ragionamento, zero parole visibili e la risposta
+  tagliata. Chi vuole il ragionamento lungo lo chiede nella domanda.
+
+**Sull'isolamento, per non raccontarlo meglio di com'è.** Il motore ascolta
+su `172.28.0.1` — la rete isolata di AI-Locale — con `OLLAMA_NO_CLOUD=1`, e
+i tuoi dati non escono di qui. Ma questo è *come è configurato*, non una
+gabbia: un filtro di rete messo in un servizio `--user` di systemd viene
+accettato e **non applicato** (provato due volte: `IPAddressDeny=any` e il
+traffico passa lo stesso). L'unica garanzia vera la dà il kernel, e si
+accende da fuori:
+
+```bash
+sudo bin/isola-rete.sh          # in ~/Scrivania/WORK/AI-Locale
+sudo bin/isola-rete.sh --apri   # riapre, per scaricare un modello nuovo
+```
+
 ## Il sonno, dal braccialetto
 
 Il braccialetto manda la notte in due pezzi: la **sessione** (da quando ti sei

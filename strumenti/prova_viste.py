@@ -390,17 +390,65 @@ def main() -> int:
         Col motore spento l'elenco è vuoto: il menu lo deve dire invece di
         non fare niente, e la pastiglia deve mostrare comunque un nome.
         """
-        assert r.b_modello.text().strip(), "la pastiglia del modello è vuota"
+        from vita.tess import TendinaModelli, livello
+        assert r.b_modello._testo.strip(), "la pastiglia del modello è vuota"
         assert r.b_modello.toolTip(), "non dice quale modello sta rispondendo"
+        # i due cervelli si chiamano per quello che costano, non per il file
+        assert livello("qwen3:4b-instruct")[0] == "Low"
+        assert livello("qwen3:8b")[0] == "Hard"
+        assert livello("qwen3:8b")[1], "Hard deve dire quanto costa"
+        # un modello sconosciuto tiene il suo nome corto, senza un livello inventato
+        assert livello("mistral:7b") == ("mistral 7b", "")
         assert r.nome_corto("qwen3:4b-instruct") == "qwen3 4b"
-        assert r.nome_corto("Tess:latest") == "Tess"
-        assert r.nome_corto("gemma3:4b") == "gemma3 4b"
+        # la tendina: due righe per livello, il segno sull'acceso
+        tendina = TendinaModelli([("qwen3:4b-instruct", "Low", "svelto", True),
+                                  ("qwen3:8b", "Hard", "lento", False)], r)
+        assert len(tendina.righe) == 2
+        assert tendina.righe[0].segno.text() == "✓"
+        assert tendina.righe[1].segno.text() == ""
+        presi = []
+        tendina.scelto.connect(presi.append)
+        tendina.righe[1].scelta.emit("qwen3:8b")
+        assert presi == ["qwen3:8b"], presi
         # la scelta si ricorda, anche se quel modello adesso non c'è
         db.imposta("tess_modello", "qwen3:8b")
         assert db.leggi("tess_modello", "") == "qwen3:8b"
         db.imposta("tess_modello", "")
         r._scrivi_modello()
-    prova("Tess: il modello si sceglie dalla chat", scelta_modello)
+    prova("Tess: il livello si sceglie dalla chat", scelta_modello)
+
+    def livelli_in_scheda():
+        """Low e Hard sono **lo stesso modello di base**: non confonderli.
+
+        Guardando solo la famiglia — «qwen3» per tutti e due — il motore
+        credeva Hard già in VRAM perché in scheda c'era Low: niente
+        precaricamento, e i venti secondi arrivavano addosso alla domanda.
+        Qui si verifica che il confronto sia sul nome intero.
+        """
+        from vita.tess import LIVELLI, MODELLO_PREDEFINITO, Motore
+        pieno = Motore._pieno
+        assert pieno("qwen3") == "qwen3:latest"
+        assert pieno("qwen3:8b") == pieno("QWEN3:8B")
+        assert pieno("qwen3:8b") != pieno("qwen3:4b-instruct"), \
+            "Low e Hard non vanno confusi"
+        # il predefinito è il primo dell'elenco, cioè il più svelto
+        assert next(iter(LIVELLI)) == MODELLO_PREDEFINITO
+        # e le spiegazioni restano due parole e una velocità, niente di più
+        for nome, spiega in LIVELLI.values():
+            assert "token al secondo" in spiega, spiega
+            assert len(spiega) < 40, f"{nome}: la spiegazione si è allungata"
+    prova("Tess: Low e Hard non si confondono in VRAM", livelli_in_scheda)
+
+    def caricamento_in_testata():
+        """Il cambio di livello si vede in testata e non blocca la finestra."""
+        assert r.attesa_modello.isHidden(), "la strisciolina parte nascosta"
+        assert not hasattr(r, "et_gabbia"), "il lucchetto è stato tolto"
+        r.attesa_modello.avvia()
+        assert not r.attesa_modello.isHidden()
+        r._modello_caricato(True)
+        assert r.attesa_modello.isHidden(), "finito il carico, deve sparire"
+        assert r.b_modello.isEnabled(), "la tendina torna cliccabile"
+    prova("Tess: il carico del livello si vede in alto", caricamento_in_testata)
 
     def colonna():
         # il pannello non sparisce di colpo: si stringe in 170 ms, e si

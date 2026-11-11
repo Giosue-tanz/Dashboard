@@ -542,15 +542,36 @@ def foglio_stile(c: dict, scala: float = 1.0,
         border-radius: {q(13)};
     }}
     QLabel#NomeModello {{ color: {c['testo2']}; font-size: {p(11)}; }}
-    /* quale cervello sta rispondendo: si clicca, e si vede che si clicca */
-    QPushButton#SceltaModello {{
+    /* quale livello sta rispondendo: il nome e la freccina li disegna lui */
+    QPushButton#BottoneTendina {{
         background: transparent; border: none; border-radius: {q(10)};
-        padding: 2px 8px; color: {c['testo2']}; font-size: {p(11)};
-        font-weight: 650;
+        padding: 0; font-size: {p(11)}; font-weight: 650;
     }}
-    QPushButton#SceltaModello:hover {{
-        background: {trasparente(rosa, 0.18)}; color: {rosa};
+    QPushButton#BottoneTendina:hover {{ background: {trasparente(rosa, 0.18)}; }}
+    /* La tendina dei livelli: una scheda che scende sotto il bottone.
+       Il fondo è `pannello2` e non `pannello`: la testata della chat è già
+       pannello, e una scheda dello stesso colore sopra un'altra non si
+       stacca — con l'ombra sotto, così, sembra appoggiata. */
+    QFrame#TendinaModelli {{
+        background: {c['pannello2']}; border: 1px solid {c['bordo']};
+        border-radius: {q(16)};
     }}
+    QWidget#RigaModello {{
+        background: transparent; border: 1px solid transparent;
+        border-radius: {q(12)};
+    }}
+    QWidget#RigaModello:hover {{ background: {trasparente(rosa, 0.12)}; }}
+    /* quello acceso si riconosce da tre cose insieme — fondo, bordo e nome
+       rosa — perché col testo grande il solo fondo si legge male */
+    QWidget#RigaModello[acceso="si"] {{
+        background: {trasparente(rosa, 0.20)};
+        border: 1px solid {trasparente(rosa, 0.45)};
+    }}
+    QLabel#NomeLivello {{ font-size: {p(12.5)}; font-weight: 700; color: {c['testo']}; }}
+    QWidget#RigaModello[acceso="si"] QLabel#NomeLivello {{ color: {rosa}; }}
+    QLabel#SpiegaLivello {{ font-size: {p(10.5)}; color: {c['testo2']}; }}
+    QLabel#SegnoLivello {{ font-size: {p(12)}; font-weight: 700; color: {rosa};
+                           min-width: {q(16)}; }}
     /* il pannello delle conversazioni, a destra: un riquadro suo, come i
        pannelli laterali di NotebookLM. La conversazione invece non sta in
        nessuna scatola: è testo sulla pagina. */
