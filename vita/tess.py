@@ -2399,7 +2399,14 @@ class RiquadroTess(QWidget):
         for bolla in self.bolle:
             bolla.ensurePolished()      # il carattere è quello del foglio di stile
             if bolla.objectName() != "BollaTu":
-                bolla.setMinimumWidth(0)
+                # Larghezza minima **vera**, non zero. Con zero, Qt calcola
+                # l'altezza minima di un testo che va a capo come se dovesse
+                # stare in una colonna strettissima: una risposta alta 51px
+                # ne dichiarava 147. Un centinaio di px fantasma a risposta,
+                # che diventavano mille e passa di vuoto in fondo alla chat:
+                # la barra ci scorreva dentro e il testo restava sopra il
+                # bordo, così la risposta si scriveva fuori dallo schermo.
+                bolla.setMinimumWidth(max(180, posto - 34))
                 bolla.setMaximumWidth(16777215)
                 continue
             metriche = QFontMetrics(bolla.font())
