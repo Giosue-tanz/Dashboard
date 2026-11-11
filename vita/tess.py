@@ -163,7 +163,9 @@ class Motore:
             return []
 
     def libera_vram(self, tranne: str = "") -> list[str]:
-        """Butta fuori dalla scheda tutti i modelli tranne uno. Torna chi è uscito.
+        """Butta fuori dalla scheda i modelli. Senza `tranne`, **tutti**.
+
+        Torna chi è uscito.
 
         Serve perché `precarica()` li inchioda con `keep_alive -1`: un modello
         caricato così **non scade mai**, e il vecchio Tess su gemma3 era
@@ -171,7 +173,7 @@ class Motore:
         entrava a metà sul processore e Hard quasi tutto, e sembravano rotti
         quando invece era solo la scheda piena di un modello di ieri.
         """
-        resta = self._pieno(tranne or self.modello())
+        resta = self._pieno(tranne) if tranne else ""
         usciti = []
         for nome in self.caricati():
             if nome and self._pieno(nome) != resta:
@@ -193,19 +195,53 @@ class Motore:
         except Exception:
             pass
 
-    def accendi(self) -> tuple[bool, str]:
-        """Avvia il servizio del motore (non l'interfaccia web, qui non serve)."""
+    def di_sistema(self) -> bool:
+        """Il motore è un servizio di sistema (cioè: è sotto il filtro del kernel)?"""
         try:
             esito = subprocess.run(
-                ["systemctl", "--user", "start", SERVIZIO],
-                capture_output=True, text=True, timeout=30)
-        except FileNotFoundError:
-            return False, "systemctl non disponibile su questo sistema."
-        except subprocess.TimeoutExpired:
-            return False, "Il servizio ci sta mettendo troppo."
-        if esito.returncode != 0:
-            return False, (esito.stderr or "").strip() or "Il servizio non è partito."
-        return True, ""
+                ["systemctl", "show", SERVIZIO, "-p", "LoadState"],
+                capture_output=True, text=True, timeout=5)
+        except Exception:
+            return False
+        return "LoadState=loaded" in esito.stdout
+
+    def comanda(self, azione: str) -> tuple[bool, str]:
+        """«start» o «stop» del servizio, dovunque sia finito.
+
+        Il motore può vivere in due posti: un servizio `--user`, oppure — dopo
+        `isola-rete.sh` — un servizio **di sistema**, che è l'unico modo perché
+        il filtro di rete venga applicato dal kernel. Si prova l'uno e poi
+        l'altro, e quello di sistema solo se root è già concesso senza
+        password (`sudo -n`): una finestra non deve mai chiedere la password.
+        """
+        # Niente ripiego quando il motore è un servizio di sistema. Il file
+        # del servizio utente resta sul disco anche dopo `isola-rete.sh`,
+        # solo disabilitato: ripiegando su quello si avvierebbe un **secondo**
+        # ollama a litigare per la stessa porta — e per di più fuori dalla
+        # gabbia. Se c'è l'unità di sistema, o si passa da root o niente.
+        if self.di_sistema():
+            tentativi = [["sudo", "-n", "systemctl", azione, SERVIZIO]]
+        else:
+            tentativi = [["systemctl", "--user", azione, SERVIZIO]]
+        ultimo = ""
+        for comando in tentativi:
+            try:
+                esito = subprocess.run(comando, capture_output=True,
+                                       text=True, timeout=30)
+            except FileNotFoundError:
+                ultimo = "systemctl non disponibile su questo sistema."
+                continue
+            except subprocess.TimeoutExpired:
+                ultimo = "Il servizio ci sta mettendo troppo."
+                continue
+            if esito.returncode == 0:
+                return True, ""
+            ultimo = (esito.stderr or "").strip() or "Il servizio non risponde."
+        return False, ultimo
+
+    def accendi(self) -> tuple[bool, str]:
+        """Avvia il servizio del motore (non l'interfaccia web, qui non serve)."""
+        return self.comanda("start")
 
     @staticmethod
     def _pieno(nome: str) -> str:
@@ -244,9 +280,23 @@ class Motore:
         except Exception:
             return False
 
-    def spegni(self) -> None:
-        subprocess.run(["systemctl", "--user", "stop", SERVIZIO],
-                       capture_output=True, text=True, timeout=30)
+    def spegni(self) -> bool:
+        """Libera la scheda, poi prova a fermare il servizio. Torna se l'ha fermato.
+
+        **Prima la VRAM, sempre**: è quella la cosa che pesa, e si libera
+        senza chiedere niente a nessuno. Fermare il servizio è un di più che
+        riesce solo se il motore è ancora un servizio utente: da quando sta
+        sotto il filtro del kernel è un servizio di sistema, e una finestra
+        non ha i permessi per fermarlo — né deve chiedere la password per
+        farlo. Scaricato il modello, comunque, la scheda è libera uguale e il
+        processo che resta non occupa niente.
+        """
+        self.libera_vram()                 # fuori tutto
+        self.comanda("stop")
+        # Si guarda, non si crede al codice di uscita: `systemctl --user stop`
+        # risponde «0» anche su un servizio che era già spento, e con quella
+        # risposta la pagina diceva «fermato» di un motore vivissimo.
+        return not self.attiva()
 
 
 class Accensione(QThread):
@@ -287,7 +337,8 @@ class Accensione(QThread):
             return
         # qui `modello()` è già il più svelto: la scelta salvata l'ha
         # azzerata `attiva()` prima di partire
-        self.motore.libera_vram()          # fuori i modelli di ieri
+        # fuori tutto quello che non è il modello scelto: i modelli di ieri
+        self.motore.libera_vram(self.motore.modello())
         if not self.motore.in_memoria():
             self.fase.emit("modello")
             self.motore.precarica()
@@ -1659,21 +1710,24 @@ class RiquadroTess(QWidget):
         self.barra_attesa.aggiorna_tema(colori)
 
     def sincronizza(self) -> None:
-        """Guarda com'è messo il motore adesso e si mette in pari.
+        """Torna indietro se il motore è caduto. **Non si accende da sola.**
 
-        Serve quando si torna sulla pagina: il motore può essere stato acceso
-        o spento da fuori (dal terminale, dall'icona di Tess sul desktop).
+        Prima qui c'era `pronta = motore.attiva()`, e andava bene finché il
+        motore era un servizio utente che si avviava solo quando glielo
+        chiedevi. Da quando sta sotto il filtro del kernel è un servizio di
+        sistema, acceso dal boot: con quella riga la pagina si apriva già
+        «accesa» senza che nessuno avesse premuto niente, non si precaricava
+        nessun modello, e al ritorno sulla pagina si riaccendeva da sé subito
+        dopo averla spenta.
+
+        «Accesa» vuol dire **l'hai accesa tu**: che il processo giri o no è
+        un fatto suo. Qui si guarda una cosa sola — se il motore è morto
+        mentre eri acceso, si torna alla schermata di avvio.
         """
         if self.accensione and self.accensione.isRunning():
             return
-        vero = self.motore.attiva()
-        if vero != self.pronta:
-            self._mostra_stato(vero)
-            if vero and not self.bolle:
-                if self.chat_id:
-                    self.carica_chat(self.chat_id)
-                if not self.bolle:
-                    self._scrivi("tess", "Ci sono. Cosa guardiamo?")
+        if self.pronta and not self.motore.attiva():
+            self._mostra_stato(False, "Il motore si è fermato. Riaccendi Tess.")
 
     # --------------------------------------------------------- accensione
     def attiva(self) -> None:
@@ -1810,8 +1864,20 @@ class RiquadroTess(QWidget):
                                  "più lenta.")
 
     def spegni(self) -> None:
-        self.motore.spegni()
-        self._mostra_stato(False, "Tess è spenta: la VRAM è di nuovo libera.")
+        """Spegne Tess: fuori il modello dalla scheda, e si resta spenti.
+
+        Prima questo lasciava il motore acceso e la pagina si rimetteva
+        «accesa» da sola appena cambiavi pagina e tornavi. Adesso lo stato è
+        nostro: finché non premi di nuovo Attiva, Tess è spenta — qualunque
+        cosa faccia il servizio sotto.
+        """
+        fermato = self.motore.spegni()
+        self._mostra_stato(False, (
+            "Tess è spenta: la scheda video è di nuovo libera."
+            if fermato else
+            "Tess è spenta: il modello è uscito dalla scheda video. Il "
+            "servizio sotto resta acceso — sta sotto il filtro del kernel, e "
+            "da lì lo ferma solo root — ma a vuoto non occupa niente."))
 
     # ------------------------------------------------------------- chat
     def carica_chat(self, chat_id: str) -> None:
@@ -2234,3 +2300,11 @@ class RiquadroTess(QWidget):
                     filo.ferma()
                 filo.quit()
                 filo.wait(1500)
+        # Chiudendo la Dashboard la scheda video si svuota. Il modello
+        # resterebbe in VRAM per sempre — `keep_alive -1` non scade — e sono
+        # due giga e mezzo tenuti da un'applicazione che non c'è più.
+        if self.pronta:
+            try:
+                self.motore.spegni()
+            except Exception:
+                pass

@@ -439,6 +439,28 @@ def main() -> int:
             assert len(spiega) < 40, f"{nome}: la spiegazione si è allungata"
     prova("Tess: Low e Hard non si confondono in VRAM", livelli_in_scheda)
 
+    def non_si_accende_da_sola():
+        """Tess è accesa solo se **l'hai accesa tu**.
+
+        Il motore adesso è un servizio di sistema avviato dal boot: legando
+        «accesa» a «il processo risponde», la pagina si apriva già accesa
+        senza aver precaricato niente, e appena cambiavi pagina e tornavi si
+        riaccendeva da sé subito dopo che l'avevi spenta.
+        """
+        r.motore.attiva = lambda: True          # motore su, come dal boot
+        r._mostra_stato(False)
+        r.sincronizza()
+        assert not r.pronta, "si è accesa da sola col solo motore vivo"
+        r._mostra_stato(True)
+        r.sincronizza()
+        assert r.pronta, "accesa a mano, deve restare accesa"
+        r.motore.attiva = lambda: False         # il motore muore sotto
+        r.sincronizza()
+        assert not r.pronta, "motore caduto: deve tornare alla schermata di avvio"
+        del r.motore.attiva                     # e si rimette com'era
+        r._mostra_stato(True)
+    prova("Tess: non si accende da sola", non_si_accende_da_sola)
+
     def caricamento_in_testata():
         """Il cambio di livello si vede in testata e non blocca la finestra."""
         assert r.attesa_modello.isHidden(), "la strisciolina parte nascosta"

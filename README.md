@@ -248,6 +248,25 @@ sudo bin/isola-rete.sh          # in ~/Scrivania/WORK/AI-Locale
 sudo bin/isola-rete.sh --apri   # riapre, per scaricare un modello nuovo
 ```
 
+**Dopo quel comando il motore è un servizio di sistema acceso dal boot**, e
+questo cambia due cose qui dentro:
+
+- **«Accesa» vuol dire che l'hai accesa tu.** Legando lo stato a «il
+  processo risponde», la pagina si apriva già accesa senza aver precaricato
+  niente, e bastava cambiare pagina e tornare per riaccendersi da sé subito
+  dopo averla spenta. Ora `sincronizza()` guarda una cosa sola: se il motore
+  è morto mentre eri acceso, si torna alla schermata di avvio.
+- **Spegnere vuol dire svuotare la scheda video.** Fermare un servizio di
+  sistema richiede root, e una finestra non deve chiedere la password: così
+  «Spegni» — e anche la chiusura della Dashboard — scarica i modelli dalla
+  VRAM, che è la cosa che pesa davvero. Il processo che resta a vuoto occupa
+  **12 MiB su 4096**, misurati. La pagina lo dice com'è, senza far finta di
+  aver fermato qualcosa che è ancora lì.
+
+Una nota su `systemctl`: `--user stop` risponde «0» anche su un servizio già
+spento. Fidandosi di quel codice la pagina annunciava «fermato» di un motore
+vivissimo, quindi adesso dopo lo stop **si guarda** se risponde ancora.
+
 ## Il sonno, dal braccialetto
 
 Il braccialetto manda la notte in due pezzi: la **sessione** (da quando ti sei
