@@ -140,7 +140,7 @@ class FinestraPrincipale(QMainWindow):
         self.setWindowTitle("Dashboard")
         self.resize(1360, 880)
         self.setMinimumSize(1060, 700)
-        self.setWindowIcon(logo_app(db.leggi("tema", "scuro")))
+        self.setWindowIcon(logo_app())
 
         centrale = QWidget()
         self.setCentralWidget(centrale)
@@ -258,7 +258,7 @@ class FinestraPrincipale(QMainWindow):
             widget.mostra_testi(not chiusa)
         self._aggiorna_logo(self.tema)
         self.b_logo.setToolTip("Apri il menu  (Ctrl+B)" if chiusa
-                               else "Cruscotto  (Ctrl+1)")
+                               else "Home  (Ctrl+1)")
         self.lay_testa.setContentsMargins(*((0, 0, 0, 0) if chiusa else (6, 0, 0, 0)))
         self.spazio_testa.changeSize(
             0, 0, QSizePolicy.Expanding if chiusa else QSizePolicy.Fixed,
@@ -521,7 +521,7 @@ class FinestraPrincipale(QMainWindow):
             self.b_logo.setFixedSize(86, 30)
         if percorso and os.path.exists(percorso):
             self.b_logo.setIcon(QIcon(percorso))
-        self.setWindowIcon(logo_app(tema))
+        self.setWindowIcon(logo_app())
 
     def _aggiorna_icone(self) -> None:
         self.b_menu.setIcon(icona_menu(self.c["testo2"]))

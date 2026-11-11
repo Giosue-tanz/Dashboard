@@ -1,4 +1,9 @@
-"""Cruscotto: tutte le aree in un colpo d'occhio."""
+"""Home: tutte le aree in un colpo d'occhio.
+
+La chiave interna resta «cruscotto»: e' quella con cui la disposizione
+dei riquadri e' salvata nell'archivio, e rinominarla sposterebbe i
+riquadri di chi aggiorna.
+"""
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -35,7 +40,7 @@ def _quota_battito(valore: float) -> int:
 
 
 class VistaCruscotto(VistaSezioni):
-    titolo = "Cruscotto"
+    titolo = "Home"
     sottotitolo = "Com'è messa la giornata, in tutte le aree"
     nome_nuovo = ""
     chiave_vista = "cruscotto"
@@ -240,7 +245,13 @@ class VistaCruscotto(VistaSezioni):
             self._nota_tess(False)
             return
         self._nota_tess(True, "accendo")
-        self.accensione_tess = Accensione(self.motore_tess, self)
+        # Si riparte dal piu' svelto, come dalla pagina di Tess.
+        # Il nome si risolve **qui**, nel filo della finestra: dentro
+        # Accensione l'archivio SQLite non e' utilizzabile, e l'eccezione
+        # ucciderebbe il filo lasciando l'interruttore a caricare per sempre.
+        self.db.imposta("tess_modello", "")
+        self.accensione_tess = Accensione(self.motore_tess, self,
+                                          modello=self.motore_tess.modello())
         self.accensione_tess.fase.connect(
             lambda quale: self._nota_tess(True, "accendo"
                                           if quale == "motore" else "carico"))
@@ -273,10 +284,20 @@ class VistaCruscotto(VistaSezioni):
             w.setToolTip(nota)
 
     def _allinea_tess(self) -> None:
-        """L'interruttore dice come sta il motore, anche se l'hai acceso altrove."""
+        """L'interruttore dice come sta Tess, anche se l'hai accesa altrove.
+
+        «Accesa» vuol dire **il modello è in scheda video**, non «il processo
+        risponde». Da quando il motore sta sotto il filtro del kernel è un
+        servizio di sistema acceso dal boot: con la domanda vecchia questo
+        interruttore si trovava già acceso all'apertura, mentre la pagina di
+        Tess chiedeva ancora di attivarla.
+
+        È anche la definizione onesta: quello che costa è la scheda video, e
+        questo interruttore promette di liberarla.
+        """
         if getattr(self, "accensione_tess", None) and self.accensione_tess.isRunning():
             return
-        self.interruttore_tess.imposta(self.motore_tess.attiva())
+        self.interruttore_tess.imposta(self.motore_tess.in_memoria())
 
     # ---------------------------------------------------------------- dati
     def aggiorna(self) -> None:

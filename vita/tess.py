@@ -280,7 +280,7 @@ class Motore:
         except Exception:
             return False
 
-    def scalda(self, sistema: list[dict]) -> bool:
+    def scalda(self, sistema: list[dict], nome: str = "") -> bool:
         """Fa digerire al modello il riassunto dei dati, prima che tu scriva.
 
         È l'attesa più lunga di tutte e nessuno se l'aspettava: duemila token
@@ -293,7 +293,7 @@ class Motore:
         quello che manderà la chat: così la prima domanda trova la cache
         calda e risponde come tutte le altre.
         """
-        corpo = {"model": self.modello(),
+        corpo = {"model": nome or self.modello(),
                  "messages": sistema + [{"role": "user", "content": "ok"}],
                  "stream": False, "think": False, "keep_alive": -1,
                  "options": {"num_predict": 1}}
@@ -334,10 +334,17 @@ class Accensione(QThread):
     fase = Signal(str)                 # «motore» · «modello»
     pronta = Signal(bool, str)
 
-    def __init__(self, motore: Motore, parent=None, innesco: list | None = None):
+    def __init__(self, motore: Motore, parent=None, innesco: list | None = None,
+                 modello: str = ""):
         super().__init__(parent)
         self.motore = motore
         self.innesco = innesco or []
+        # Il nome del modello arriva già risolto dal filo della finestra.
+        # Qui dentro **non si tocca l'archivio**: la connessione SQLite
+        # appartiene al filo che l'ha aperta, e usarla di qua solleva
+        # ProgrammingError. L'eccezione uccideva questo filo prima di
+        # `pronta.emit`, e la pagina restava a caricare per sempre.
+        self.modello = modello
 
     def run(self) -> None:
         if not self.motore.installata():
@@ -359,16 +366,17 @@ class Accensione(QThread):
         if not acceso:
             self.pronta.emit(False, "Il motore non risponde sulla sua porta locale.")
             return
-        # qui `modello()` è già il più svelto: la scelta salvata l'ha
-        # azzerata `attiva()` prima di partire
+        # `self.modello` è già il più svelto: la scelta salvata l'ha azzerata
+        # `attiva()` nel filo della finestra, prima di far partire questo.
         # fuori tutto quello che non è il modello scelto: i modelli di ieri
-        self.motore.libera_vram(self.motore.modello())
-        if not self.motore.in_memoria():
+        quale = self.modello
+        self.motore.libera_vram(quale)
+        if not self.motore.in_memoria(quale):
             self.fase.emit("modello")
-            self.motore.precarica()
+            self.motore.precarica(quale)
         if self.innesco:
             self.fase.emit("contesto")
-            self.motore.scalda(self.innesco)
+            self.motore.scalda(self.innesco, quale)
         self.pronta.emit(True, "")
 
 
@@ -398,7 +406,7 @@ class CambioModello(QThread):
         # e la cache del riassunto è del modello, non della chat: cambiando
         # livello si ricomincia da zero, e su Hard sono trentun secondi
         if ok and self.innesco:
-            self.motore.scalda(self.innesco)
+            self.motore.scalda(self.innesco, self.nuovo)
         self.finito.emit(ok)
 
 
@@ -1754,14 +1762,26 @@ class RiquadroTess(QWidget):
         nessun modello, e al ritorno sulla pagina si riaccendeva da sé subito
         dopo averla spenta.
 
-        «Accesa» vuol dire **l'hai accesa tu**: che il processo giri o no è
-        un fatto suo. Qui si guarda una cosa sola — se il motore è morto
-        mentre eri acceso, si torna alla schermata di avvio.
+        «Accesa» vuol dire **il modello è in scheda video**: è la stessa
+        domanda che fa l'interruttore nella Home, così le due pagine non si
+        contraddicono — accendendola di là, qui la chat c'è già.
         """
         if self.accensione and self.accensione.isRunning():
             return
-        if self.pronta and not self.motore.attiva():
-            self._mostra_stato(False, "Il motore si è fermato. Riaccendi Tess.")
+        if self.cambio and self.cambio.isRunning():
+            return          # a metà di un cambio la scheda è vuota per un attimo
+        viva = self.motore.attiva() and self.motore.in_memoria()
+        if viva == self.pronta:
+            return
+        if not viva:
+            self._mostra_stato(False, "Tess è spenta: la scheda video è libera.")
+            return
+        self._mostra_stato(True)            # accesa dalla Home: la chat c'è già
+        if not self.bolle:
+            if self.chat_id:
+                self.carica_chat(self.chat_id)
+            if not self.bolle:
+                self._scrivi("tess", "Ci sono. Cosa guardiamo?")
 
     # --------------------------------------------------------- accensione
     def attiva(self) -> None:
@@ -1777,8 +1797,11 @@ class RiquadroTess(QWidget):
         self.et_stato.setText("Accendo Tess…")
         self._adatta_benvenuto()
         self._attesa(True)
+        # il nome si risolve **qui**, dove l'archivio si può leggere:
+        # dentro il filo la connessione SQLite non è utilizzabile
         self.accensione = Accensione(self.motore, self,
-                                     innesco=self.blocco_sistema()[0])
+                                     innesco=self.blocco_sistema()[0],
+                                     modello=self.motore.modello())
         self.accensione.fase.connect(self._fase)
         self.accensione.pronta.connect(self._accesa)
         self.accensione.start()

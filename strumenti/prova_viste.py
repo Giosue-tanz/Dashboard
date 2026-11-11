@@ -417,6 +417,53 @@ def main() -> int:
         r._scrivi_modello()
     prova("Tess: il livello si sceglie dalla chat", scelta_modello)
 
+    def fili_non_toccano_archivio():
+        """I fili di Tess non devono leggere l'archivio. **Mai.**
+
+        La connessione SQLite appartiene al filo che l'ha aperta: usarla da
+        un QThread solleva ProgrammingError. L'eccezione uccideva il filo
+        prima di `pronta.emit`, e siccome nessuno emetteva piu' niente la
+        pagina restava a caricare all'infinito, senza un errore in vista.
+
+        Qui si fa fallire di proposito ogni lettura dell'archivio e si
+        controlla che `run()` arrivi comunque in fondo: se qualcuno
+        reintroduce una chiamata a `modello()` la dentro, questa prova lo
+        prende subito.
+        """
+        from vita import tess as T
+
+        class ArchivioVietato:
+            def leggi(self, *_a, **_k):
+                raise AssertionError("il filo ha letto l'archivio")
+            def imposta(self, *_a, **_k):
+                raise AssertionError("il filo ha scritto sull'archivio")
+
+        class MotoreFinto(T.Motore):
+            def __init__(self):
+                self.db = ArchivioVietato()
+                self.cartella = "/tmp"
+                self.host = "127.0.0.1:1"
+                self.nome = "prova"
+            def installata(self): return True
+            def attiva(self): return True
+            def libera_vram(self, tranne=""): return []
+            def in_memoria(self, nome=""): return True
+            def precarica(self, nome=""): return True
+            def scalda(self, sistema, nome=""): return True
+
+        for filo, attesa in (
+                (T.Accensione(MotoreFinto(), None,
+                              innesco=[{"role": "system", "content": "x"}],
+                              modello="qwen3:4b-instruct"), "pronta"),
+                (T.CambioModello(MotoreFinto(), "qwen3:8b", None,
+                                 innesco=[{"role": "system", "content": "x"}]),
+                 "finito")):
+            esito = []
+            getattr(filo, attesa).connect(lambda *a: esito.append(a))
+            filo.run()                     # di proposito nello stesso filo
+            assert esito, f"{type(filo).__name__}: non ha mai emesso {attesa}"
+    prova("Tess: i fili non toccano l'archivio", fili_non_toccano_archivio)
+
     def livelli_in_scheda():
         """Low e Hard sono **lo stesso modello di base**: non confonderli.
 
@@ -439,27 +486,53 @@ def main() -> int:
             assert len(spiega) < 40, f"{nome}: la spiegazione si è allungata"
     prova("Tess: Low e Hard non si confondono in VRAM", livelli_in_scheda)
 
-    def non_si_accende_da_sola():
-        """Tess è accesa solo se **l'hai accesa tu**.
+    def icona_finestra_sempre_nera():
+        """L'icona della finestra è **sempre** la piastrella nera.
 
-        Il motore adesso è un servizio di sistema avviato dal boot: legando
-        «accesa» a «il processo risponde», la pagina si apriva già accesa
-        senza aver precaricato niente, e appena cambiavi pagina e tornavi si
-        riaccendeva da sé subito dopo che l'avevi spenta.
+        La disegna il sistema — barra del titolo, barra delle applicazioni —
+        sopra uno sfondo che l'app non sceglie. Seguire il tema dell'app o
+        indovinare lo schema del desktop lasciava sempre scoperto un caso
+        (app scura su desktop chiaro, o viceversa): la piastrella chiara
+        finiva su un fondo scuro, e i suoi angoli arrotondati — trasparenti —
+        mostravano lo sfondo dietro come quattro spigoli slegati. Una sola
+        piastrella nera chiude il problema per entrambe le modalità.
+
+        Non deve dipendere né dal tema salvato né da argomenti: `logo_app`
+        non ne accetta più.
+        """
+        from PySide6.QtCore import QSize
+        from vita.icone_nav import logo_app
+        im = logo_app().pixmap(QSize(32, 32)).toImage()
+        assert im.pixelColor(0, 0).alpha() == 0, "gli angoli devono restare arrotondati"
+        # (16, 6): dentro la piastrella ma sopra le lettere, che sono bianche
+        fondo = im.pixelColor(16, 6)
+        assert fondo.lightnessF() < 0.3, \
+            f"la piastrella non è nera: {fondo.name()}"
+    prova("Finestra: l'icona è sempre la piastrella nera", icona_finestra_sempre_nera)
+
+    def accesa_vuol_dire_in_scheda():
+        """«Accesa» = **il modello è in scheda video**, non «il processo risponde».
+
+        Il motore adesso è un servizio di sistema avviato dal boot. Con la
+        domanda vecchia la pagina si apriva già accesa senza aver precaricato
+        niente, e l'interruttore nella Home era acceso mentre la pagina di
+        Tess chiedeva ancora di attivarla: due pagine, due risposte diverse
+        sulla stessa cosa.
         """
         r.motore.attiva = lambda: True          # motore su, come dal boot
+        r.motore.in_memoria = lambda nome="": False      # ma scheda vuota
         r._mostra_stato(False)
         r.sincronizza()
-        assert not r.pronta, "si è accesa da sola col solo motore vivo"
+        assert not r.pronta, "motore vivo ma scheda vuota: Tess è spenta"
         r._mostra_stato(True)
         r.sincronizza()
-        assert r.pronta, "accesa a mano, deve restare accesa"
-        r.motore.attiva = lambda: False         # il motore muore sotto
+        assert not r.pronta, "scheda vuota: non può restare accesa"
+        r.motore.in_memoria = lambda nome="": True       # modello caricato
         r.sincronizza()
-        assert not r.pronta, "motore caduto: deve tornare alla schermata di avvio"
-        del r.motore.attiva                     # e si rimette com'era
+        assert r.pronta, "modello in scheda: Tess è accesa, anche da un'altra pagina"
+        del r.motore.attiva, r.motore.in_memoria         # si rimette com'era
         r._mostra_stato(True)
-    prova("Tess: non si accende da sola", non_si_accende_da_sola)
+    prova("Tess: accesa vuol dire modello in scheda", accesa_vuol_dire_in_scheda)
 
     def innesco_identico():
         """Quello che si scalda all'accensione dev'essere **lo stesso** testo.

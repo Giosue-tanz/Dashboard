@@ -294,7 +294,14 @@ RISORSE = os.path.join(
 
 
 def percorso_logo(tema: str = "scuro", lato: int = 0) -> str:
-    """Il logo TANZ nella versione adatta al tema: bianco su nero o nero su bianco."""
+    """Il logo TANZ nella versione adatta al tema: bianco su nero o nero su bianco.
+
+    Per la pagina: `b_logo` nella barra laterale e il marchio nello schermo
+    di blocco stanno su uno sfondo che l'app sceglie, e lì il contrasto col
+    tema conta. Per l'icona della FINESTRA (barra del titolo, barra delle
+    applicazioni) usa invece `logo_app`, che non segue questo parametro: è
+    il sistema a disegnarla sopra uno sfondo che l'app non controlla.
+    """
     base = "icona" if tema == "scuro" else "icona-chiara"
     candidati = [f"{base}-{lato}.png"] if lato else []
     candidati += [f"{base}.png", "icona.png"]
@@ -305,16 +312,25 @@ def percorso_logo(tema: str = "scuro", lato: int = 0) -> str:
     return ""
 
 
-def logo_app(tema: str = "scuro") -> QIcon:
-    """Icona dell'applicazione, con dentro tutte le misure disponibili."""
-    base = "icona" if tema == "scuro" else "icona-chiara"
+def logo_app() -> QIcon:
+    """Icona della finestra/applicazione: **sempre la piastrella nera**,
+    scuro o chiaro che sia il tema dell'app o il desktop.
+
+    La disegna il sistema sopra uno sfondo che l'app non sceglie — barra del
+    titolo, barra delle applicazioni. Scegliendola per tema o per schema del
+    desktop, un caso restava sempre scoperto (app scura su desktop chiaro, o
+    viceversa): la piastrella chiara ci finiva su un fondo scuro, e i suoi
+    angoli arrotondati — trasparenti — mostravano lo sfondo dietro come
+    quattro spigoli slegati. Una piastrella sola, sempre leggibile, chiude
+    il problema invece di inseguire ogni combinazione.
+    """
     icona_app = QIcon()
     for lato in (16, 24, 32, 48, 64, 128, 256, 512):
-        percorso = os.path.join(RISORSE, f"{base}-{lato}.png")
+        percorso = os.path.join(RISORSE, f"icona-{lato}.png")
         if os.path.exists(percorso):
             icona_app.addFile(percorso, QSize(lato, lato))
     if icona_app.isNull():
-        percorso = percorso_logo(tema)
+        percorso = percorso_logo("scuro")
         if percorso:
             icona_app.addFile(percorso)
     return icona_app

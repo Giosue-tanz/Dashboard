@@ -33,7 +33,7 @@ def main() -> int:
 
     db = Database()
     tema = db.leggi("tema", "scuro")
-    app.setWindowIcon(logo_app(tema))
+    app.setWindowIcon(logo_app())
 
     # se c'è una password, si entra solo da lì: la finestra non nasce nemmeno
     if blocco.attivo(db):
