@@ -432,11 +432,18 @@ def main() -> int:
         """
         from vita import tess as T
 
+        # Registra invece di sollevare: un'eccezione finirebbe nel `except`
+        # di Risposta e uscirebbe come messaggio d'errore, cioe' la prova
+        # passerebbe lo stesso col difetto rimesso. Qui si guarda il fatto
+        # nudo: il filo ha toccato l'archivio, si' o no.
+        toccato = []
+
         class ArchivioVietato:
-            def leggi(self, *_a, **_k):
-                raise AssertionError("il filo ha letto l'archivio")
-            def imposta(self, *_a, **_k):
-                raise AssertionError("il filo ha scritto sull'archivio")
+            def leggi(self, chiave, *_a, **_k):
+                toccato.append(f"leggi({chiave})")
+                return ""
+            def imposta(self, chiave, *_a, **_k):
+                toccato.append(f"imposta({chiave})")
 
         class MotoreFinto(T.Motore):
             def __init__(self):
@@ -451,17 +458,27 @@ def main() -> int:
             def precarica(self, nome=""): return True
             def scalda(self, sistema, nome=""): return True
 
-        for filo, attesa in (
+        for filo, attese in (
                 (T.Accensione(MotoreFinto(), None,
                               innesco=[{"role": "system", "content": "x"}],
-                              modello="qwen3:4b-instruct"), "pronta"),
+                              modello="qwen3:4b-instruct"), ("pronta",)),
                 (T.CambioModello(MotoreFinto(), "qwen3:8b", None,
                                  innesco=[{"role": "system", "content": "x"}]),
-                 "finito")):
+                 ("finito",)),
+                # Risposta non raggiunge il motore (host 127.0.0.1:1): deve
+                # dirlo con `errore`, non morire muta lasciando i puntini
+                (T.Risposta(MotoreFinto(), [{"role": "user", "content": "ciao"}],
+                            None, modello="qwen3:4b-instruct"),
+                 ("finita", "errore"))):
             esito = []
-            getattr(filo, attesa).connect(lambda *a: esito.append(a))
+            toccato.clear()
+            for attesa in attese:
+                getattr(filo, attesa).connect(lambda *a: esito.append(a))
             filo.run()                     # di proposito nello stesso filo
-            assert esito, f"{type(filo).__name__}: non ha mai emesso {attesa}"
+            assert esito, (f"{type(filo).__name__}: non ha mai emesso "
+                           f"{' ne '.join(attese)}")
+            assert not toccato, (f"{type(filo).__name__} ha toccato "
+                                 f"l'archivio: {toccato}")
     prova("Tess: i fili non toccano l'archivio", fili_non_toccano_archivio)
 
     def livelli_in_scheda():

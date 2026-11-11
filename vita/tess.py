@@ -417,10 +417,17 @@ class Risposta(QThread):
     finita = Signal()
     errore = Signal(str)
 
-    def __init__(self, motore: Motore, messaggi: list[dict], parent=None):
+    def __init__(self, motore: Motore, messaggi: list[dict], parent=None,
+                 modello: str = ""):
         super().__init__(parent)
         self.motore = motore
         self.messaggi = messaggi
+        # Risolto dal filo della finestra: qui dentro l'archivio SQLite non
+        # si puo' toccare. Prima si chiamava `motore.modello()` dentro
+        # `run()`, e per di piu' fuori dal `try`: l'eccezione usciva dal filo
+        # senza emettere nemmeno `errore`, cosi' i puntini della risposta
+        # restavano a lampeggiare per sempre.
+        self.modello = modello
         self._fermare = False
 
     def ferma(self) -> None:
@@ -433,16 +440,19 @@ class Risposta(QThread):
         # minuto di schermo vuoto e poi una risposta tagliata a metà: la prima
         # prova vera è finita proprio così, con zero parole visibili. Chi
         # vuole il ragionamento lungo lo chiede nella domanda.
-        corpo = json.dumps({
-            "model": self.motore.modello(),
-            "messages": self.messaggi,
-            "stream": True,
-            "think": False,
-        }).encode()
-        richiesta = urllib.request.Request(
-            f"http://{self.motore.host}/api/chat", data=corpo,
-            headers={"Content-Type": "application/json"})
+        # tutto dentro il `try`, preparazione della richiesta compresa:
+        # qualunque cosa vada storta qui dev'essere una riga rossa in chat,
+        # non un filo che muore in silenzio
         try:
+            corpo = json.dumps({
+                "model": self.modello,
+                "messages": self.messaggi,
+                "stream": True,
+                "think": False,
+            }).encode()
+            richiesta = urllib.request.Request(
+                f"http://{self.motore.host}/api/chat", data=corpo,
+                headers={"Content-Type": "application/json"})
             # 300 e non 120: con Hard il contesto della Dashboard si digerisce
             # in mezzo minuto prima che esca la prima parola, e una risposta
             # lunga arriva a un minuto e mezzo. Il conto vale per ogni pezzo
@@ -2268,7 +2278,9 @@ class RiquadroTess(QWidget):
             self._scrivi("tess", "⚠ Non sono riuscita a leggere i tuoi "
                                  f"dati ({errore}): rispondo senza.")
         self._inizia_risposta()
-        self.conversazione = Risposta(self.motore, sistema + self.messaggi, self)
+        # il nome si legge **qui**, nel filo della finestra
+        self.conversazione = Risposta(self.motore, sistema + self.messaggi, self,
+                                      modello=self.motore.modello())
         self.conversazione.pezzo.connect(self._aggiungi_pezzo)
         self.conversazione.finita.connect(self._chiudi_risposta)
         self.conversazione.errore.connect(self._errore)
