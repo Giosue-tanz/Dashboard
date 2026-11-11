@@ -280,6 +280,29 @@ class Motore:
         except Exception:
             return False
 
+    def scalda(self, sistema: list[dict]) -> bool:
+        """Fa digerire al modello il riassunto dei dati, prima che tu scriva.
+
+        È l'attesa più lunga di tutte e nessuno se l'aspettava: duemila token
+        di riassunto costano **quindici secondi** di sola lettura, e si
+        pagavano tutti sulla prima domanda, dove sembrava che Tess fosse
+        rotta. Dalla seconda in poi erano 0,4 s, perché il motore tiene in
+        cache il pezzo iniziale finché non cambia.
+
+        Qui quel pezzo iniziale glielo si dà all'accensione, identico a
+        quello che manderà la chat: così la prima domanda trova la cache
+        calda e risponde come tutte le altre.
+        """
+        corpo = {"model": self.modello(),
+                 "messages": sistema + [{"role": "user", "content": "ok"}],
+                 "stream": False, "think": False, "keep_alive": -1,
+                 "options": {"num_predict": 1}}
+        try:
+            self.chiama("/api/chat", corpo, attesa=300)
+            return True
+        except Exception:
+            return False
+
     def spegni(self) -> bool:
         """Libera la scheda, poi prova a fermare il servizio. Torna se l'ha fermato.
 
@@ -311,9 +334,10 @@ class Accensione(QThread):
     fase = Signal(str)                 # «motore» · «modello»
     pronta = Signal(bool, str)
 
-    def __init__(self, motore: Motore, parent=None):
+    def __init__(self, motore: Motore, parent=None, innesco: list | None = None):
         super().__init__(parent)
         self.motore = motore
+        self.innesco = innesco or []
 
     def run(self) -> None:
         if not self.motore.installata():
@@ -342,6 +366,9 @@ class Accensione(QThread):
         if not self.motore.in_memoria():
             self.fase.emit("modello")
             self.motore.precarica()
+        if self.innesco:
+            self.fase.emit("contesto")
+            self.motore.scalda(self.innesco)
         self.pronta.emit(True, "")
 
 
@@ -355,17 +382,24 @@ class CambioModello(QThread):
 
     finito = Signal(bool)
 
-    def __init__(self, motore: Motore, nuovo: str, parent=None):
+    def __init__(self, motore: Motore, nuovo: str, parent=None,
+                 innesco: list | None = None):
         super().__init__(parent)
         self.motore = motore
         self.nuovo = nuovo
+        self.innesco = innesco or []
 
     def run(self) -> None:
         # non solo il vecchio: *tutto* quello che non è il nuovo, perché in
         # quattro giga non ci stanno in due e un modello inchiodato da una
         # sessione di prima basta a mandare il nuovo sul processore
         self.motore.libera_vram(self.nuovo)
-        self.finito.emit(self.motore.precarica(self.nuovo))
+        ok = self.motore.precarica(self.nuovo)
+        # e la cache del riassunto è del modello, non della chat: cambiando
+        # livello si ricomincia da zero, e su Hard sono trentun secondi
+        if ok and self.innesco:
+            self.motore.scalda(self.innesco)
+        self.finito.emit(ok)
 
 
 class Risposta(QThread):
@@ -1743,7 +1777,8 @@ class RiquadroTess(QWidget):
         self.et_stato.setText("Accendo Tess…")
         self._adatta_benvenuto()
         self._attesa(True)
-        self.accensione = Accensione(self.motore, self)
+        self.accensione = Accensione(self.motore, self,
+                                     innesco=self.blocco_sistema()[0])
         self.accensione.fase.connect(self._fase)
         self.accensione.pronta.connect(self._accesa)
         self.accensione.start()
@@ -1773,6 +1808,11 @@ class RiquadroTess(QWidget):
     def _fase(self, quale: str) -> None:
         if quale == "motore":
             self.et_stato.setText("Accendo il motore…")
+        elif quale == "contesto":
+            self.et_stato.setText(
+                "Le faccio leggere il riassunto dei tuoi dati: sono duemila "
+                "parole, e leggerle costa una quindicina di secondi. Li "
+                "paghiamo adesso così la prima domanda risponde subito.")
         else:
             self.et_stato.setText(
                 "Carico il modello nella scheda video: qualche secondo, una "
@@ -1849,7 +1889,8 @@ class RiquadroTess(QWidget):
         self.b_modello.setEnabled(False)
         self.attesa_modello.setToolTip(f"Sto portando {quale} in scheda video…")
         self.attesa_modello.avvia()
-        self.cambio = CambioModello(self.motore, nome, self)
+        self.cambio = CambioModello(self.motore, nome, self,
+                                    innesco=self.blocco_sistema()[0])
         self.cambio.finito.connect(self._modello_caricato)
         self.cambio.start()
 
@@ -2166,28 +2207,43 @@ class RiquadroTess(QWidget):
             self.aggiorna_elenco()
         self._interroga(domanda)
 
+    def blocco_sistema(self, domanda: str = "") -> tuple[list[dict], str]:
+        """Le istruzioni più il riassunto dei dati: il blocco che apre ogni invio.
+
+        Sta in un metodo suo perché serve in due posti e **deve essere lo
+        stesso identico testo**: la chat lo manda davanti a ogni domanda, e
+        l'accensione lo manda in anticipo per far trovare la cache calda. Un
+        carattere di differenza e il motore ricomincia da capo, cioè quindici
+        secondi buttati.
+
+        Torna (blocco, guaio): il guaio è il nome dell'errore, da far vedere.
+        """
+        sistema = [{"role": "system", "content": istruzioni(self.db)}]
+        if not self.b_dati.acceso():
+            return sistema, ""
+        try:
+            sistema.append({"role": "system",
+                            "content": contesto(self.db, self.fonte,
+                                                aree_scelte(self.db), domanda)})
+            return sistema, ""
+        except Exception as errore:          # noqa: BLE001 — qualunque intoppo
+            # senza riassunto Tess risponderebbe lo stesso, a caso: meglio
+            # che lo dica, e che si veda anche in pagina che è andato storto
+            sistema.append({"role": "system", "content":
+                            "Il riassunto dei dati non è disponibile: "
+                            "dillo chiaramente e non inventare numeri."})
+            return sistema, type(errore).__name__
+
     def _interroga(self, domanda: str) -> None:
         """Manda al motore quello che c'è in `self.messaggi`.
 
         Sta a parte da `invia` perché la stessa domanda si rifà quando ne
         correggi una di prima: lì il messaggio in pagina c'è già.
         """
-        sistema = [{"role": "system", "content": istruzioni(self.db)}]
-        if self.b_dati.acceso():
-            try:
-                sistema.append({"role": "system",
-                                "content": contesto(self.db, self.fonte,
-                                                    aree_scelte(self.db),
-                                                    domanda)})
-            except Exception as errore:
-                # senza riassunto Tess risponderebbe lo stesso, a caso: meglio
-                # che lo dica, e che si veda anche qui che è andato storto
-                sistema.append({"role": "system", "content":
-                                "Il riassunto dei dati non è disponibile: "
-                                "dillo chiaramente e non inventare numeri."})
-                self._scrivi("tess", "⚠ Non sono riuscita a leggere i tuoi "
-                                     f"dati ({type(errore).__name__}): "
-                                     "rispondo senza.")
+        sistema, errore = self.blocco_sistema(domanda)
+        if errore:
+            self._scrivi("tess", "⚠ Non sono riuscita a leggere i tuoi "
+                                 f"dati ({errore}): rispondo senza.")
         self._inizia_risposta()
         self.conversazione = Risposta(self.motore, sistema + self.messaggi, self)
         self.conversazione.pezzo.connect(self._aggiungi_pezzo)

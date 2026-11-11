@@ -267,6 +267,28 @@ Una nota su `systemctl`: `--user stop` risponde «0» anche su un servizio già
 spento. Fidandosi di quel codice la pagina annunciava «fermato» di un motore
 vivissimo, quindi adesso dopo lo stop **si guarda** se risponde ancora.
 
+### I quindici secondi della prima domanda
+
+Il riassunto dei dati che Tess riceve è lungo **2.100 token**, e leggerli
+costa quindici secondi — poi il motore li tiene in cache e la domanda dopo
+costa 0,4 s. Quell'attesa cadeva tutta sulla prima domanda, dove sembrava
+che Tess fosse rotta:
+
+| | prima | adesso |
+|---|---|---|
+| prima domanda | 16,6 s | **1,2 s** |
+| domande dopo | 1,5 s | 1,5 s |
+
+Adesso il blocco lo si fa leggere **all'accensione**, dove l'attesa è
+prevista e c'è già la barra che si muove, e di nuovo a ogni cambio di
+livello — la cache è del modello, non della chat, e passando a Hard si
+ricomincerebbe da capo con trentun secondi.
+
+Perché funzioni, il testo scaldato dev'essere **identico** a quello che la
+chat manda davanti a ogni domanda: un carattere di differenza e il motore
+rilegge tutto. Per questo lo costruisce un metodo solo, `blocco_sistema()`,
+e c'è una prova che i due combacino.
+
 ## Il sonno, dal braccialetto
 
 Il braccialetto manda la notte in due pezzi: la **sessione** (da quando ti sei

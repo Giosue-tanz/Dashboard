@@ -461,6 +461,27 @@ def main() -> int:
         r._mostra_stato(True)
     prova("Tess: non si accende da sola", non_si_accende_da_sola)
 
+    def innesco_identico():
+        """Quello che si scalda all'accensione dev'essere **lo stesso** testo.
+
+        La cache del motore tiene il pezzo iniziale finché non cambia: 2.100
+        token costano 15 s a leggerli, 0,3 s a ritrovarli. Un carattere di
+        differenza fra il blocco scaldato e quello che manda la chat, e quei
+        quindici secondi tornano tutti sulla prima domanda.
+        """
+        innesco, guaio = r.blocco_sistema()
+        assert not guaio, f"il riassunto non si legge: {guaio}"
+        assert innesco and innesco[0]["role"] == "system"
+        chat, _ = r.blocco_sistema("")          # come lo costruisce _interroga
+        assert innesco == chat, "il blocco scaldato non è quello che manda la chat"
+        # coi dati spenti resta solo il carattere di Tess, senza riassunto
+        acceso = r.b_dati.acceso()
+        r.b_dati.imposta(False)
+        assert len(r.blocco_sistema()[0]) == 1, "a dati spenti non si manda il riassunto"
+        r.b_dati.imposta(acceso)
+    prova("Tess: il contesto scaldato combacia con quello della chat",
+          innesco_identico)
+
     def caricamento_in_testata():
         """Il cambio di livello si vede in testata e non blocca la finestra."""
         assert r.attesa_modello.isHidden(), "la strisciolina parte nascosta"
