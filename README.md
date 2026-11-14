@@ -8,8 +8,15 @@ ogni giorno: **emozioni, carriera, accademica, salute, finanza**.
 nessun servizio esterno. I dati restano in un unico file SQLite dentro
 `~/.local/share/Vita/`.
 
-Stesso impianto dell'app [Finance](../Finance): PySide6, tema scuro o chiaro,
-barra laterale richiudibile, riquadri che si trascinano e si ridimensionano.
+Stesso impianto dell'app [Finance](https://github.com/Giosue-tanz/Finance):
+PySide6, tema scuro o chiaro, barra laterale richiudibile, riquadri che si
+trascinano e si ridimensionano. Finance è nato prima e si occupava solo di
+soldi; **il suo sviluppo si è fermato qui**: la finanza è diventata una
+delle sei aree di Dashboard, che tiene insieme anche il resto. Chi ha già
+un archivio di Finance può continuare a usarlo come sorgente (vedi
+[«Finanza: due sorgenti possibili»](#finanza-due-sorgenti-possibili) più
+sotto) o portarlo dentro una volta per tutte — ma per tutto quello che
+Finance faceva da solo, oggi si usa Dashboard.
 
 L'aspetto segue il linguaggio di **One UI**: angoli larghi, schede senza
 cornice, pulsanti a pastiglia, numeri grandi e didascalie piccole. Le candele
