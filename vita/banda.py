@@ -34,7 +34,7 @@ import os
 import time
 from datetime import datetime
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QObject, QTimer, Signal
 
 from . import lotti as decodifica
 from . import sap
@@ -612,3 +612,25 @@ class Braccialetto(QObject):
         except Exception:
             pass
         self.stato.emit("spento", "Braccialetto lasciato libero.")
+
+
+# Di braccialetto ce n'è uno, e il collegamento è uno: quello vero, al
+# polso. Prima ogni pagina si faceva il suo oggetto — l'interruttore in
+# Salute e il bottone in Home — e nessuno dei due sapeva cosa aveva fatto
+# l'altro: accendevi dalla Home e l'interruttore di Salute restava spento,
+# pur essendo il braccialetto collegato davvero. Qui ce n'è uno solo, e
+# tutti e due guardano e comandano lui.
+_condiviso: Braccialetto | None = None
+
+
+def condiviso() -> Braccialetto:
+    """L'unico braccialetto dell'applicazione."""
+    global _condiviso
+    if _condiviso is None:
+        _condiviso = Braccialetto()
+        app = QCoreApplication.instance()
+        if app is not None:
+            # alla chiusura si lascia libero: se no resta impegnato con
+            # questo PC e il telefono non lo rivede più
+            app.aboutToQuit.connect(_condiviso.spegni)
+    return _condiviso

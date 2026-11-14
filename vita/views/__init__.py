@@ -114,6 +114,13 @@ class VistaSezioni(VistaBase):
             comando = getattr(sezione.intestazione, "comando", None)
             if hasattr(comando, "aggiorna_tema"):
                 comando.aggiorna_tema(colori)
+            # anche quello che c'è **dentro** il riquadro, se sa vestirsi:
+            # un riquadro intero (RiquadroAttivita) tiene i suoi colori e
+            # senza questo restava del tema di prima, mentre il comando
+            # accanto al titolo cambiava — due metà di tinte diverse
+            contenuto = getattr(sezione, "contenuto", None)
+            if hasattr(contenuto, "aggiorna_tema"):
+                contenuto.aggiorna_tema(colori)
         super().aggiorna_tema(colori)
 
     # ------------------------------------------------------------- riquadri
@@ -145,7 +152,10 @@ class VistaSezioni(VistaBase):
         tutta l'altezza del riquadro."""
         sezione = Sezione(chiave, self.SEZIONI.get(chiave, chiave), contenuto,
                           stile, comando)
-        sezione.chiusura_richiesta.connect(lambda k: self.azioni[k].setChecked(False))
+        # `.get`: un riquadro prestato a un'altra pagina cambia chiave, e la
+        # pagina di origine non ha più una voce di menu con quel nome
+        sezione.chiusura_richiesta.connect(
+            lambda k: self.azioni[k].setChecked(False) if k in self.azioni else None)
         sezione.periodo_richiesto.connect(self._menu_periodo)
         sezione.menu_richiesto.connect(self._menu_sezione)
         sezione.imposta_periodo(self._nome_periodo(chiave))
@@ -219,6 +229,14 @@ class VistaSezioni(VistaBase):
             self._nome_periodo(chiave))
         self.aggiorna()
 
+    def voci_sezione(self, chiave: str, menu: QMenu) -> bool:
+        """Comandi propri di un riquadro, da aggiungere al suo menu «⋯».
+
+        Le pagine che ne hanno la riscrivono. Torna True se ha aggiunto
+        qualcosa, così chi chiama sa se ci vuole una riga di separazione.
+        """
+        return False
+
     def _menu_sezione(self, chiave: str, punto) -> None:
         menu = QMenu(self)
         if chiave in self.PERIODI_SEZIONE:
@@ -231,6 +249,11 @@ class VistaSezioni(VistaBase):
                 azione.setChecked(valore == corrente)
                 azione.triggered.connect(
                     lambda _=False, k=chiave, v=valore: self._imposta_periodo(k, v))
+            menu.addSeparator()
+        # quello che quel riquadro sa fare di suo, prima dei comandi che
+        # valgono per tutti: è il posto che il suggerimento del menu
+        # «Riquadri» promette da sempre — «⋯» gli altri comandi
+        if self.voci_sezione(chiave, menu):
             menu.addSeparator()
         menu.addAction("Nascondi questo riquadro",
                        lambda: self.azioni[chiave].setChecked(False))

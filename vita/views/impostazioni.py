@@ -43,11 +43,11 @@ class VistaImpostazioni(VistaBase):
         esterno.setContentsMargins(0, 0, 0, 0)
         self.schede = QTabWidget()
         esterno.addWidget(self.schede)
-        self.schede.addTab(self._aspetto(), "Aspetto")
-        self.schede.addTab(self._obiettivi(), "Obiettivi")
+        self.schede.addTab(self._scorrevole(self._aspetto()), "Aspetto")
+        self.schede.addTab(self._scorrevole(self._obiettivi()), "Obiettivi")
         self.schede.addTab(self._scorrevole(self._finanza()), "Finanza")
         self.schede.addTab(self._scorrevole(self._tess()), "Tess")
-        self.schede.addTab(self._sicurezza(), "Sicurezza")
+        self.schede.addTab(self._scorrevole(self._sicurezza()), "Sicurezza")
         self.schede.addTab(self._scorrevole(self._dati()), "Dati e backup")
 
     @staticmethod
@@ -64,25 +64,29 @@ class VistaImpostazioni(VistaBase):
     def _aspetto(self) -> QWidget:
         pagina = QWidget()
         lay = QVBoxLayout(pagina)
-        lay.setContentsMargins(16, 16, 16, 16)
-        lay.setSpacing(14)
+        lay.setContentsMargins(20, 20, 20, 20)
+        lay.setSpacing(18)
 
         scheda = Scheda("Tema")
         self.gruppo_tema = QButtonGroup(self)
         fila = QHBoxLayout()
-        fila.setSpacing(8)
-        for chiave, nome in (("scuro", "Scuro"), ("chiaro", "Chiaro")):
-            b = QPushButton(nome)
+        fila.setSpacing(10)
+        tema_attuale = self.db.leggi("tema", "scuro")
+        for chiave, icona, nome in (("scuro", "🌙", "Scuro"), ("chiaro", "☀️", "Chiaro")):
+            b = QPushButton(f"{icona}  {nome}")
             b.setObjectName("Segmento")
             b.setCheckable(True)
-            b.setChecked(self.db.leggi("tema", "scuro") == chiave)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setMinimumHeight(42)
+            b.setMinimumWidth(140)
+            b.setChecked(tema_attuale == chiave)
             b.clicked.connect(lambda _=False, k=chiave: self._imposta_tema(k))
             self.gruppo_tema.addButton(b)
             fila.addWidget(b)
         fila.addStretch(1)
         scheda.aggiungi_layout(fila)
         nota = EtichettaACapo(
-            "Ctrl+T cambia tema in qualsiasi momento.\n"
+            "Scorciatoia: Ctrl+T cambia tema in qualsiasi momento da ogni schermata.\n"
             "I colori invece non si scelgono: ogni area ha il suo — rosso "
             "Emozioni, blu Carriera, viola Accademica, turchese Salute, "
             "verde Finanza, rosa Tess — e il resto della pagina è fatto per "
@@ -92,11 +96,22 @@ class VistaImpostazioni(VistaBase):
         lay.addWidget(scheda)
 
         scheda = Scheda("Dimensione del testo")
+        fila_scala = QHBoxLayout()
+        fila_scala.setSpacing(12)
         self.scala = QComboBox()
         self.scala.addItems(list(SCALE))
+        self.scala.setFixedWidth(240)
+        self.scala.setMinimumHeight(38)
         self.scala.setCurrentText(self.db.leggi("scala", "normale"))
         self.scala.currentTextChanged.connect(self._imposta_scala)
-        scheda.aggiungi(self.scala)
+        fila_scala.addWidget(self.scala)
+        fila_scala.addStretch(1)
+        scheda.aggiungi_layout(fila_scala)
+        spiega = EtichettaACapo(
+            "Adatta proporzionalmente tutti i testi, i grafici e i comandi "
+            "dell'interfaccia allo schermo (compatta 90%, normale 100%, grande 115%, molto grande 130%).")
+        spiega.setObjectName("NotaScheda")
+        scheda.aggiungi(spiega)
         lay.addWidget(scheda)
 
         lay.addStretch(1)
@@ -114,49 +129,95 @@ class VistaImpostazioni(VistaBase):
     def _obiettivi(self) -> QWidget:
         pagina = QWidget()
         lay = QVBoxLayout(pagina)
-        lay.setContentsMargins(16, 16, 16, 16)
-        lay.setSpacing(14)
+        lay.setContentsMargins(20, 20, 20, 20)
+        lay.setSpacing(18)
 
-        scheda = Scheda("Quanto ti sei dato da fare")
-        modulo = QFormLayout()
-        modulo.setSpacing(10)
+        # 1. Salute e Benessere
+        scheda_salute = Scheda("Salute e benessere")
+        modulo_salute = QFormLayout()
+        modulo_salute.setHorizontalSpacing(24)
+        modulo_salute.setVerticalSpacing(12)
+        modulo_salute.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
         self.passi = QSpinBox(); self.passi.setRange(0, 100000)
         self.passi.setSingleStep(500); self.passi.setGroupSeparatorShown(True)
+        self.passi.setSuffix(" passi")
+        self.passi.setFixedWidth(220); self.passi.setMinimumHeight(36)
         self.passi.setValue(int(self.db.leggi_num("obiettivo_passi",
                                                   PREDEFINITI["obiettivo_passi"])))
+
         self.sonno = CampoDurata()
         self.sonno.imposta(int(self.db.leggi_num("obiettivo_sonno",
                                                  PREDEFINITI["obiettivo_sonno"])))
+
+        self.acqua = QDoubleSpinBox(); self.acqua.setRange(0, 10)
+        self.acqua.setSingleStep(0.25); self.acqua.setSuffix(" L")
+        self.acqua.setFixedWidth(220); self.acqua.setMinimumHeight(36)
+        self.acqua.setValue(self.db.leggi_num("obiettivo_acqua",
+                                              PREDEFINITI["obiettivo_acqua"]))
+
         self.allenamenti = QSpinBox(); self.allenamenti.setRange(0, 14)
+        self.allenamenti.setSuffix(" sessioni")
+        self.allenamenti.setFixedWidth(220); self.allenamenti.setMinimumHeight(36)
         self.allenamenti.setValue(int(self.db.leggi_num(
             "obiettivo_allenamenti", PREDEFINITI["obiettivo_allenamenti"])))
+
+        # Non è un obiettivo, è una misura — ma è l'unica che non cambia mai,
+        # e scriverla ogni giorno nell'inserimento dati sarebbe assurdo. Serve
+        # agli indici della composizione: BMI, FMI e FFMI sono tutti e tre un
+        # peso diviso l'altezza al quadrato, e senza non si calcolano.
+        self.altezza = QSpinBox(); self.altezza.setRange(0, 250)
+        self.altezza.setSuffix(" cm")
+        self.altezza.setFixedWidth(220); self.altezza.setMinimumHeight(36)
+        self.altezza.setValue(int(self.db.leggi_num("altezza", 0)))
+        self.altezza.setToolTip(
+            "Serve per BMI, FMI e FFMI nel riquadro «Composizione» di Salute.\n"
+            "A zero quegli indici non si mostrano.")
+
+        modulo_salute.addRow("Passi al giorno", self.passi)
+        modulo_salute.addRow("Sonno a notte", self.sonno)
+        modulo_salute.addRow("Acqua al giorno", self.acqua)
+        modulo_salute.addRow("Allenamenti a settimana", self.allenamenti)
+        modulo_salute.addRow("Altezza", self.altezza)
+        scheda_salute.aggiungi_layout(modulo_salute)
+        lay.addWidget(scheda_salute)
+
+        # 2. Studio e Università
+        scheda_studio = Scheda("Studio e università")
+        modulo_studio = QFormLayout()
+        modulo_studio.setHorizontalSpacing(24)
+        modulo_studio.setVerticalSpacing(12)
+        modulo_studio.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
         self.studio = CampoDurata()
         self.studio.imposta(int(self.db.leggi_num("obiettivo_studio",
                                                   PREDEFINITI["obiettivo_studio"])))
-        self.acqua = QDoubleSpinBox(); self.acqua.setRange(0, 10)
-        self.acqua.setSingleStep(0.25); self.acqua.setSuffix(" L")
-        self.acqua.setValue(self.db.leggi_num("obiettivo_acqua",
-                                              PREDEFINITI["obiettivo_acqua"]))
+
         self.cfu = QSpinBox(); self.cfu.setRange(0, 600)
+        self.cfu.setSuffix(" CFU")
+        self.cfu.setFixedWidth(220); self.cfu.setMinimumHeight(36)
         self.cfu.setValue(int(self.db.leggi_num("cfu_laurea", 180)))
 
-        modulo.addRow("Passi al giorno", self.passi)
-        modulo.addRow("Sonno a notte", self.sonno)
-        modulo.addRow("Allenamenti a settimana", self.allenamenti)
-        modulo.addRow("Studio a settimana", self.studio)
-        modulo.addRow("Acqua al giorno", self.acqua)
-        modulo.addRow("CFU della laurea", self.cfu)
-        scheda.aggiungi_layout(modulo)
+        modulo_studio.addRow("Studio a settimana", self.studio)
+        modulo_studio.addRow("CFU della laurea", self.cfu)
+        scheda_studio.aggiungi_layout(modulo_studio)
+        lay.addWidget(scheda_studio)
 
+        # Barra di salvataggio
+        fila_salva = QHBoxLayout()
+        fila_salva.setSpacing(12)
         salva = QPushButton("Salva obiettivi")
         salva.setObjectName("Primario")
+        salva.setMinimumHeight(38)
+        salva.setMinimumWidth(160)
         salva.clicked.connect(self._salva_obiettivi)
-        scheda.aggiungi_layout(riga(None, salva))
-        scheda.aggiungi(etichetta(
+        fila_salva.addWidget(salva)
+        nota_salva = etichetta(
             "Gli obiettivi entrano negli indicatori in fondo alla barra e nelle "
-            "linee tratteggiate dei grafici.", "NotaScheda"))
-        lay.addWidget(scheda)
+            "linee tratteggiate dei grafici.", "NotaScheda")
+        fila_salva.addWidget(nota_salva, 1)
+        lay.addLayout(fila_salva)
+
         lay.addStretch(1)
         return pagina
 
@@ -166,6 +227,7 @@ class VistaImpostazioni(VistaBase):
         self.db.imposta("obiettivo_allenamenti", self.allenamenti.value())
         self.db.imposta("obiettivo_studio", self.studio.valore())
         self.db.imposta("obiettivo_acqua", self.acqua.value())
+        self.db.imposta("altezza", self.altezza.value())
         self.db.imposta("cfu_laurea", self.cfu.value())
         self.dati_cambiati.emit()
         QMessageBox.information(self, "Obiettivi", "Obiettivi salvati.")
@@ -697,16 +759,26 @@ class VistaImpostazioni(VistaBase):
     def _sicurezza(self) -> QWidget:
         pagina = QWidget()
         lay = QVBoxLayout(pagina)
-        lay.setContentsMargins(16, 16, 16, 16)
-        lay.setSpacing(14)
+        lay.setContentsMargins(20, 20, 20, 20)
+        lay.setSpacing(18)
 
         scheda = Scheda("Password d'ingresso")
+        
+        # Banner di stato elegante con badge
+        riga_stato = QHBoxLayout()
+        riga_stato.setSpacing(12)
+        self.badge_blocco = QLabel()
         self.et_blocco = etichetta("", "NotaScheda")
         self.et_blocco.setWordWrap(True)
-        scheda.aggiungi(self.et_blocco)
+        riga_stato.addWidget(self.badge_blocco)
+        riga_stato.addWidget(self.et_blocco, 1)
+        scheda.aggiungi_layout(riga_stato)
+
         modulo = QFormLayout()
-        modulo.setHorizontalSpacing(14)
-        modulo.setVerticalSpacing(10)
+        modulo.setHorizontalSpacing(24)
+        modulo.setVerticalSpacing(12)
+        modulo.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
         self.pw_attuale = QLineEdit()
         self.pw_nuova = QLineEdit()
         self.pw_ripeti = QLineEdit()
@@ -716,45 +788,65 @@ class VistaImpostazioni(VistaBase):
             campo.setEchoMode(QLineEdit.Password)
             campo.setPlaceholderText(invito)
             campo.setMinimumHeight(38)
-            campo.setMaximumWidth(320)
+            campo.setFixedWidth(280)
+
         # l'etichetta la tengo per nome: va nascosta insieme al campo
         self.et_pw_attuale = QLabel("Password di adesso")
         modulo.addRow(self.et_pw_attuale, self.pw_attuale)
         modulo.addRow("Nuova password", self.pw_nuova)
         modulo.addRow("Ripetila", self.pw_ripeti)
         scheda.aggiungi_layout(modulo)
+
+        fila_azioni = QHBoxLayout()
+        fila_azioni.setSpacing(10)
         self.b_blocco = QPushButton("Attiva la password")
         self.b_blocco.setObjectName("Primario")
+        self.b_blocco.setMinimumHeight(38)
+        self.b_blocco.setMinimumWidth(160)
         self.b_blocco.clicked.connect(self._salva_password)
         self.b_sblocco = QPushButton("Togli la password")
+        self.b_sblocco.setMinimumHeight(38)
+        self.b_sblocco.setMinimumWidth(150)
         self.b_sblocco.clicked.connect(self._togli_password)
-        scheda.aggiungi_layout(riga(self.b_blocco, self.b_sblocco, None))
+        fila_azioni.addWidget(self.b_blocco)
+        fila_azioni.addWidget(self.b_sblocco)
+        fila_azioni.addStretch(1)
+        scheda.aggiungi_layout(fila_azioni)
         lay.addWidget(scheda)
 
-        scheda = Scheda("Che cosa protegge davvero")
+        scheda_info = Scheda("Che cosa protegge davvero")
         nota = etichetta(
             "È una porta, non una cassaforte: impedisce di aprire la "
             "Dashboard, ma l'archivio resta un file leggibile da altri "
             "programmi (`~/.local/share/Vita/vita.db`). Contro chi si siede al "
             "tuo posto va benissimo; contro chi si porta via il portatile "
-            "serve cifrare il disco, che è mestiere del sistema.\n"
+            "serve cifrare il disco, che è mestiere del sistema.\n\n"
             "La password non viene salvata: se ne conserva solo l'impronta "
             "(PBKDF2, 240.000 giri, con sale). Se la dimentichi si toglie da "
             "terminale, la riga è scritta in cima a vita/blocco.py.",
             "NotaScheda")
         nota.setWordWrap(True)
-        scheda.aggiungi(nota)
-        lay.addWidget(scheda)
+        scheda_info.aggiungi(nota)
+        lay.addWidget(scheda_info)
+
         lay.addStretch(1)
         self._stato_blocco()
         return pagina
 
     def _stato_blocco(self) -> None:
         acceso = blocco.attivo(self.db)
-        self.et_blocco.setText(
-            "La password è attiva: all'avvio la Dashboard la chiede."
-            if acceso else
-            "Nessuna password: la Dashboard si apre subito.")
+        if acceso:
+            self.badge_blocco.setText("🔒  PROTETTA")
+            self.badge_blocco.setStyleSheet(
+                "background: rgba(22, 196, 127, 0.16); color: #16c47f;"
+                " font-weight: 700; border-radius: 11px; padding: 4px 10px; font-size: 11px;")
+            self.et_blocco.setText("La password è attiva: all'avvio la Dashboard la richiede.")
+        else:
+            self.badge_blocco.setText("🔓  NESSUNA PASSWORD")
+            self.badge_blocco.setStyleSheet(
+                "background: rgba(154, 160, 172, 0.16); color: #9aa0ac;"
+                " font-weight: 700; border-radius: 11px; padding: 4px 10px; font-size: 11px;")
+            self.et_blocco.setText("Nessuna password impostata: l'applicazione si apre subito.")
         self.pw_attuale.setVisible(acceso)
         self.et_pw_attuale.setVisible(acceso)
         self.b_blocco.setText("Cambia la password" if acceso

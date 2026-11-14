@@ -523,20 +523,6 @@ class CampoDurata(QWidget):
         self._muto = False
 
 
-def ore_minuti(testo: str, difetto: int = 0) -> int:
-    """«23:00» diventa 1380 minuti; quello che non si capisce vale il difetto."""
-    try:
-        o, m = testo.split(":")
-        return (int(o) % 24) * 60 + int(m) % 60
-    except (AttributeError, ValueError):
-        return difetto
-
-
-def minuti_ore(minuti: int) -> str:
-    minuti = int(minuti) % 1440
-    return f"{minuti // 60:02d}:{minuti % 60:02d}"
-
-
 class SceltaSonno(QWidget):
     """Il quadrante del sonno: a che ora a letto, a che ora sveglio.
 
@@ -1416,7 +1402,7 @@ class BottoneIcona(QPushButton):
     versioni, e cambia tinta al passaggio del mouse come il resto.
     """
 
-    FIGURE = ("matita", "copia", "cestino", "fatto")
+    FIGURE = ("matita", "copia", "cestino", "fatto", "piu")
 
     def __init__(self, figura: str, colori: dict, suggerimento: str = "",
                  parent=None):
@@ -1486,6 +1472,12 @@ class BottoneIcona(QPushButton):
         p.drawPath(dietro)
 
     @staticmethod
+    def _disegna_piu(p: QPainter) -> None:
+        """Una croce: aggiungi."""
+        p.drawLine(50, 18, 50, 82)
+        p.drawLine(18, 50, 82, 50)
+
+    @staticmethod
     def _disegna_cestino(p: QPainter) -> None:
         """Coperchio, manico e corpo."""
         p.drawLine(12, 26, 88, 26)
@@ -1525,6 +1517,34 @@ class BottoneIcona(QPushButton):
         p.drawPath(segno)
 
 
+class SelezioneSemplice(QObject):
+    """Finge una `QTableWidget` quanto basta per `AzioniRiga`.
+
+    Usata dove le righe sono schede o `RigaMisura` invece di una tabella:
+    `AzioniRiga` sa parlare con qualcosa che espone `selectionModel().selectedRows()`
+    e ascolta `itemSelectionChanged`.
+    """
+
+    itemSelectionChanged = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self._scelto: int | None = None
+
+    def selectionModel(self):
+        return self
+
+    def selectedRows(self):
+        return [self._scelto] if self._scelto is not None else []
+
+    def scegli(self, id_: int | None) -> None:
+        self._scelto = id_
+        self.itemSelectionChanged.emit()
+
+    def scelto(self) -> int | None:
+        return self._scelto
+
+
 class AzioniRiga(QWidget):
     """Matita e cestino per la voce scelta in una tabella.
 
@@ -1536,14 +1556,25 @@ class AzioniRiga(QWidget):
 
     modifica = Signal()
     elimina = Signal()
+    aggiunge = Signal()
 
     def __init__(self, colori: dict, tabella=None, cosa: str = "la voce scelta",
-                 parent=None):
+                 parent=None, nuovo: str = ""):
         super().__init__(parent)
         self.c = colori
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(2)
+        # Con `nuovo` compare anche un «+», che a differenza degli altri due
+        # è sempre acceso: aggiungere non ha bisogno di una riga scelta.
+        # Senza, l'unico modo di creare una voce era il doppio clic sul
+        # vuoto della tabella — un gesto che non si vede e che infatti non
+        # trovava nessuno.
+        self.b_nuovo = None
+        if nuovo:
+            self.b_nuovo = BottoneIcona("piu", colori, nuovo)
+            self.b_nuovo.clicked.connect(self.aggiunge.emit)
+            lay.addWidget(self.b_nuovo)
         self.b_modifica = BottoneIcona("matita", colori, f"Modifica {cosa}")
         self.b_modifica.clicked.connect(self.modifica.emit)
         self.b_elimina = BottoneIcona("cestino", colori, f"Elimina {cosa}")
@@ -1565,6 +1596,8 @@ class AzioniRiga(QWidget):
 
     def aggiorna_tema(self, colori: dict) -> None:
         self.c = colori
+        if self.b_nuovo is not None:
+            self.b_nuovo.aggiorna_tema(colori)
         self.b_modifica.aggiorna_tema(colori)
         self.b_elimina.aggiorna_tema(colori)
 
@@ -1817,6 +1850,15 @@ def separatore() -> QFrame:
     return f
 
 
+def separatore_verticale() -> QFrame:
+    """Il filo in piedi, per dividere due colonne sulla stessa riga."""
+    f = QFrame()
+    f.setObjectName("SeparatoreVerticale")
+    f.setFrameShape(QFrame.VLine)
+    f.setFixedWidth(1)
+    return f
+
+
 def etichetta(testo: str, oggetto: str = "", colore: str = "") -> QLabel:
     e = QLabel(testo)
     if oggetto:
@@ -1831,13 +1873,96 @@ def etichetta(testo: str, oggetto: str = "", colore: str = "") -> QLabel:
     return e
 
 
-def pillola(testo: str, colore: str, sfondo: str) -> QLabel:
+def pillola(testo: str, colore: str, sfondo: str = "") -> QLabel:
     e = QLabel(testo)
     e.setAlignment(Qt.AlignCenter)
-    e.setStyleSheet(f"background: {trasparente(colore, 0.16)}; color: {colore};"
-                    f" border-radius: 12px; padding: 4px 11px; font-size: 11px;"
-                    f" font-weight: 650;")
+    bg = sfondo or trasparente(colore, 0.16)
+    e.setStyleSheet(f"background: {bg}; color: {colore};"
+                    f" border: 1px solid transparent; border-radius: 11px;"
+                    f" padding: 3px 10px; font-size: 11px; font-weight: 650;")
     return e
+
+
+class LegendaMisure(QWidget):
+    """La legenda di un grafico con più linee, che si tocca.
+
+    Prima la legenda era solo un elenco di pallini e nomi — bella da
+    leggere, inerte da toccare. Qui ogni voce è una pastiglia accesa o
+    spenta: ci clicchi sopra e quella linea sparisce dal grafico, ricicchi e
+    torna. Non serve un menu a parte per scegliere cosa vedere — è la
+    legenda stessa il comando.
+
+    Serve almeno **una** voce accesa: spegnere l'ultima non fa niente,
+    perché un grafico senza nessuna linea non è «niente da vedere», è un
+    buco che sembra rotto.
+    """
+
+    cambiata = Signal()
+
+    def __init__(self, colori: dict, voci: list[tuple[str, str, str]],
+                attive: set[str] | None = None, parent=None):
+        """`voci` è [(chiave, nome, colore), ...]; `colore` vuoto = accento."""
+        super().__init__(parent)
+        self.c = colori
+        self._voci = voci
+        self._attive = set(attive) if attive is not None else {v[0] for v in voci}
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        self._pastiglie: dict[str, QPushButton] = {}
+        for chiave, nome, _ in voci:
+            b = QPushButton(nome)
+            b.setCheckable(True)
+            b.setChecked(chiave in self._attive)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.clicked.connect(lambda _=False, k=chiave: self._tocca(k))
+            self._pastiglie[chiave] = b
+            lay.addWidget(b)
+        lay.addStretch(1)
+        self._ridipingi()
+
+    def _colore(self, chiave: str) -> str:
+        return next((col for k, _, col in self._voci if k == chiave), "") \
+            or self.c["accento"]
+
+    def _tocca(self, chiave: str) -> None:
+        b = self._pastiglie[chiave]
+        # l'ultima accesa non si spegne: la si ridipinge accesa e basta,
+        # invece di lasciare il grafico senza nemmeno una linea
+        if chiave in self._attive and len(self._attive) == 1:
+            b.setChecked(True)
+            return
+        if b.isChecked():
+            self._attive.add(chiave)
+        else:
+            self._attive.discard(chiave)
+        self._ridipingi()
+        self.cambiata.emit()
+
+    def _ridipingi(self) -> None:
+        for chiave, b in self._pastiglie.items():
+            colore = self._colore(chiave)
+            if chiave in self._attive:
+                b.setStyleSheet(
+                    f"QPushButton {{ background: {trasparente(colore, 0.18)};"
+                    f" color: {colore}; border: 1px solid transparent;"
+                    f" border-radius: 11px; padding: 3px 11px;"
+                    f" font-size: 11px; font-weight: 650; }}"
+                    f"QPushButton:hover {{ background: {trasparente(colore, 0.26)}; }}")
+            else:
+                b.setStyleSheet(
+                    f"QPushButton {{ background: transparent; color: {self.c['testo2']};"
+                    f" border: 1px solid {self.c['bordo']}; border-radius: 11px;"
+                    f" padding: 3px 11px; font-size: 11px; font-weight: 650; }}"
+                    f"QPushButton:hover {{ background: {trasparente(colore, 0.10)}; }}")
+
+    def attive(self) -> set[str]:
+        return set(self._attive)
+
+    def aggiorna_tema(self, colori: dict) -> None:
+        self.c = colori
+        self._ridipingi()
 
 
 class ZonaRilascio(QFrame):

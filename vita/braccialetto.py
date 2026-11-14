@@ -20,7 +20,8 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (QHBoxLayout, QMessageBox, QPushButton,
                                QSizePolicy, QVBoxLayout, QWidget)
 
-from .banda import CARTELLA_LOTTI, DISPONIBILE, Braccialetto, cerca_braccialetto
+from .banda import (CARTELLA_LOTTI, DISPONIBILE, cerca_braccialetto,
+                    condiviso)
 from .componenti import (DisposizioneFluida, EtichettaAlta,
                          Interruttore, etichetta)
 from .grafici import Sparkline
@@ -31,6 +32,13 @@ from .lotti import (lotti_salvati, misure_battito, misure_stress,
 # Quello che si può dire di sicuro quando lo stress arriva a zero: cosa è
 # successo, perché nell'archivio non ci va, e cosa si può provare. Il perché
 # ultimo non lo sappiamo — il braccialetto il punteggio una volta lo mandava.
+# Appena il braccialetto è pronto si va a prendere i suoi dati da soli, due
+# volte di fila. Due e non una perché consegna **una volta sola** e la prima
+# richiesta lo trova a volte ancora mezzo addormentato: il secondo giro
+# raccoglie quello che al primo non è venuto. Due e non di più perché non è
+# un ciclo — finiti i giri si sta zitti fino al prossimo collegamento.
+GIRI_AUTOMATICI = 2
+
 SPIEGA_STRESS = (
     "Il braccialetto ha registrato la misura ma al posto del punteggio ha "
     "mandato zero.\nUno zero vorrebbe dire «sereno», e non è quello che è "
@@ -49,7 +57,8 @@ class RiquadroBraccialetto(QWidget):
         super().__init__(parent)
         self.db = db
         self.c = colori
-        self.banda = Braccialetto(self)
+        # lo stesso braccialetto del bottone in Home: il collegamento è uno
+        self.banda = condiviso()
         self.battiti: list[int] = []
         self.setObjectName("ContenutoSezione")
 
@@ -139,6 +148,11 @@ class RiquadroBraccialetto(QWidget):
         self._racconto.setSingleShot(True)
         self._racconto.setInterval(700)
         self._racconto.timeout.connect(lambda: self._racconta(0, ""))
+        # i giri di raccolta automatica di questo collegamento
+        self._giri_fatti = 0
+        self._giro = QTimer(self)
+        self._giro.setSingleShot(True)
+        self._giro.timeout.connect(self._giro_automatico)
         self.banda.giorni_pronti.connect(self._scrivi_giorni)
         self.banda.battiti_pronti.connect(self._scrivi_battiti)
         self.banda.stress_pronto.connect(self._conta_stress)
@@ -150,14 +164,20 @@ class RiquadroBraccialetto(QWidget):
             getattr(self.banda, segnale).connect(gestore)
 
         if not DISPONIBILE:
+            # qui non c'è proprio il Bluetooth di sistema: non cambia più
+            # finché non riparte l'app, l'interruttore resta spento
             self.interruttore.setEnabled(False)
             self.et_stato.setText("Su questo computer non c'è il Bluetooth di "
                                   "sistema.")
         elif not trovato:
-            self.interruttore.setEnabled(False)
+            # non trovato *all'apertura* non vuol dire mai: l'accoppiamento
+            # può completarsi un istante dopo. L'interruttore resta vivo —
+            # ci riprova `accendi()` da solo al tocco, e dice lui se ancora
+            # non c'è (prima restava disabilitato per sempre, anche dopo
+            # aver accoppiato il braccialetto senza riavviare l'app)
             self.et_stato.setText(
-                "Accoppia il braccialetto dalle impostazioni Bluetooth del "
-                "sistema: poi comparirà qui.")
+                "Se non è ancora accoppiato, accoppialo dalle impostazioni "
+                "Bluetooth del sistema.")
         else:
             self.et_stato.setText("Spento. Accendi l'interruttore per collegarlo.")
         self._numeri()
@@ -177,8 +197,19 @@ class RiquadroBraccialetto(QWidget):
         self.et_stato.setText(frase)
         self.b_sincronizza.setEnabled(codice == "pronta")
         self.b_ora.setEnabled(codice == "pronta")
+        # l'interruttore segue il braccialetto vero, non il proprio ricordo:
+        # ora è condiviso con il bottone in Home, e ad accenderlo può essere
+        # stato l'altro — prima in quel caso restava spento a collegamento
+        # fatto. `imposta` senza `avvisa` non richiama `_commuta`.
+        self.interruttore.imposta(self.banda.acceso)
         if codice in ("assente", "sconosciuto", "spento"):
             self.interruttore.imposta(False)
+            self._giro.stop()
+            self._giri_fatti = 0
+        elif codice == "pronta" and not self._giri_fatti:
+            # da chiunque sia stato accesso, i dati si vanno a prendere:
+            # un attimo di respiro e parte il primo giro
+            self._giro.start(600)
 
     def _battito(self, valore: int) -> None:
         self.battiti.append(valore)
@@ -213,6 +244,15 @@ class RiquadroBraccialetto(QWidget):
         self._ripesca()
         self.et_stato.setText("Chiedo al braccialetto quello che ha…")
         self.banda.sincronizza(0)
+
+    def _giro_automatico(self) -> None:
+        """Un giro di raccolta dei suoi, senza che glielo chieda nessuno."""
+        if not self.banda.pronta or self._giri_fatti >= GIRI_AUTOMATICI:
+            return
+        self._giri_fatti += 1
+        self.et_stato.setText(
+            f"Cerco i dati da solo ({self._giri_fatti} di {GIRI_AUTOMATICI})…")
+        self._cerca_dati()
 
     def _rimetti_ora(self) -> None:
         """Ora, fuso e lingua al braccialetto. È l'unica cosa che gli scriviamo.
@@ -325,6 +365,11 @@ class RiquadroBraccialetto(QWidget):
         # i grafici si rifanno comunque: hai chiesto i dati, è giusto che la
         # pagina risponda anche quando non è cambiato niente
         self.dati_cambiati.emit()
+        # finito un giro automatico, il prossimo: un secondo e mezzo di pausa
+        # perché il braccialetto dice «ho finito» anche quando sta ancora
+        # consegnando, e richiedergli tutto nello stesso istante non serve
+        if 0 < self._giri_fatti < GIRI_AUTOMATICI:
+            self._giro.start(1500)
 
     def _numeri(self) -> None:
         pezzi = []

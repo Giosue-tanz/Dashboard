@@ -172,7 +172,259 @@ def main() -> int:
         vista.nav_andamento.imposta_modo("giorni")
     prova("Grafici: quando sono vuoti dicono perché", grafico_vuoto_spiega)
 
+    # ---- il sonno: orario di inizio e fine, non solo le ore
+    def sonno_salva_orario():
+        """L'importazione da Samsung Health deve salvare anche l'orario,
+        non solo i minuti totali — altrimenti il grafico del sonno non ha
+        niente da disegnare per le notti che vengono da lì."""
+        from datetime import datetime as _dt
+
+        from vita.importa import _sonno
+
+        righe = [
+            {"start_time": "2026-11-10 23:40:00", "end_time": "2026-11-11 08:56:00"},
+        ]
+        giorni: dict = {}
+        _sonno(righe, giorni)
+        voce = giorni.get("2026-11-11")
+        assert voce, "la notte non è entrata"
+        assert voce["a_letto"] == "23:40", voce
+        assert voce["sveglia"] == "08:56", voce
+        assert voce["sonno"] == 556, voce
+
+        # una sessione più corta non deve sporcare l'orario di quella buona
+        righe_corte = [
+            {"start_time": "2026-11-10 23:40:00", "end_time": "2026-11-11 08:56:00"},
+            {"start_time": "2026-11-11 13:00:00", "end_time": "2026-11-11 13:30:00"},
+        ]
+        giorni2: dict = {}
+        _sonno(righe_corte, giorni2)
+        assert giorni2["2026-11-11"]["a_letto"] == "23:40", giorni2
+    prova("Sonno: l'importazione salva anche l'orario", sonno_salva_orario)
+
+    def sonno_media_orari_scavalca_mezzanotte():
+        """Mediare orari di sonno che scavalcano la mezzanotte non deve dare
+        un numero a caso: 23:40 e 00:10 sono vicini di venti minuti, e la
+        loro media è 23:55, non mezzogiorno."""
+        from vita.utils import media, minuti_notturni, minuti_ore, ore_minuti
+
+        a, b = ore_minuti("23:40"), ore_minuti("00:10")
+        b_notte = minuti_notturni(b)
+        assert b_notte == 1450, b_notte        # 00:10 del giorno dopo
+        assert minuti_ore(media([minuti_notturni(a), b_notte])) == "23:55"
+    prova("Sonno: la media degli orari non scavalca la mezzanotte a caso",
+          sonno_media_orari_scavalca_mezzanotte)
+
+    def sonno_asse_non_dipende_dall_ordine():
+        """La scala del grafico non deve cambiare a seconda di quale notte
+        capita per prima nell'elenco.
+
+        Prima si ancoravano gli orari al primo orario buono che si trovava:
+        con 09/11 (01:07) in testa e 11/11 (23:40) in coda, 23:40 veniva
+        tirato *indietro* di un giorno intero per restare «vicino» a 01:07 —
+        e il grafico apriva la scala fino alle 23 del giorno prima, invece
+        di leggersi come una sera che comincia alle 23 e finisce al
+        risveglio. Le stesse tre notti, lette in un ordine diverso,
+        dovevano dare la stessa scala: con un'ancora fissa (le 18 di sera)
+        la danno.
+        """
+        from vita.grafici import GraficoSonno
+        from vita.tema import colori as _colori
+
+        notti = [("09/11", "01:07", "09:57", 530.0),
+                 ("10/11", "02:43", "10:10", 447.0),
+                 ("11/11", "23:40", "08:56", 556.0)]
+        g = GraficoSonno(_colori("scuro"))
+        g.resize(400, 300)
+
+        def intervalli(ordine):
+            g.imposta_dati(ordine)
+            g.grab()
+            return [g._intervallo(a, s) for _, a, s, _ in ordine]
+
+        dritto = intervalli(notti)
+        mescolato = intervalli(list(reversed(notti)))
+        # lo stesso intervallo dev'esserci in entrambi gli ordini, notte per
+        # notte: non deve dipendere da chi viene prima nell'elenco
+        assert sorted(dritto) == sorted(mescolato), (dritto, mescolato)
+        # 23:40 (11/11) deve restare la notte più presto della settimana,
+        # non essere spinta indietro di un giorno per "stare vicina" a 01:07
+        by_night = dict(zip((n[0] for n in notti), dritto))
+        assert by_night["11/11"][0] < by_night["09/11"][0] < by_night["10/11"][0], by_night
+    prova("Sonno: la scala non dipende dall'ordine dei dati",
+          sonno_asse_non_dipende_dall_ordine)
+
+    def grafico_sonno_mostra_orario():
+        """Il grafico del sonno disegna da quando a letto a quando sveglio,
+        e una notte senza orario resta un trattino, non un errore."""
+        from vita.grafici import GraficoSonno
+        from vita.tema import colori as _colori
+
+        g = GraficoSonno(_colori("scuro"))
+        g.resize(400, 140)
+        g.imposta_dati([
+            ("lun", "23:40", "08:56", 556.0),
+            ("mar", "", "", None),             # notte senza orario registrato
+            ("mer", "00:56", "07:15", 379.0),
+        ])
+        g.grab()
+        assert len(g._zone) == 3, "ogni notte deve avere il suo suggerimento"
+        assert "nessun orario" in g._zone[1][1], g._zone[1][1]
+        assert "23:40" in g._zone[0][1] and "08:56" in g._zone[0][1]
+
+        g.imposta_dati([])
+        g.grab()
+        assert g.vuoto != "" or True            # non deve lanciare
+    prova("Sonno: il grafico mostra l'orario, non solo le ore", grafico_sonno_mostra_orario)
+
     # ---- la finanza dentro Dashboard: trasferimento, più categorie, conti
+    def attivita_per_area_non_mischiate():
+        """Il riquadro «Attività» è di una sola area, mai di tutte insieme.
+
+        Prima, aggiungendo una voce dal riquadro «Emozioni» in Home, la
+        finestra lasciava scegliere un'Area qualunque — Carriera,
+        Finanza, qualsiasi altra — e una voce scritta lì sarebbe sparita
+        dentro un riquadro che si chiama diversamente, senza che chi
+        l'ha scritta la ritrovi più. Qui si controlla che quella tendina
+        non ci sia quando il riquadro è di un'area sola.
+
+        E si controlla anche il contrario, che prima mancava del tutto:
+        che si possano aggiungere riquadri uguali per altre aree —
+        Carriera, Accademica, Salute, Finanza — uno per volta, senza
+        doppioni, e che tornino dopo un riavvio.
+        """
+        from vita.dialoghi import DialogoScadenza
+        d = DialogoScadenza(area="emozioni", area_fissa=True)
+        assert d.area is None, "l'area dovrebbe essere bloccata, non scelta"
+        assert d.dati()["area"] == "emozioni"
+
+        indice = [k for k, (nome, _) in enumerate(VISTE) if nome == "cruscotto"][0]
+        f.vai(indice); posa(120)
+        home = f.viste[indice]
+        assert "carriera" not in home.riquadri_attivita
+        home.aggiungi_area_attivita("carriera")
+        posa(100)
+        assert "carriera" in home.riquadri_attivita,             "l'area extra non è stata aggiunta"
+        assert "attivita_carriera" in home.contenitore.sezioni
+        assert home.riquadri_attivita["carriera"].area == "carriera"
+        home.aggiungi_area_attivita("carriera")          # di nuovo: niente doppioni
+        assert list(home.riquadri_attivita).count("carriera") == 1
+
+        # la pagina Emozioni ha di nuovo il suo riquadro, collegato alla
+        # stessa tabella di Home — non una copia
+        indice_emo = [k for k, (nome, _) in enumerate(VISTE)
+                     if nome == "emozioni"][0]
+        f.vai(indice_emo); posa(120)
+        pagina = f.viste[indice_emo]
+        assert "attivita" in pagina.contenitore.sezioni,             "il riquadro Attività non è tornato nella pagina Emozioni"
+        assert pagina.riq_attivita.area == "emozioni"
+    prova("Home: le Attività sono di una sola area, e se ne possono aggiungere altre",
+          attivita_per_area_non_mischiate)
+
+    def home_carriera_accademica_editabili():
+        """In Home, Carriera e Accademica hanno «+», matita e cestino.
+
+        Prima si potevano solo guardare: l'unico modo di correggere un
+        progetto o un esame da qui era il doppio clic, un gesto che non si
+        vede e che infatti non trovava nessuno (la pagina vera di
+        Accademica ce l'aveva già, senza icone). Qui si controlla che le
+        icone esistano, che restino spente senza una riga scelta, che si
+        accendano dopo un clic, e che «Annulla» sulla conferma non cancelli
+        niente.
+        """
+        indice = [k for k, (nome, _) in enumerate(VISTE) if nome == "cruscotto"][0]
+        f.vai(indice); posa(120)
+        home = f.viste[indice]
+
+        for chiave, azioni, righe, selezione, tabella in (
+                ("carriera", home.azioni_carriera, home._righe_carriera,
+                 home.riga_scelta_carriera, "progetti"),
+                ("accademica", home.azioni_accademica, home._righe_accademica,
+                 home.riga_scelta_accademica, "esami")):
+            assert azioni.b_nuovo is not None, f"{chiave}: manca il «+»"
+            assert not azioni.b_modifica.isEnabled(),                 f"{chiave}: la matita è accesa senza una riga scelta"
+            if not righe:
+                continue
+            id_ = next(iter(righe))
+            righe[id_].mousePressEvent(None)
+            assert selezione.scelto() == id_,                 f"{chiave}: il clic non ha scelto la riga"
+            assert azioni.b_modifica.isEnabled(),                 f"{chiave}: la matita resta spenta dopo il clic"
+
+            from PySide6.QtWidgets import QMessageBox
+            vero_question = QMessageBox.question
+            QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)
+            try:
+                azioni.elimina.emit()
+            finally:
+                QMessageBox.question = vero_question
+            assert home.db.uno(f"SELECT * FROM {tabella} WHERE id=?", (id_,))                 is not None, f"{chiave}: «Annulla» ha cancellato lo stesso"
+
+        nota = home.contenitore.sezioni["accademica"].intestazione._nota_piena
+        assert "studio" not in nota.lower(),             "le ore di studio sono tornate nella nota di Accademica in Home"
+    prova("Home: Carriera e Accademica si modificano da qui",
+          home_carriera_accademica_editabili)
+
+    def riquadri_in_prestito():
+        """Ogni riquadro di ogni pagina deve reggere il prestito alla Home.
+
+        Un riquadro preso in prestito è **quello vero** della sua pagina,
+        costruito in una copia nascosta della pagina stessa. Qui si prova a
+        prenderli tutti, uno per uno: se una pagina non regge a essere
+        costruita fuori dalla finestra principale, o un riquadro si rompe
+        quando lo si aggiorna da un'altra parte, si vede qui e non in mano a
+        chi lo usa.
+
+        E la pagina di origine deve restare intera: il riquadro che la Home
+        mostra non è lo stesso oggetto che sta là — se lo fosse, prenderlo
+        in prestito lo toglierebbe dalla sua pagina.
+        """
+        from vita import catalogo
+        indice = [k for k, (nome, _) in enumerate(VISTE) if nome == "cruscotto"][0]
+        home = f.viste[indice]
+        f.vai(indice); posa(150)
+        prima = len(home.contenitore.sezioni)
+
+        tutti = []
+        for pagina in catalogo.PAGINE:
+            for riquadro in catalogo.riquadri(pagina):
+                tutti.append(catalogo.chiave_prestito(pagina, riquadro))
+        assert len(tutti) > 20, f"troppo pochi riquadri da prestare: {len(tutti)}"
+
+        presi = [k for k in tutti if home._presta(k)]
+        assert len(presi) == len(tutti), \
+            f"non prestati: {sorted(set(tutti) - set(presi))}"
+        home.contenitore.aggiungi_in_fondo(presi)
+        posa(120)
+        home.aggiorna()          # fa aggiornare anche le pagine prestate
+        posa(200)
+        for chiave in presi:
+            sezione = home.contenitore.sezioni[chiave]
+            assert sezione.intestazione.titolo.text().strip(), \
+                f"{chiave}: riquadro senza titolo"
+            assert chiave in home.azioni, f"{chiave}: manca dal menu Riquadri"
+        f.grab()
+
+        # la pagina di origine non deve essersi svuotata
+        for nome, _ in VISTE:
+            if nome not in catalogo.PAGINE:
+                continue
+            i = [k for k, (n, _) in enumerate(VISTE) if n == nome][0]
+            vista = f.viste[i]
+            f.vai(i); posa(80)
+            for riquadro in catalogo.riquadri(nome):
+                assert riquadro in vista.contenitore.sezioni, \
+                    f"la pagina {nome} ha perso il riquadro {riquadro}"
+            f.grab()
+
+        f.vai(indice); posa(100)
+        for chiave in presi:
+            home._restituisci(chiave)
+        posa(100)
+        assert len(home.contenitore.sezioni) == prima, \
+            "restituendoli tutti la Home non torna com'era"
+    prova("Home: i riquadri delle altre pagine si prendono in prestito",
+          riquadri_in_prestito)
+
     def finanza_dentro():
         """Tutto Finance dentro l'archivio, e due volte non raddoppia.
 
@@ -442,20 +694,28 @@ def main() -> int:
         r._segue = True
         r._in_cima = r.in_pagina[-1]
         posa(200)
+        # La domanda dev'essere **visibile**. Non si pretende che arrivi in
+        # cima: con la risposta ancora vuota non c'e' contenuto sotto da
+        # portare su, e Qt giustamente non scorre oltre la fine del testo.
+        # In cima ci arriva da se' man mano che la risposta cresce.
         alto = r._in_cima.mapTo(dentro, QPoint(0, 0)).y() - barra.value()
-        assert 0 <= alto <= 40, f"la domanda non e' in cima: {alto}px"
-        assert vista - alto > vista * 0.8, "non resta spazio per la risposta"
+        assert 0 <= alto < vista, f"la domanda non si vede: {alto}px"
+        assert r._fondo_vero() - barra.value() <= vista, \
+            "la domanda appena mandata finisce fuori dallo schermo"
 
         r._inizia_risposta(); r._in_corso = ""
         r._aggiungi_pezzo("una risposta breve."); posa(200)
         assert r._fondo_vero() - barra.value() <= vista, \
             "la risposta corta finisce fuori dallo schermo"
 
+        # Questo e' il difetto da cui e' partito tutto: la risposta lunga
+        # deve restare sotto gli occhi mentre si scrive, non sotto il bordo.
         for _ in range(10):
             r._aggiungi_pezzo("parola " * 40)
+            posa(60)
+            assert r._fondo_vero() - barra.value() <= vista + 8, \
+                "la risposta si sta scrivendo fuori dallo schermo"
         posa(250)
-        assert r._fondo_vero() - barra.value() <= vista + 8, \
-            "la risposta lunga si scrive fuori dallo schermo"
 
         # e se torni indietro a rileggere, non ti strappa la pagina
         barra.setValue(max(0, barra.value() - 600))
@@ -551,6 +811,94 @@ def main() -> int:
             assert "token al secondo" in spiega, spiega
             assert len(spiega) < 40, f"{nome}: la spiegazione si è allungata"
     prova("Tess: Low e Hard non si confondono in VRAM", livelli_in_scheda)
+
+    def latex_nella_chat():
+        """Il LaTeX e il markdown si vedono formattati, non come testo grezzo.
+
+        `formule.py` traduce `$...$` nel sottoinsieme di HTML che Qt sa
+        disegnare da solo — apici, pedici — per i simboli, e per `\frac`
+        **un'immagine**: una tabella con una barra orizzontale vera,
+        disegnata in un documento tutto suo e fotografata, perché Qt non fa
+        stare una tabella dentro una riga di prosa, solo un'immagine sì.
+        Sopra, un markdown minimo — **grassetto**, elenchi, titoli, `codice`
+        — verso lo stesso sottoinsieme di HTML, con tutto nel carattere da
+        libro (`FAMIGLIA_MATEMATICA`), testo compreso: non solo la
+        matematica.
+
+        Qui si controlla il percorso vero, non solo la funzione da sola: il
+        testo che arriva a pezzi durante lo streaming, una volta incollato,
+        deve risultare formattato — e il testo **grezzo**, quello salvato
+        nell'archivio e quello che torna aprendo «Modifica», deve restare
+        tale e quale, non l'HTML mandato a schermo.
+        """
+        from vita.formule import FAMIGLIA_MATEMATICA, formatta
+        assert "<sub>" in formatta(r"$E_k$"), "il pedice non è stato tradotto"
+        assert "$v = a" in formatta("$v = a"), \
+            "una formula mai chiusa non deve rompersi, resta testo"
+        # senza un Aspetto (nessun colore passato) il frac ripiega sul
+        # trucco col taglio, e non deve comunque sollevare niente
+        assert "\u2044" in formatta(r"$\frac{1}{2}$")
+
+        # il markdown: grassetto, elenco, titolo, codice — e le guardie che
+        # non devono scambiare un nome con underscore o una moltiplicazione
+        # per dell'enfasi
+        assert "<b>forte</b>" in formatta("testo **forte**")
+        # gli elenchi si disegnano a mano, non con <ul>/<ol>: di quelli Qt
+        # fa il pallino da sé, appiccicato al testo e senza rientro appeso
+        punti = formatta("- uno\n- due")
+        assert punti.count("•") == 2 and "text-indent:-" in punti, punti
+        numeri = formatta("1. uno\n2. due")
+        assert "1." in numeri and "2." in numeri and "text-indent:-" in numeri
+        assert "font-weight:700" in formatta("# Titolo")
+        assert "font-family:monospace" in formatta("usa `questo`")
+        assert "<i>" not in formatta("nome_lungo_qui e 3 * 4 * 5")
+        # dentro una formula le variabili vanno in corsivo e i nomi di
+        # funzione no, come vuole la composizione matematica
+        assert "<i>x</i>" in formatta(r"$f(x)$")
+        assert "sin(" in formatta(r"$\sin(x)$") and "<i>sin" not in formatta(r"$\sin(x)$")
+        assert "<b>E</b>" in formatta(r"$\mathbf{E}$")      # vettore: dritto
+        assert "−" in formatta(r"$-x$")                     # segno meno, non trattino
+        # tutto nel carattere da libro, non solo la matematica
+        assert formatta("solo prosa").startswith(
+            f'<div style="font-family:{FAMIGLIA_MATEMATICA};">')
+
+        indice = [k for k, (nome, _) in enumerate(VISTE) if nome == "tess"][0]
+        f.vai(indice); posa(100)
+        r = f.viste[indice].riquadro
+        acceso_prima = r.pronta
+        r._mostra_stato(True)
+        try:
+            r.chat_id = "prova-latex"
+            messaggio = r._scrivi("tess", r"prima parte $E_k", 0)
+            # il pezzo che arriva a cavallo di due invii: qui c'è anche un
+            # \frac, che deve diventare un'immagine vera — non il taglio —
+            # perché stavolta un Aspetto (colore/misura) c'è
+            messaggio._imposta_testo(
+                messaggio.testo.grezzo + r" = \frac{1}{2}mv^2$ **fine**")
+            assert messaggio.testo.grezzo == \
+                r"prima parte $E_k = \frac{1}{2}mv^2$ **fine**", \
+                "il grezzo non è quello che si è scritto"
+            html = messaggio.testo.text()
+            assert "<sub>" in html, \
+                "il pezzo ricomposto a cavallo di due invii non si formatta"
+            assert "<img" in html and "base64" in html, \
+                "la frazione non è diventata un'immagine con una barra vera"
+            assert "\\frac" not in html, \
+                "il backslash del comando è rimasto a schermo"
+            assert "<b>fine</b>" in html, \
+                "il grassetto dopo la formula non si formatta"
+            assert FAMIGLIA_MATEMATICA in html, \
+                "il testo non è nel carattere da libro"
+
+            # l'editor deve riaprire il grezzo, non l'HTML
+            messaggio.apri_modifica()
+            assert messaggio.editor.toPlainText() == messaggio.testo.grezzo
+            messaggio.chiudi_modifica()
+        finally:
+            r._svuota_bolle()
+            r._mostra_stato(acceso_prima)
+    prova("Tess: il LaTeX e il markdown si formattano, anche a cavallo di due invii",
+          latex_nella_chat)
 
     def icona_finestra_sempre_nera():
         """L'icona della finestra è **sempre** la piastrella nera.

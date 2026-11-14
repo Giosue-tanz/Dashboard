@@ -10,20 +10,23 @@ from datetime import date, timedelta
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QMenu,
-                               QPushButton, QVBoxLayout, QWidget)
+                               QMessageBox, QPushButton, QSizePolicy,
+                               QVBoxLayout, QWidget)
 
 from ..braccialetto import RiquadroBraccialetto
 from ..componenti import (COLORE_BATTITO, EtichettaACapo, EtichettaAlta,
-                          NavigatorePeriodo, RigaMisura, SceltaPeriodo,
-                          binario, dati_battito, etichetta, righe_indicatori)
+                          NavigatorePeriodo, SceltaPeriodo, binario,
+                          dati_battito, etichetta, righe_indicatori,
+                          separatore, separatore_verticale)
+from ..tema import trasparente
 from ..andamento import FinestraAndamento
 from ..dialoghi import (DialogoAllenamento, DialogoGiorno,
                         DialogoImporta)
-from ..grafici import (Anello, BarraFasi, GraficoBarre, GraficoIntervalli,
-                       GraficoLinea, MappaCalore)
+from ..grafici import (BarraFasi, GraficoBarre, GraficoIntervalli,
+                       GraficoSonno, MappaCalore, Sparkline)
 from ..punteggi import PREDEFINITI
-from ..utils import (data_it, durata, giorni, media, numero, relativa,
-                     ultimi_giorni)
+from ..utils import (data_it, durata, giorni, media, minuti_notturni, minuti_ore,
+                     numero, ore_minuti, relativa, ultimi_giorni)
 from . import VistaSezioni
 
 
@@ -104,27 +107,52 @@ class VistaSalute(VistaSezioni):
         self.setAcceptDrops(True)      # si può lasciar cadere lo zip sulla pagina
 
         # ------------------------------------------------------------- oggi
-        # L'anello dell'obiettivo a sinistra, i sei numeri della giornata a
-        # destra: sopra quello che hai fatto (passi, calorie, distanza),
-        # sotto quello che il corpo dice di sé (sonno, battito, stress).
+        # I passi grandi con la loro barra, e sotto gli altri cinque numeri
+        # della giornata su una riga sola.
+        #
+        # Prima c'era un anello che si prendeva un terzo della larghezza per
+        # dire una percentuale — un numero *ricavato* dai passi — mentre i
+        # passi veri stavano in una casella piccola come le altre cinque. Con
+        # un obiettivo solo da mostrare, una barra larga dice la stessa cosa
+        # in un decimo dello spazio, e quello che avanza va ai numeri.
         contenuto, lay = self.colonna(10)
-        fila = QHBoxLayout()
-        fila.setSpacing(14)
-        self.anello = Anello(self.c, self.c["accento"])
-        self.anello.setMinimumSize(104, 104)
-        self._apribile(self.anello, "passi")
-        fila.addWidget(self.anello, 2)
+        testa = QHBoxLayout()
+        testa.setSpacing(8)
+        self.et_passi_oggi = EtichettaAlta("—")
+        self.et_passi_oggi.setObjectName("NumeroGiornata")
+        self._apribile(self.et_passi_oggi, "passi")
+        self.et_passi_oggi.setToolTip(
+            "Passi di oggi.\nDoppio clic per scorrere l'andamento.")
+        self.et_passi_unita = etichetta("passi", "NotaScheda")
+        self.et_passi_unita.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
+        self.et_passi_quota = etichetta("", "NotaScheda")
+        self.et_passi_quota.setAlignment(Qt.AlignRight | Qt.AlignBottom)
+        testa.addWidget(self.et_passi_oggi)
+        testa.addWidget(self.et_passi_unita)
+        testa.addStretch(1)
+        testa.addWidget(self.et_passi_quota)
+        lay.addLayout(testa)
+
+        # la barra dell'obiettivo: fatto e quel che manca, due fette sole
+        self.barra_passi = BarraFasi(self.c)
+        self.barra_passi.setFixedHeight(9)
+        self._apribile(self.barra_passi, "passi")
+        lay.addWidget(self.barra_passi)
+
+        # lo spazio che avanza sta fra la barra e la striscia dei numeri,
+        # non fra la riga di separazione e i numeri: se no quella riga
+        # restava orfana in cima a una fascia vuota
+        lay.addStretch(1)
+        lay.addWidget(separatore())
         self.riquadro_numeri = QWidget()
         self.riquadro_numeri.setObjectName("ContenutoSezione")
         self.lay_numeri = QGridLayout(self.riquadro_numeri)
         self.lay_numeri.setContentsMargins(0, 0, 0, 0)
-        self.lay_numeri.setHorizontalSpacing(8)
+        self.lay_numeri.setHorizontalSpacing(6)
         self.lay_numeri.setVerticalSpacing(12)
-        for colonna in range(3):
+        for colonna in range(5):
             self.lay_numeri.setColumnStretch(colonna, 1)
-        # i sei numeri stanno insieme al centro, non spiaccicati agli angoli
-        fila.addWidget(self.riquadro_numeri, 5, Qt.AlignVCenter)
-        lay.addLayout(fila, 1)
+        lay.addWidget(self.riquadro_numeri)
         self.aggiungi("oggi", contenuto)
 
         # ------------------------------------------ composizione corporea
@@ -135,35 +163,70 @@ class VistaSalute(VistaSezioni):
         contenuto, lay = self.colonna(7)
         self.nav_corpo = NavigatorePeriodo(self.c, "settimane", tutto=True)
         self.nav_corpo.cambiato.connect(self._aggiorna_corpo)
+        # il numero grande e l'unità piccola accanto, non «75,5 kg» tutto
+        # della stessa misura: a colpo d'occhio si legge il numero, e i
+        # chili li sai già
         self.et_peso = EtichettaAlta("—")
         self.et_peso.setObjectName("ValoreScheda")
+        self.et_peso_unita = etichetta("", "NotaScheda")
+        self.et_peso_unita.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
         self.et_peso_scarto = etichetta("", "NotaScheda")
-        self.et_peso_scarto.setAlignment(Qt.AlignRight | Qt.AlignBottom)
+        self.et_peso_scarto.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         testa = QHBoxLayout()
-        testa.setSpacing(10)
+        testa.setSpacing(6)
         testa.addWidget(self.et_peso)
+        testa.addWidget(self.et_peso_unita)
         testa.addStretch(1)
         testa.addWidget(self.et_peso_scarto)
         lay.addLayout(testa)
-        self.et_peso_nota = EtichettaACapo("")
-        self.et_peso_nota.setObjectName("NotaScheda")
-        lay.addWidget(self.et_peso_nota)
+        # «2 giorni fa · 3 misure» stava qui sotto: quando è stata l'ultima
+        # pesata e quante ce ne sono dietro la curva sono cose che si
+        # guardano una volta, non a ogni occhiata — e intanto tenevano una
+        # riga fissa fra il peso e il disegno. Sono passate nel suggerimento
+        # della curva, insieme al minimo e al massimo del periodo.
 
-        self.g_peso = GraficoLinea(self.c)
-        self.g_peso.formato = lambda v: numero(v, 1)
-        self.g_peso.setMinimumHeight(78)
+        # La curva nuda: nessun asse, nessuna griglia, nessun riempimento
+        # sotto. Di un peso che si muove di mezzo chilo le tacche non
+        # dicevano niente che non dica già «74,1–75,6» nel suggerimento, e
+        # rubavano il margine sinistro a tutto il riquadro.
+        self.g_peso = Sparkline(self.c)
+        self.g_peso.punto_finale = True
+        # lo spazio che avanza se lo prende la curva, invece di spargersi
+        # come aria fra una riga e l'altra: `Sparkline` nasce con un'altezza
+        # fissa da miniatura, qui è il disegno principale del riquadro
+        self.g_peso.setMinimumHeight(58)
+        self.g_peso.setMaximumHeight(16777215)
+        self.g_peso.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._apribile(self.g_peso, "peso")
         lay.addWidget(self.g_peso, 1)
 
-        self.barra_corpo = BarraFasi(self.c)
-        lay.addWidget(self.barra_corpo)
-        # la legenda dei pezzi, come quella delle fasi del sonno
-        self.et_corpo_nota = EtichettaACapo("")
-        self.et_corpo_nota.setObjectName("NotaScheda")
-        lay.addWidget(self.et_corpo_nota)
-        self.cont_corpo, self.lay_corpo = self.colonna(7)
-        self.area_corpo = self.scorrevole(self.cont_corpo)
-        lay.addWidget(self.area_corpo, 1)
+        # qui dentro ci va solo l'invito a scrivere la prima misura, quando
+        # l'archivio è vuoto: le parti del peso stanno nella riga in fondo
+        self.cont_corpo, self.lay_corpo = self.colonna(6)
+        lay.addWidget(self.cont_corpo)
+
+        # In fondo, una riga sola: il BMI e le parti del peso. Le parti
+        # prima stavano su due righe loro, alte una ventina di pixel l'una,
+        # per dire due numeri che in una colonna ci stanno uguali. FMI e
+        # FFMI se ne sono andati per far loro posto: erano gli stessi chili
+        # del grasso e della magra, solo divisi per l'altezza al quadrato —
+        # il BMI, che quella divisione la fa sul peso intero, resta.
+        self.linea_indici = separatore()
+        lay.addWidget(self.linea_indici)
+        self.riga_indici = QWidget()
+        self.riga_indici.setObjectName("ContenutoSezione")
+        self.lay_indici = QHBoxLayout(self.riga_indici)
+        self.lay_indici.setContentsMargins(0, 2, 0, 2)
+        self.lay_indici.setSpacing(0)
+        lay.addWidget(self.riga_indici)
+
+        # Scrivere, correggere e cancellare una misura non stanno più su una
+        # riga di icone in fondo: rubavano l'ultima striscia di riquadro a
+        # quello che il riquadro deve dire, e comandi che si usano una volta
+        # a settimana non meritano posto fisso. Vivono nel menu «⋯» del
+        # titolo (vedi `voci_sezione`), che è il posto che l'app riserva
+        # agli altri comandi, e nella finestra dell'andamento.
+        self._ultima_corpo = ""
         self.nav_corpo.scorri_con_rotella(self.g_peso)
         self.aggiungi("corpo", contenuto, comando=self.nav_corpo)
 
@@ -252,8 +315,7 @@ class VistaSalute(VistaSezioni):
         self.et_fasi = etichetta("", "NotaScheda")
         self.et_fasi.setWordWrap(True)
         lay.addWidget(self.et_fasi)
-        self.g_sonno = GraficoBarre(self.c)
-        self.g_sonno.formato = lambda v: durata(v)
+        self.g_sonno = GraficoSonno(self.c)
         self.g_sonno.evidenzia_ultima = True
         self.g_sonno.setMinimumHeight(74)
         self._apribile(self.g_sonno, "sonno")
@@ -311,18 +373,16 @@ class VistaSalute(VistaSezioni):
         self.g_stress = GraficoBarre(self.c)
         self.g_stress.formato = lambda v: numero(v, 0)
         self.g_stress.evidenzia_ultima = True
+        self.g_stress.pallino_media = True
         self._apribile(self.g_stress, "stress")
         self.nav_stress.scorri_con_rotella(self.g_stress)
         lay.addWidget(self.g_stress, 1)
-        self.et_sentito = EtichettaACapo("")
-        self.et_sentito.setObjectName("NotaScheda")
-        lay.addWidget(self.et_sentito)
         self.aggiungi("stress", contenuto, comando=self.nav_stress)
 
         self._crea_braccialetto()
 
         self.grafici = [self.g_passi, self.g_sonno, self.g_peso, self.g_stress,
-                        self.anello, self.fasi, self.barra_corpo, self.mappa]
+                        self.barra_passi, self.fasi, self.mappa]
 
     # ------------------------------------------------------------- comandi
     def nuovo(self) -> None:
@@ -337,6 +397,8 @@ class VistaSalute(VistaSezioni):
         finestra.giorno_scelto.connect(self.apri_dati)
         finestra.exec()
         self.aggiorna()
+        if finestra.cambiato:        # di là si cancella: anche le altre pagine
+            self.dati_cambiati.emit()
 
     def _apribile(self, widget, campo: str) -> None:
         """Doppio clic su un grafico o una riga: si apre l'andamento di quel dato."""
@@ -500,30 +562,54 @@ class VistaSalute(VistaSezioni):
         obiettivo = self.db.leggi_num("obiettivo_passi", PREDEFINITI["obiettivo_passi"])
         passi = float(r["passi"]) if r and r["passi"] else 0.0
         quota = passi / obiettivo if obiettivo else 0
-        self.anello.imposta(quota, f"{quota * 100:.0f}%" if passi else "—",
-                            "dell'obiettivo" if passi else "nessun dato")
 
-        # la riga di sopra: quello che hai fatto oggi, che oggi si conta
-        for colonna, (campo, nota, colore, decimali) in enumerate(
-                (("passi", "passi", self.c["accento"], 0),
-                 ("kcal", "kcal attive", "#f7913a", 0),
-                 ("km", "km", "#35c4d7", 1))):
-            valore = float(r[campo]) if r and r[campo] else 0.0
-            self._numero(campo, numero(valore, decimali) if valore else "—",
-                         nota, colore, 0, colonna)
+        # i passi, grandi: sono il dato, non la percentuale che se ne ricava
+        self.et_passi_oggi.setText(numero(passi, 0) if passi else "—")
+        self.et_passi_oggi.setStyleSheet(
+            f"color: {self.c['accento'] if passi else self.c['testo2']};")
+        self.et_passi_quota.setText(
+            f"{quota * 100:.0f}% di {numero(obiettivo, 0)}" if passi and obiettivo
+            else ("nessun dato" if not passi else ""))
+        # la barra: quello che hai fatto e quello che manca. Il fondo è un
+        # grigio che si vede — con «griglia», sul tema scuro, una barra al
+        # 5% sembrava rotta invece che appena cominciata
+        fatto = min(passi, obiettivo) if obiettivo else passi
+        manca = max(0.0, obiettivo - passi) if obiettivo else 0.0
+        self.barra_passi.imposta_dati(
+            [("fatti", fatto, self.c["accento"]),
+             ("mancano", manca, self.c["pannello2"])])
+        self.barra_passi.setToolTip(
+            f"{numero(passi, 0)} passi su {numero(obiettivo, 0)}: "
+            f"ne mancano {numero(manca, 0)}."
+            if passi and manca else
+            (f"Obiettivo raggiunto: {numero(passi, 0)} passi." if passi
+             else "Nessun passo scritto oggi."))
 
-        # la riga di sotto: quello che il corpo dice di sé, anche di ieri
-        for colonna, (campo, nota, colore, forma, spiega) in enumerate(
-                (("sonno", "sonno", "#6c8cff", durata, "Quanto hai dormito"),
-                 ("battito", "battito", COLORE_BATTITO, lambda v: numero(v, 0),
-                  "Battito a riposo, in bpm"),
-                 ("stress", "stress", "#f0b429", lambda v: numero(v, 0),
-                  "Stress medio della giornata, da 0 a 100"))):
-            valore, giorno = self._recente(dati, elenco, campo)
-            quando = f"{nota} · {self._quando(giorno)}" if giorno and giorno != oggi \
-                else nota
+        # gli altri cinque della giornata, su una riga sola. Le etichette
+        # sono corte perché le colonne sono cinque: il nome per esteso sta
+        # nel suggerimento, che è dove uno lo cerca.
+        numeri = (("kcal", "kcal", "#f7913a", lambda v: numero(v, 0),
+                   "Calorie attive bruciate oggi", True),
+                  ("km", "km", "#35c4d7", lambda v: numero(v, 1),
+                   "Distanza percorsa oggi", True),
+                  ("sonno", "sonno", "#6c8cff", durata, "Quanto hai dormito", False),
+                  ("battito", "battito", COLORE_BATTITO, lambda v: numero(v, 0),
+                   "Battito a riposo, in bpm", False),
+                  ("stress", "stress", "#f0b429", lambda v: numero(v, 0),
+                   "Stress medio della giornata, da 0 a 100", False))
+        for colonna, (campo, nota, colore, forma, spiega, solo_oggi) in enumerate(numeri):
+            if solo_oggi:
+                # passi, calorie e distanza si contano oggi e basta
+                valore = float(r[campo]) if r and r[campo] else 0.0
+                quando = nota
+            else:
+                # sonno, battito e stress il braccialetto li consegna quando
+                # gli pare: meglio il numero vero, con scritto di quando è
+                valore, giorno = self._recente(dati, elenco, campo)
+                quando = (f"{nota} · {self._quando(giorno)}"
+                          if giorno and giorno != oggi else nota)
             self._numero(campo, forma(valore) if valore else "—",
-                         quando, colore, 1, colonna, spiega)
+                         quando, colore, 0, colonna, spiega)
 
         self.contenitore.sezioni["oggi"].imposta_nota(
             f"obiettivo {numero(obiettivo, 0)} passi")
@@ -544,23 +630,24 @@ class VistaSalute(VistaSezioni):
                     if g in dati and dati[g][campo]]
 
         pesi, grassi, muscoli = serie("peso"), serie("grasso"), serie("muscolo")
-        self.g_peso.imposta_dati([(data_it(g)[:5], v) for g, v in pesi],
-                                 "#35c4d7", "peso")
+        self.g_peso.imposta_dati([v for _, v in pesi], "#35c4d7")
         self.g_peso.setVisible(len(pesi) >= 2)
         if not pesi and not grassi and not muscoli:
             self.et_peso.setText("—")
+            self.et_peso_unita.setText("")
             self.et_peso_scarto.setText("")
-            self.et_peso_nota.setText(f"{quando} · nessuna misura")
-            self.barra_corpo.hide()
-            self.et_corpo_nota.hide()
+            self.g_peso.setToolTip("")
+            self._ultima_corpo = ""
+            self.linea_indici.hide()
+            self.riga_indici.hide()
             self.lay_corpo.addWidget(etichetta(
-                "Peso, massa grassa e massa muscolare si scrivono nella finestra "
-                "«Inserimento dati».", "NotaScheda"))
+                f"Nessuna misura in {quando}. Peso, massa grassa e massa "
+                "muscolare si scrivono nella finestra «Inserimento dati».",
+                "NotaScheda"))
             invito = QPushButton("Inserimento dati")
             invito.clicked.connect(lambda: self.apri_dati())
             self.lay_corpo.addWidget(invito)
             self.lay_corpo.addStretch(1)
-            self.area_corpo.show()
             return
 
         peso = pesi[-1][1] if pesi else 0.0
@@ -578,82 +665,177 @@ class VistaSalute(VistaSezioni):
             return f"{segno}{numero(abs(scostamento), 1)} {unita}"
 
         ultima = (pesi or grassi or muscoli)[-1][0]
-        self.et_peso.setText(f"{numero(peso, 1)} kg" if peso else f"{numero(grasso, 1)} %")
+        self.et_peso.setText(numero(peso, 1) if peso else numero(grasso, 1))
+        self.et_peso_unita.setText("kg" if peso else "%")
         # quanto si è mosso, grande e colorato accanto al numero: è la cosa
         # che si guarda per prima
         if len(pesi) > 1:
             scostamento = pesi[-1][1] - pesi[0][1]
             segno = "+" if scostamento > 0 else "−"
             tinta = self.c["uscita"] if scostamento > 0 else self.c["entrata"]
+            # una pastiglia, non una scritta colorata: è il modo in cui lo
+            # dicono le schede di Samsung Health, e a colpo d'occhio si
+            # legge prima il verso della freccia che il numero
+            freccia = "↑" if scostamento > 0 else "↓"
             self.et_peso_scarto.setText(
-                f"{segno}{numero(abs(scostamento), 1)} kg")
+                f"{freccia} {numero(abs(scostamento), 1)}")
+            self.et_peso_scarto.setToolTip(
+                f"{numero(abs(scostamento), 1)} kg "
+                f"{'in più' if scostamento > 0 else 'in meno'} rispetto "
+                f"alla prima misura di {quando}.")
             self.et_peso_scarto.setStyleSheet(
-                f"color: {tinta}; font-weight: 700;")
-            # il periodo lo dice già il navigatore, sulla riga del titolo
-            self.et_peso_nota.setText(
-                f"ultima misura {relativa(ultima)} · "
-                f"min {numero(min(v for _, v in pesi), 1)} · "
-                f"max {numero(max(v for _, v in pesi), 1)} kg")
+                f"color: {tinta}; background: {trasparente(tinta, 0.14)};"
+                "border-radius: 9px; padding: 2px 9px;")
         else:
             self.et_peso_scarto.setText("")
-            self.et_peso_nota.setText(relativa(ultima))
+            self.et_peso_scarto.setStyleSheet("")
 
-        # la barra: com'è diviso il peso, non quanto pesa. Senza massa grassa
-        # non si disegna una barra finta — non c'è niente da dividere
-        if peso and (grasso or muscolo):
-            resto = max(0.0, peso - kg_grassa - kg_muscolo)
-            fette = [("grassa", kg_grassa, "#f7913a"),
-                     ("muscolare", kg_muscolo, "#6c8cff"),
-                     ("resto", resto, self.c["griglia"])]
-            vive = [f for f in fette if f[1] > 0]
-            self.barra_corpo.imposta_dati(vive)
-            self.barra_corpo.setToolTip("   ·   ".join(
-                f"massa {n}: {numero(v, 1)} kg" for n, v, _ in vive))
-            self.barra_corpo.show()
-            self.et_corpo_nota.setText("   ".join(
-                f"<span style='color:{col}'>●</span> {nome} {numero(v, 1)} kg"
-                for nome, v, col in vive
-                if nome != "resto" or v > 0.1))
-            self.et_corpo_nota.setTextFormat(Qt.RichText)
-            self.et_corpo_nota.show()
-        else:
-            self.barra_corpo.hide()
-            self.et_corpo_nota.setTextFormat(Qt.PlainText)
-            self.et_corpo_nota.setText(
-                "senza massa grassa il peso resta un numero solo: scrivila in "
-                "«Inserimento dati».")
-            self.et_corpo_nota.show()
+        # tutto il racconto del periodo sta qui, sulla curva: quante misure,
+        # quand'è l'ultima, da quanto a quanto
+        quante = (f"{len(pesi)} misure" if len(pesi) > 1
+                  else ("una misura sola" if pesi else "nessuna pesata"))
+        estremi = (f"\nDa {numero(min(v for _, v in pesi), 1)} a "
+                   f"{numero(max(v for _, v in pesi), 1)} kg."
+                   if len(pesi) > 1 else "")
+        self.g_peso.setToolTip(
+            f"{quante} in {quando} · ultima {relativa(ultima)}.{estremi}\n"
+            "Doppio clic per vederle tutte, una per riga.")
 
-        righe = 0
+        self.cont_corpo.hide()        # l'invito serve solo ad archivio vuoto
+
+        # La riga in fondo: il BMI e le parti del peso, una colonna per una.
+        parti = []
         if grassi:
-            righe += 1
-            riga_corpo = RigaMisura(
-                self.c, "◍", "Massa grassa",
-                f"{numero(kg_grassa, 1)} kg del peso" if peso else "percentuale",
-                f"{numero(grasso, 1)} %", variazione(grassi, "punti"),
-                int(grasso), "#f7913a")
-            self._apribile(riga_corpo, "grasso")
-            self.lay_corpo.addWidget(riga_corpo)
+            parti.append(("grassa", "#f7913a", grasso, kg_grassa,
+                          "grasso", variazione(grassi, "punti")))
         if muscoli:
-            righe += 1
-            riga_corpo = RigaMisura(
-                self.c, "⟡", "Massa muscolare",
-                f"{numero(kg_muscolo, 1)} kg del peso" if peso else "percentuale",
-                f"{numero(muscolo, 1)} %", variazione(muscoli, "punti"),
-                int(muscolo), "#6c8cff")
-            self._apribile(riga_corpo, "muscolo")
-            self.lay_corpo.addWidget(riga_corpo)
-        if pesi and grassi:
-            righe += 1
-            riga_corpo = RigaMisura(
-                self.c, "◆", "Massa secca", "il peso meno la massa grassa",
-                f"{numero(secca, 1)} kg", f"{numero(100 - grasso, 1)} % del peso",
-                int(100 - grasso), self.c["accento"])
-            self._apribile(riga_corpo, "peso")
-            self.lay_corpo.addWidget(riga_corpo)
-        self.lay_corpo.addStretch(1)
-        # senza righe l'area che scorre non serve: lo spazio va alla curva
-        self.area_corpo.setVisible(righe > 0)
+            parti.append(("muscolare", "#6c8cff", muscolo, kg_muscolo,
+                          "muscolo", variazione(muscoli, "punti")))
+        if grassi:
+            parti.append(("magra", self.c["accento"], 100 - grasso,
+                          secca, "peso", "il peso meno la massa grassa"))
+        self._indici(peso, parti)
+        # su quale misura lavorano «correggi» e «cancella» del menu «⋯»
+        self._ultima_corpo = ultima
+
+    def voci_sezione(self, chiave: str, menu: QMenu) -> bool:
+        """I comandi della composizione, nel menu «⋯» del suo titolo."""
+        if chiave != "corpo":
+            return False
+        menu.addAction("Scrivi una misura…", lambda: self.apri_dati())
+        quando = data_it(self._ultima_corpo) if self._ultima_corpo else ""
+        correggi = menu.addAction(f"Correggi la misura del {quando}…" if quando
+                                  else "Correggi l'ultima misura…")
+        correggi.triggered.connect(lambda: self.apri_dati(self._ultima_corpo))
+        cancella = menu.addAction(f"Cancella la misura del {quando}…" if quando
+                                  else "Cancella l'ultima misura…")
+        cancella.triggered.connect(self._cancella_composizione)
+        for azione in (correggi, cancella):
+            azione.setEnabled(bool(self._ultima_corpo))
+        menu.addAction("Tutte le misure…",
+                       lambda: self.apri_andamento("peso"))
+        return True
+
+    def _indici(self, peso: float, parti: list) -> None:
+        """La riga in fondo: il BMI e le parti del peso, una colonna per una.
+
+        Il BMI viene dall'altezza, le parti dalla bilancia: se l'altezza
+        non c'è il BMI non si calcola, ma grassa e magra sì — e si mostrano
+        lo stesso, con al posto del BMI la strada per scrivere l'altezza.
+        """
+        self.svuota(self.lay_indici)
+        colonne: list[QWidget] = []
+        altezza = self.db.leggi_num("altezza", 0) / 100      # in metri
+        if peso and altezza > 0:
+            colonne.append(self._indice(
+                "BMI", numero(peso / (altezza * altezza), 1),
+                self.c["testo"], "peso",
+                "Il peso diviso l'altezza al quadrato: non sa dire se un "
+                "chilo è grasso o muscolo, per quello ci sono le colonne "
+                "accanto."))
+        elif peso:
+            colonne.append(self._invito_altezza())
+        # in chili, non in percentuale: «3,0 kg» è una cosa che si può
+        # soppesare, «4,0 %» va prima moltiplicata per il peso. La
+        # percentuale, che è il numero che scrivi tu, resta nel suggerimento
+        for nome, colore, percento, chili, campo, nota in parti:
+            colonne.append(self._indice(
+                nome, f"{numero(chili, 1)} kg" if chili
+                else f"{numero(percento, 1)} %", colore, campo,
+                f"{numero(percento, 1)} % del peso · {nota}" if chili
+                else f"Senza il peso non si ricavano i chili · {nota}"))
+        for posto, colonna in enumerate(colonne):
+            if posto:
+                self.lay_indici.addWidget(separatore_verticale())
+            self.lay_indici.addWidget(colonna, 1)
+        self.linea_indici.setVisible(bool(colonne))
+        self.riga_indici.setVisible(bool(colonne))
+
+    def _invito_altezza(self) -> QWidget:
+        """Al posto del BMI, quando l'altezza non c'è ancora."""
+        invito = QPushButton("altezza?")
+        invito.setObjectName("Segmento")
+        invito.setCursor(Qt.PointingHandCursor)
+        invito.setToolTip(
+            "Il BMI è il peso diviso l'altezza al quadrato: senza altezza "
+            "non c'è niente da calcolare.\n"
+            "Si scrive una volta sola, in Impostazioni → Obiettivi.")
+        invito.clicked.connect(lambda: self.area_richiesta.emit("impostazioni"))
+        return invito
+
+    def _indice(self, sigla: str, valore: str, colore: str, campo: str,
+                spiega: str) -> QWidget:
+        """Una colonna: il numero grande, e sotto come si chiama."""
+        indice = QWidget()
+        indice.setObjectName("ContenutoSezione")
+        colonna = QVBoxLayout(indice)
+        colonna.setContentsMargins(0, 0, 0, 0)
+        colonna.setSpacing(1)
+        numeroso = QLabel(valore)
+        numeroso.setObjectName("ValoreRiga")
+        numeroso.setAlignment(Qt.AlignCenter)
+        numeroso.setStyleSheet(f"color: {colore};")
+        nome = etichetta(sigla, "NotaScheda")
+        nome.setAlignment(Qt.AlignCenter)
+        colonna.addWidget(numeroso)
+        colonna.addWidget(nome)
+        indice.setToolTip(f"{spiega}\nDoppio clic per vederne l'andamento."
+                          if campo else spiega)
+        if campo:
+            self._apribile(indice, campo)
+        return indice
+
+    def _cancella_composizione(self) -> None:
+        """Butta via la misura del giorno che il riquadro sta mostrando.
+
+        Peso, massa grassa e massa muscolare di quel giorno se ne vanno
+        insieme, perché insieme sono state scritte: è *quella pesata* che
+        si cancella. Tutto il resto della giornata — passi, sonno, battito
+        — non si tocca.
+        """
+        giorno = self._ultima_corpo
+        riga = self.db.salute_giorno(giorno) if giorno else None
+        if riga is None:
+            return
+        pezzi = []
+        if riga["peso"]:
+            pezzi.append(f"peso {numero(riga['peso'], 1)} kg")
+        if riga["grasso"]:
+            pezzi.append(f"massa grassa {numero(riga['grasso'], 1)} %")
+        if riga["muscolo"]:
+            pezzi.append(f"massa muscolare {numero(riga['muscolo'], 1)} %")
+        if not pezzi:
+            return
+        if QMessageBox.question(
+                self, "Cancellare la misura?",
+                f"Misura del {data_it(giorno)}: {', '.join(pezzi)}.\n\n"
+                "Sparisce dall'archivio e dalla curva. Gli altri dati di "
+                "quel giorno — passi, sonno, battito — restano dove sono.",
+                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        for campo in ("peso", "grasso", "muscolo"):
+            self.db.cancella_misura(giorno, campo)
+        self._dopo_salvataggio()
 
     # ------------------------------------------------------------ costanza
     def dato_costanza(self) -> str:
@@ -870,9 +1052,11 @@ class VistaSalute(VistaSezioni):
         dettagliate = (int(ultimo["sonno_profondo"]) + int(ultimo["sonno_rem"])
                        + int(ultimo["sonno_sveglio"]))
         if not dettagliate:
-            # senza fasi registrate non si finge di conoscerle
+            # senza fasi registrate non si finge di conoscerle, e non si
+            # spende una riga a dirlo: lo spazio vuoto sotto la barra è già
+            # abbastanza chiaro, e l'orario qui sotto conta di più
             self.fasi.imposta_dati([("sonno", float(totale), "#6c8cff")])
-            self.et_fasi.setText("fasi non registrate per questa notte")
+            self.et_fasi.setText("")
             self.et_fasi.setTextFormat(Qt.PlainText)
             self._barre_sonno(finestre, dati)
             return
@@ -899,20 +1083,37 @@ class VistaSalute(VistaSezioni):
         self._barre_sonno(finestre, dati)
 
     def _barre_sonno(self, finestre, dati) -> None:
-        """Le barre del sonno: una notte per barra, o la media di ogni
-        settimana o mese."""
-        self.g_sonno.riferimento = self.db.leggi_num(
-            "obiettivo_sonno", PREDEFINITI["obiettivo_sonno"])
+        """Una barra per notte, o per la media di una settimana o un mese:
+        non più solo quante ore, ma da che ora a che ora.
+
+        Con più notti in una barra sola (settimane, mesi) gli orari si
+        mediano fra loro — e vanno messi prima sull'asse che comincia la
+        sera (`minuti_notturni`): 23:40 e 01:07 sono vicini di un'ora e
+        mezza nella stessa notte, non lontani ventidue ore, ed è ancorarli
+        a un'ora fissa — non alla prima notte che capita in elenco — che fa
+        venire la stessa media qualunque sia l'ordine dei giorni.
+        """
         barre, valori = [], []
         for etichetta_barra, dal, al in finestre:
             dentro = [float(r["sonno"]) for g, r in dati.items()
                       if dal <= g <= al and r["sonno"]]
-            valore = media(dentro) if dentro else None
-            barre.append((etichetta_barra, [valore]))
             if dentro:
                 valori.extend(dentro)
+            notti = [r for g, r in dati.items()
+                     if dal <= g <= al and r["sonno"] and r["a_letto"] and r["sveglia"]]
+            if not notti:
+                barre.append((etichetta_barra, "", "", None))
+                continue
+            inizi = [minuti_notturni(ore_minuti(r["a_letto"])) for r in notti]
+            fini = []
+            for r, i in zip(notti, inizi):
+                f = minuti_notturni(ore_minuti(r["sveglia"]))
+                fini.append(f + 1440 if f <= i else f)
+            inizio_medio, fine_media = media(inizi), media(fini)
+            barre.append((etichetta_barra, minuti_ore(inizio_medio),
+                         minuti_ore(fine_media), fine_media - inizio_medio))
         self.g_sonno.evidenziata = self.nav_sonno.indice_adesso()
-        self.g_sonno.imposta_dati(barre, [("sonno", "#6c8cff")])
+        self.g_sonno.imposta_dati(barre, "#6c8cff")
         self.contenitore.sezioni["sonno"].imposta_nota(
             f"media {durata(media(valori))} su {len(valori)} notti"
             if valori else "nessun dato")
@@ -1012,17 +1213,6 @@ class VistaSalute(VistaSezioni):
                 self.et_stress_nota.setText(
                     f"{self.nav_stress.nome_scelto()} · il braccialetto non ha "
                     "ancora misurato lo stress")
-
-        # lo stress che hai scritto tu in Emozioni, da 1 a 10: è un'altra
-        # cosa dal battito, e quando i due non vanno d'accordo si vede qui
-        sentito = self.db.medie_periodo(dal, al)
-        if sentito["n"]:
-            quante = int(sentito["n"])
-            self.et_sentito.setText(
-                f"sentito {numero(sentito['stress'], 1)} su 10 · "
-                f"{quante} annotazion{'e' if quante == 1 else 'i'} in Emozioni")
-        else:
-            self.et_sentito.setText("in Emozioni non hai scritto come stavi")
 
         self.contenitore.sezioni["stress"].imposta_nota(
             f"media {numero(media(valori), 0)} su {len(valori)} "

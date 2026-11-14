@@ -51,10 +51,9 @@ AREE = {
     "salute":       "#19c2e0",   # turchese: il corpo
     "finanza":      "#22c55e",   # verde: i soldi
     "abitudini":    "#ffa62b",   # ambra: i giorni di fila
-    # rosso chiaro: l'AI. Stessa famiglia di «emozioni» (349°) ma nove
-    # punti di luce piu' su, cosi' si distinguono nella barra; e sul tema
-    # scuro il testo che ci va sopra passa da 2,6:1 a 7,7:1.
-    "tess":         "#ff7b8c",
+    # rosso acceso: l'AI. Stessa famiglia di «emozioni» (#ff4d6d, 349°)
+    # ma più saturo e carico, ancora più acceso per risaltare subito.
+    "tess":         "#ff1744",
     "impostazioni": "#94a3b8",   # ardesia: gli attrezzi
     "cruscotto":    "#16c47f",   # il verde di casa
 }
@@ -149,16 +148,26 @@ def trasparente(colore: str, opacita: float) -> str:
 
 
 def foglio_stile(c: dict, scala: float = 1.0,
-                 frecce: tuple[str, str] | None = None) -> str:
+                 frecce: tuple[str, str] | None = None,
+                 scala_tess: float = 1.0) -> str:
     """Foglio di stile dell'applicazione: angoli larghi, niente bordi duri.
 
     Stessa idea di One UI: le superfici si distinguono per tinta, non per
     cornice; i pulsanti sono pastiglie; i numeri contano più delle linee.
+
+    `scala_tess` è un secondo cursore, indipendente da `scala`: la chat di
+    Tess si legge a lungo e diversamente dal resto dell'interfaccia — menu,
+    pulsanti, intestazioni — quindi ha una sua misura del testo, che si
+    moltiplica sopra quella generale invece di sostituirla.
     """
 
     def p(px: float) -> str:
         """Dimensione in pixel adattata alla scala del testo."""
         return f"{px * scala:.1f}px"
+
+    def pt(px: float) -> str:
+        """Come `p`, ma per il testo della chat di Tess: due scale insieme."""
+        return f"{px * scala * scala_tess:.1f}px"
 
     def q(px: float) -> str:
         """Come `p`, ma intera: raggi e spessori Qt li vuole senza virgola."""
@@ -179,7 +188,7 @@ def foglio_stile(c: dict, scala: float = 1.0,
     }}""" for chiave in AREE)
     selezione = trasparente(c["accento"], 0.30)
     velo = trasparente("#ffffff", 0.22)
-    # Tess ha il suo colore, come ogni area: il rosa. Il filo dei suoi
+    # Tess ha il suo colore, come ogni area: il rosso acceso. Il filo dei suoi
     # messaggi ce l'ha sempre avuto — il bottone che manda, la conversazione
     # aperta e la bolla di quello che scrivi tu invece erano verdi come il
     # resto dell'app, e nella stessa pagina si vedevano due accenti diversi.
@@ -243,6 +252,9 @@ def foglio_stile(c: dict, scala: float = 1.0,
     QWidget#Grafico, QWidget#ContenutoSezione, QScrollArea#ContenutoSezione,
     QScrollArea#ContenutoSezione > QWidget {{ background: transparent; }}
     QFrame#Separatore {{ background: {c['bordo']}; max-height: 1px; border: none; }}
+    /* lo stesso filo, in piedi: il «max-height» di sopra lo schiaccerebbe */
+    QFrame#SeparatoreVerticale {{ background: {c['bordo']}; max-width: 1px;
+                                  border: none; }}
 
     QLabel#EtichettaScheda {{ color: {c['testo2']}; font-size: {p(10.5)};
                               font-weight: 700; letter-spacing: 1px; }}
@@ -250,7 +262,9 @@ def foglio_stile(c: dict, scala: float = 1.0,
     QLabel#NotaScheda {{ color: {c['testo2']}; font-size: {p(11.5)}; }}
     /* i numeri della giornata nel riquadro «Oggi»: il colore glielo dà chi
        li scrive, la misura la dà qui, così cresce col resto del testo */
-    QLabel#NumeroOggi {{ font-size: {p(18)}; font-weight: 750; }}
+    QLabel#NumeroOggi {{ font-size: {p(22)}; font-weight: 750; }}
+    /* i passi di oggi: il dato principale del riquadro, non uno dei sei */
+    QLabel#NumeroGiornata {{ font-size: {p(34)}; font-weight: 780; }}
     QLabel#TitoloRiga {{ font-size: {p(13)}; font-weight: 650; }}
     QLabel#ValoreRiga {{ font-size: {p(14)}; font-weight: 780; }}
     QLabel#Sezione {{ font-size: {p(15)}; font-weight: 700; padding: 2px 0; }}
@@ -432,15 +446,15 @@ def foglio_stile(c: dict, scala: float = 1.0,
     }}
     QPushButton#FrecciaGiorno:hover {{ background: {tocco}; color: {c['testo']}; }}
 
-    /* la chat di Tess */
+    /* la chat di Tess — il testo dei messaggi segue `scala_tess`, non `scala` */
     QLabel#BollaTu {{
         background: {trasparente(rosa, 0.16 if not chiaro else 0.13)};
         color: {c['testo']};
-        border-radius: 15px; padding: 9px 14px; font-size: {p(13)};
+        border-radius: 15px; padding: 9px 14px; font-size: {pt(13)};
     }}
     QLabel#BollaTess {{
         background: {c['pannello2']}; color: {c['testo']};
-        border-radius: 17px; padding: 10px 14px; font-size: {p(13)};
+        border-radius: 17px; padding: 10px 14px; font-size: {pt(13)};
     }}
     QListWidget#ElencoChat {{
         background: transparent; border: none; outline: none;
@@ -503,10 +517,10 @@ def foglio_stile(c: dict, scala: float = 1.0,
         border-radius: 1px; max-width: 2px; min-width: 2px;
     }}
     QLabel#NomeTess {{
-        color: {c['testo2']}; font-size: {p(11)}; font-weight: 700;
+        color: {c['testo2']}; font-size: {pt(11)}; font-weight: 700;
     }}
     QLabel#TestoTess {{
-        background: transparent; color: {c['testo']}; font-size: {p(13)};
+        background: transparent; color: {c['testo']}; font-size: {pt(13)};
         padding: 1px 0 2px 0;
     }}
     QPushButton#AzioneMessaggio {{
@@ -601,6 +615,19 @@ def foglio_stile(c: dict, scala: float = 1.0,
     QPushButton#InviaTondo:disabled {{
         background: {c['bordo']}; color: {c['testo2']};
     }}
+    /* il bottone che accende Tess: del suo rosso, non del verde di casa */
+    QPushButton#PrimarioTess {{
+        background: {rosa}; border: none; border-radius: {q(13)};
+        padding: 10px 18px; color: {su_rosa}; font-size: {p(14)};
+        font-weight: 650;
+    }}
+    QPushButton#PrimarioTess:hover {{
+        background: {scurisci(rosa, 0.88)}; border: 1px solid {velo};
+    }}
+    QPushButton#PrimarioTess:pressed {{ background: {scurisci(rosa, 0.78)}; }}
+    QPushButton#PrimarioTess:disabled {{
+        background: {c['bordo']}; color: {c['testo2']};
+    }}
 
     QPlainTextEdit#CampoDiario {{
         background: {c['pannello2']}; border: 1px solid transparent;
@@ -644,14 +671,16 @@ def foglio_stile(c: dict, scala: float = 1.0,
     QSplitter::handle:hover {{ background: {selezione}; border-radius: 4px; }}
     QSplitter::handle:pressed {{ background: {c['accento']}; }}
 
-    QScrollBar:vertical {{ background: transparent; width: 10px; margin: 4px 2px; }}
-    QScrollBar::handle:vertical {{ background: {c['bordo']}; border-radius: 5px;
-                                   min-height: 34px; }}
-    QScrollBar::handle:vertical:hover {{ background: {c['testo2']}; }}
-    QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px 4px; }}
-    QScrollBar::handle:horizontal {{ background: {c['bordo']}; border-radius: 5px;
-                                     min-width: 34px; }}
+    QScrollBar:vertical {{ background: transparent; width: 6px; margin: 4px 1px; }}
+    QScrollBar::handle:vertical {{ background: {trasparente(c['testo2'], 0.22)}; border-radius: 3px;
+                                   min-height: 28px; }}
+    QScrollBar::handle:vertical:hover {{ background: {trasparente(c['testo2'], 0.50)}; }}
+    QScrollBar:horizontal {{ background: transparent; height: 6px; margin: 1px 4px; }}
+    QScrollBar::handle:horizontal {{ background: {trasparente(c['testo2'], 0.22)}; border-radius: 3px;
+                                     min-width: 28px; }}
+    QScrollBar::handle:horizontal:hover {{ background: {trasparente(c['testo2'], 0.50)}; }}
     QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
+    QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
 
     QTabWidget::pane {{ border: none; background: {c['pannello']};
                         border-radius: 20px; top: -1px; }}
@@ -678,7 +707,7 @@ def foglio_stile(c: dict, scala: float = 1.0,
 
     /* ------------------------------------------------------- etichette varie */
     QLabel#Pillola {{
-        background: {c['pannello2']}; border: none; border-radius: 15px;
+        background: {c['pannello2']}; border: 1px solid transparent; border-radius: 15px;
         padding: 8px 14px; color: {c['testo2']};
     }}
     /* il binario del tempo: le scelte stanno dentro un unico fondo, come

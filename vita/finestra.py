@@ -20,7 +20,7 @@ from .icone_nav import (RISORSE, icona, icona_menu, logo_app,
                         percorso_logo)
 from .tema import (AREE, SCALE, colore_area, colori,
                    foglio_stile, frecce_spin, luminosita, su_colore)
-from .utils import euro, numero
+from .utils import compatto, euro, numero
 from .views.abitudini import VistaAbitudini
 from .views.accademica import VistaAccademica
 from .views.carriera import VistaCarriera
@@ -56,7 +56,12 @@ class Punteggio(QWidget):
 
     Con `formato="euro"` il numero grande è il patrimonio invece del punteggio
     da 1 a 100: l'anello continua a mostrare lo stato dei conti.
-    Da barra chiusa resta il solo anello: il valore si legge nel suggerimento.
+
+    Da barra chiusa restava il solo anello — ma **vuoto**: il numero viveva
+    solo nell'etichetta accanto, che sparisce insieme al resto del testo.
+    Tre cerchi colorati senza un numero dentro sembravano rotti, non
+    essenziali. Ora il numero ci sta anche lì, abbreviato quando serve
+    (`compatto`, per i soldi): il dettaglio vero resta nel suggerimento.
     """
 
     def __init__(self, nome: str, colore: str, colori_tema: dict,
@@ -70,13 +75,26 @@ class Punteggio(QWidget):
         self.c = colori_tema
         self.valore = 0
         self.testo_valore = ""
+        self.testo_compatto = ""
+        self._compatta = False
         self.setCursor(Qt.PointingHandCursor)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(8, 7, 10, 7)
         lay.setSpacing(11)
 
+        # 40px, non 36: da barra chiusa l'anello è l'unica cosa che resta.
+        # Lo spazio vero lì non è largo 62px come la barra: da chiusa
+        # `_disegna_barra` mette 8px di margine per lato nella colonna
+        # (62 - 16 = 46), e senza spazio in più da ridistribuire un
+        # anello più largo del suo posto non si centra — si àncora a
+        # sinistra e sborda a destra. 40px lascia 3px buoni per lato.
+        # Il numero dentro cresce per conto suo (`scala_testo`), apposta
+        # perché qui non c'è una nota sotto a fargli compagnia e doveva
+        # bastare da solo — resta comunque impossibile da tagliare, perché
+        # `Anello` lo restringe lui finché non ci sta.
         self.anello = Anello(colori_tema, colore)
-        self.anello.setFixedSize(36, 36)
+        self.anello.scala_testo = 2.0
+        self.anello.setFixedSize(40, 40)
         lay.addWidget(self.anello)
 
         self.testi = QWidget()
@@ -94,19 +112,32 @@ class Punteggio(QWidget):
 
     def imposta(self, dati: dict) -> None:
         self.valore = dati["valore"]
-        # l'anello resta il punteggio anche quando il numero sono i soldi
-        self.anello.imposta(self.valore / 100, "", "")
         if self.formato == "euro":
-            self.testo_valore = euro(dati.get("saldo", 0.0)).replace(",00", "")
+            saldo = dati.get("saldo", 0.0)
+            self.testo_valore = euro(saldo).replace(",00", "")
+            # «202» dentro un anello di 36px, non «202,31 €»: i centesimi
+            # non ci stanno, e li dà già il suggerimento al passaggio del
+            # mouse — qui arrotondato, così `compatto` non ne scrive uno
+            self.testo_compatto = compatto(round(saldo))
             suggerimento = calcolo.dettaglio_finanza(dati)
         else:
             self.testo_valore = str(self.valore)
+            self.testo_compatto = self.testo_valore
             suggerimento = calcolo.dettaglio_testo(self.nome, dati)
         self.et_valore.setText(self.testo_valore)
         self.setToolTip(suggerimento)
+        self._disegna_anello()
+
+    def _disegna_anello(self) -> None:
+        # il punteggio resta quello che decide quanto riempire l'anello
+        # anche quando il numero scritto dentro sono i soldi
+        self.anello.imposta(self.valore / 100,
+                            self.testo_compatto if self._compatta else "", "")
 
     def mostra_testi(self, visibili: bool) -> None:
         self.testi.setVisible(visibili)
+        self._compatta = not visibili
+        self._disegna_anello()
         self.layout().setContentsMargins(*((0, 5, 0, 5) if not visibili
                                            else (8, 7, 10, 7)))
         self.layout().setAlignment(Qt.AlignCenter if not visibili
@@ -588,6 +619,7 @@ class FinestraPrincipale(QMainWindow):
         self.tema = nome
         self.c = colori(nome)
         scala = SCALE.get(self.db.leggi("scala", "normale"), 1.0)
+        scala_tess = SCALE.get(self.db.leggi("tess_dimensione_testo", "normale"), 1.0)
         app = QApplication.instance()
         if app is not None:
             app.setPalette(self._palette(self.c))
@@ -597,7 +629,8 @@ class FinestraPrincipale(QMainWindow):
         QFrame#Cartellino {{ border-radius: 10px; }}
         """
         self.setStyleSheet(foglio_stile(self.c, scala, frecce_spin(
-            os.path.join(DATA_DIR, "cache"), self.c["testo2"])) + extra)
+            os.path.join(DATA_DIR, "cache"), self.c["testo2"]),
+            scala_tess=scala_tess) + extra)
         if hasattr(self, "pulsanti"):
             self._aggiorna_icone()
         if hasattr(self, "b_logo"):

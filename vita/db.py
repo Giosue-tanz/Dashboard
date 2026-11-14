@@ -136,7 +136,8 @@ CREATE TABLE IF NOT EXISTS scadenze (
     titolo TEXT NOT NULL,
     area TEXT NOT NULL DEFAULT 'accademica',
     fatta INTEGER NOT NULL DEFAULT 0,
-    note TEXT NOT NULL DEFAULT ''
+    note TEXT NOT NULL DEFAULT '',
+    stato TEXT NOT NULL DEFAULT 'da_fare'
 );
 CREATE TABLE IF NOT EXISTS abitudini (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -283,6 +284,10 @@ COLONNE_AGGIUNTE = (
     # le categorie si possono colorare, come le emozioni
     ("categorie", "colore", "TEXT NOT NULL DEFAULT ''"),
     ("categorie", "icona", "TEXT NOT NULL DEFAULT ''"),
+    # lo stato delle attività/scadenze: da_fare, in_corso, completata
+    ("scadenze", "stato", "TEXT NOT NULL DEFAULT 'da_fare'"),
+    # le chat di Tess che vuoi tenere in cima: 1 = fissata, 0 = normale
+    ("tess_titoli", "preferita", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 # Categorie di partenza, divise per tipo: si aggiungono dalle impostazioni o
@@ -562,6 +567,35 @@ class Database:
     # ----------------------------------------------------------------- salute
     def salute_giorno(self, data: str) -> sqlite3.Row | None:
         return self.uno("SELECT * FROM salute WHERE data=?", (data,))
+
+    # I dati che si possono svuotare uno per uno, dall'elenco dei giorni
+    # della finestra «Andamento». Zero, qui, vuol dire «non misurato»: è la
+    # stessa regola con cui `serie_salute` li legge (`> 0`) e con cui le
+    # pagine li ignorano. Non c'è una colonna «cancellato» da inventare.
+    MISURE_CANCELLABILI = ("passi", "km", "kcal", "sonno", "sonno_profondo",
+                           "sonno_rem", "sonno_sveglio", "battito", "hrv",
+                           "peso", "grasso", "muscolo", "acqua", "stress")
+
+    def cancella_misura(self, data: str, campo: str) -> int:
+        """Toglie un solo dato da un giorno, lasciando stare tutti gli altri.
+
+        Se dopo non resta più niente di quel giorno, la riga se ne va: un
+        giorno tutto a zero non è un giorno misurato, e tenerlo vorrebbe
+        dire contarlo fra quelli che hanno dei dati. Torna 1 se qualcosa è
+        stato davvero cancellato.
+        """
+        if campo not in self.MISURE_CANCELLABILI:
+            raise ValueError("campo non valido")
+        prima = self.salute_giorno(data)
+        if prima is None or not prima[campo]:
+            return 0                      # non c'era niente da togliere
+        self.esegui(f"UPDATE salute SET {campo}=0 WHERE data=?", (data,))
+        dopo = self.salute_giorno(data)
+        if dopo is not None:
+            resto = {c: v for c, v in dict(dopo).items() if c != "data"}
+            if not any(resto.values()):
+                self.esegui("DELETE FROM salute WHERE data=?", (data,))
+        return 1
 
     def salva_salute(self, d: dict) -> None:
         campi = ("passi", "km", "kcal", "sonno", "sonno_profondo", "sonno_rem",
@@ -910,19 +944,21 @@ class Database:
             (conversazione,))
 
     def conversazioni_tess(self, limite: int = 30) -> list[sqlite3.Row]:
-        """Le conversazioni, dalla più recente.
+        """Le conversazioni, dalla più recente — con le preferite in cima.
 
         `titolo` è il nome che le hai dato, `apertura` la prima domanda: chi
-        legge usa il primo e ripiega sul secondo.
+        legge usa il primo e ripiega sul secondo. `preferita` è 1 se la chat
+        è fissata in alto, 0 altrimenti: le preferite escono prima delle altre.
         """
         return self.query(
             "SELECT c.conversazione, COUNT(*) messaggi, MAX(c.quando) ultimo, "
             "       MIN(CASE WHEN c.ruolo='user' THEN c.testo END) apertura, "
-            "       COALESCE(t.titolo, '') titolo "
+            "       COALESCE(t.titolo, '') titolo, "
+            "       COALESCE(t.preferita, 0) preferita "
             "FROM tess_chat c "
             "LEFT JOIN tess_titoli t ON t.conversazione = c.conversazione "
             "GROUP BY c.conversazione "
-            "ORDER BY c.conversazione DESC LIMIT ?", (limite,))
+            "ORDER BY preferita DESC, c.conversazione DESC LIMIT ?", (limite,))
 
     def rinomina_conversazione_tess(self, conversazione: str, titolo: str) -> None:
         """Dà un nome a una chat; con il titolo vuoto torna la prima domanda."""
@@ -935,6 +971,20 @@ class Database:
             self.esegui("DELETE FROM tess_titoli WHERE conversazione=?",
                         (conversazione,))
 
+    def pinna_conversazione_tess(self, conversazione: str,
+                                 preferita: bool) -> None:
+        """Fissa o sgancia una chat dall'alto della lista.
+
+        Se la riga in tess_titoli non esiste ancora la crea con titolo vuoto:
+        serve solo a reggere il flag, il nome si deduce dalla prima domanda.
+        """
+        val = 1 if preferita else 0
+        self.esegui(
+            "INSERT INTO tess_titoli(conversazione, titolo, preferita) "
+            "VALUES(?, '', ?) "
+            "ON CONFLICT(conversazione) DO UPDATE SET preferita=excluded.preferita",
+            (conversazione, val))
+
     def ultima_conversazione_tess(self) -> str:
         r = self.uno("SELECT conversazione FROM tess_chat "
                      "ORDER BY id DESC LIMIT 1")
@@ -943,6 +993,43 @@ class Database:
     def elimina_conversazione_tess(self, conversazione: str) -> None:
         self.esegui("DELETE FROM tess_chat WHERE conversazione=?", (conversazione,))
         self.esegui("DELETE FROM tess_titoli WHERE conversazione=?", (conversazione,))
+
+    def riassunto_chat_tess(self, escludi: str = "",
+                            limite_chat: int = 10,
+                            messaggi_per_chat: int = 4) -> list[dict]:
+        """Riassunto compatto delle ultime chat, per la memoria trasversale.
+
+        Per ogni conversazione recente (tranne `escludi`, che è quella aperta)
+        restituisce titolo/apertura e gli ultimi scambi: così Tess sa di cosa
+        si è parlato altrove senza mandare l'intera cronologia.
+        """
+        chat = self.query(
+            "SELECT c.conversazione, "
+            "       MIN(CASE WHEN c.ruolo='user' THEN c.testo END) apertura, "
+            "       COALESCE(t.titolo, '') titolo "
+            "FROM tess_chat c "
+            "LEFT JOIN tess_titoli t ON t.conversazione = c.conversazione "
+            "WHERE c.conversazione != ? "
+            "GROUP BY c.conversazione "
+            "ORDER BY c.conversazione DESC LIMIT ?",
+            (escludi, limite_chat))
+        risultati = []
+        for r in chat:
+            cid = r["conversazione"]
+            titolo = (r["titolo"] or "").strip()
+            apertura = (r["apertura"] or "").strip()
+            nome = titolo or apertura[:60] or "conversazione"
+            # gli ultimi messaggi: bastano pochi scambi per dare il contesto
+            ultimi = self.query(
+                "SELECT ruolo, testo FROM tess_chat "
+                "WHERE conversazione=? ORDER BY id DESC LIMIT ?",
+                (cid, messaggi_per_chat))
+            ultimi.reverse()  # rimetti in ordine cronologico
+            scambi = [{"ruolo": u["ruolo"], "testo": u["testo"][:200]}
+                      for u in ultimi]
+            risultati.append({"conversazione": cid, "nome": nome,
+                              "scambi": scambi})
+        return risultati
 
     def studio(self, dal: str = "", al: str = "", limite: int = 0) -> list[sqlite3.Row]:
         sql = "SELECT * FROM studio WHERE 1=1"
@@ -999,13 +1086,18 @@ class Database:
         return self.query(sql, tuple(par))
 
     def salva_scadenza(self, d: dict) -> int:
-        campi = ("data", "titolo", "area", "fatta", "note")
+        d = dict(d)
+        if "stato" not in d:
+            d["stato"] = "completata" if d.get("fatta") else "da_fare"
+        if "fatta" not in d:
+            d["fatta"] = 1 if d["stato"] == "completata" else 0
+        campi = ("data", "titolo", "area", "fatta", "note", "stato")
         if d.get("id"):
             self.esegui("UPDATE scadenze SET " + ", ".join(f"{c}=?" for c in campi) +
                         " WHERE id=?", tuple(d[c] for c in campi) + (d["id"],))
             return int(d["id"])
         return self.esegui(
-            "INSERT INTO scadenze(" + ",".join(campi) + ") VALUES(?,?,?,?,?)",
+            "INSERT INTO scadenze(" + ",".join(campi) + ") VALUES(?,?,?,?,?,?)",
             tuple(d[c] for c in campi))
 
     # -------------------------------------------------------------- abitudini

@@ -190,7 +190,13 @@ def _sonno(righe, giorni: dict, notti: list | None = None) -> None:
         if minuti < 20:
             continue
         voce = giorni.setdefault(giorno, {})
-        voce["sonno"] = max(voce.get("sonno", 0), minuti)
+        # orario e durata vanno insieme: se minuti non vince qui, nemmeno
+        # a_letto/sveglia devono cambiare, se no la notte scritta sarebbe un
+        # miscuglio fra due sessioni diverse
+        if minuti >= voce.get("sonno", 0):
+            voce["sonno"] = minuti
+            voce["a_letto"] = unione[0][0].strftime("%H:%M")
+            voce["sveglia"] = unione[-1][1].strftime("%H:%M")
         if notti is not None:
             notti.extend((a, b, giorno) for a, b in unione)
 
@@ -532,15 +538,20 @@ def importa_samsung_health(db, percorso: str, sovrascrivi: bool = False,
         attuale = dict(esistente) if esistente else {}
         nuovo = {"data": giorno}
         cambiato = False
+        # a_letto e sveglia sono testo («23:40»), non un numero che vale 0
+        # quando manca: con lo 0 degli altri campi un orario vuoto sarebbe
+        # sembrato «già scritto», e non sarebbe mai entrato.
+        testi = {"a_letto", "sveglia"}
         for campo in ("passi", "km", "kcal", "sonno", "sonno_profondo", "sonno_rem",
                       "sonno_sveglio", "battito", "hrv", "peso", "grasso",
-                      "muscolo", "acqua", "stress"):
+                      "muscolo", "acqua", "stress", "a_letto", "sveglia"):
             importato = valori.get(campo)
-            precedente = attuale.get(campo, 0) or 0
+            precedente = attuale.get(campo) or ("" if campo in testi else 0)
             if importato and (sovrascrivi or not precedente):
                 nuovo[campo] = importato
                 cambiato = True
-                risultato.conta(campo)
+                if campo not in testi:          # l'orario è un di più del
+                    risultato.conta(campo)      # sonno, non un dato a sé
             else:
                 nuovo[campo] = precedente
         nuovo["note"] = attuale.get("note", "")

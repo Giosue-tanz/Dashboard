@@ -4,10 +4,11 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QHeaderView, QLabel, QMenu, QPushButton,
-                               QTableWidget, QTableWidgetItem, QVBoxLayout)
+from PySide6.QtWidgets import (QHeaderView, QLabel, QMenu, QMessageBox,
+                               QPushButton, QTableWidget, QTableWidgetItem,
+                               QVBoxLayout)
 
-from ..componenti import (NavigatorePeriodo, RigaMisura,
+from ..componenti import (AzioniRiga, NavigatorePeriodo, RigaMisura,
                           abilita_deselezione, etichetta, riga,
                           stile_tabella)
 from ..db import STATI_ESAME
@@ -110,7 +111,14 @@ class VistaAccademica(VistaSezioni):
         self.tab_studio.doubleClicked.connect(self._modifica_studio)
         self.tab_studio.customContextMenuRequested.connect(
             lambda punto: self._menu(self.tab_studio, "studio", punto))
-        self.aggiungi("registro", self.tab_studio)
+        # la modifica c'era già (doppio clic, tasto destro), ma nessuna
+        # icona lo diceva: la matita e il cestino in testata sono lo stesso
+        # comando già visibile altrove (Carriera, Impegni)
+        self.azioni_registro = AzioniRiga(self.c, self.tab_studio,
+                                          "questa sessione di studio")
+        self.azioni_registro.modifica.connect(self._modifica_studio)
+        self.azioni_registro.elimina.connect(self._elimina_studio)
+        self.aggiungi("registro", self.tab_studio, comando=self.azioni_registro)
 
         self.grafici = [self.g_studio, self.g_materie]
 
@@ -189,6 +197,22 @@ class VistaAccademica(VistaSezioni):
                 "UPDATE studio SET data=?, materia=?, minuti=?, argomento=? WHERE id=?",
                 (d["data"], d["materia"], d["minuti"], d["argomento"], id_))
             self._ricarica()
+
+    def _elimina_studio(self) -> None:
+        """Il cestino della riga del titolo: chiede conferma, poi elimina.
+
+        Il menu sul tasto destro elimina e basta — lì ci sei arrivato
+        apposta. Un'icona sempre in vista invece si clicca anche per sbaglio.
+        """
+        id_ = self._id(self.tab_studio)
+        if id_ is None:
+            return
+        if QMessageBox.question(
+                self, "Eliminare?", "Vuoi eliminare questa sessione di studio?",
+                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        self.db.elimina("studio", id_)
+        self._ricarica()
 
     def _modifica_scadenza(self) -> None:
         id_ = self._id(self.tab_scadenze)
@@ -385,13 +409,18 @@ class VistaAccademica(VistaSezioni):
 
     def _aggiorna_tabelle(self) -> None:
         scadenze = self.db.query(
-            "SELECT * FROM scadenze WHERE area='accademica' ORDER BY fatta, data LIMIT 60")
+            "SELECT * FROM scadenze WHERE area='accademica' ORDER BY fatta, (data IS NULL OR data=''), data LIMIT 60")
         self.tab_scadenze.setRowCount(len(scadenze))
         for i, s in enumerate(scadenze):
-            cella = QTableWidgetItem(relativa(s["data"]))
+            # senza data non è in ritardo: è solo una cosa da fare senza un
+            # giorno fissato. Il confronto diretto direbbe di sì, perché una
+            # stringa vuota viene prima di qualunque data, e la riga
+            # resterebbe rossa per sempre
+            giorno = s["data"] or ""
+            cella = QTableWidgetItem(relativa(giorno) if giorno else "senza data")
             cella.setData(Qt.UserRole, s["id"])
-            cella.setToolTip(data_it(s["data"]))
-            if not s["fatta"] and s["data"] <= date.today().isoformat():
+            cella.setToolTip(data_it(giorno) if giorno else "Nessuna data fissata")
+            if giorno and not s["fatta"] and giorno <= date.today().isoformat():
                 cella.setForeground(Qt.red)
             self.tab_scadenze.setItem(i, 0, cella)
             self.tab_scadenze.setItem(i, 1, QTableWidgetItem(s["titolo"]))

@@ -17,7 +17,7 @@ from PySide6.QtGui import (QColor, QFont, QFontMetrics, QLinearGradient, QPainte
 from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
 from .tema import PALETTE_GRAFICI
-from .utils import compatto, numero
+from .utils import compatto, durata, minuti_notturni, minuti_ore, numero, ore_minuti
 
 
 def _testo_semplice(v: float) -> str:
@@ -78,6 +78,15 @@ class GraficoLinea(BaseGrafico):
         self.riempi = True
         self.minimo_forzato: float | None = None
         self.massimo_forzato: float | None = None
+        # a chi tiene già una sua legenda che si tocca — una riga di
+        # pastiglie accendibili, sotto il grafico — quella disegnata qui
+        # sopra sarebbe la stessa cosa detta due volte, una muta e una viva
+        self.mostra_legenda = True
+        # i pallini su ogni punto: utili con pochi dati (si contano i giorni
+        # scritti), ma su una linea morbida con tanti punti sono solo
+        # puntini che si accavallano — qui si può spegnerli per un disegno
+        # più pulito, da linea sola, senza perdere il suggerimento al passaggio
+        self.mostra_punti = True
 
     def imposta_serie(self, serie) -> None:
         """serie = [(nome, [(etichetta, valore), ...], colore), ...]"""
@@ -106,7 +115,8 @@ class GraficoLinea(BaseGrafico):
         f = QFont(); f.setPointSize(8); p.setFont(f)
         tacche = [vmax - (vmax - vmin) * i / 4 for i in range(5)]
         ml = self._margine_sinistro(p, tacche)
-        mr, mt = 10, (14 if len(self.serie) < 2 or ridotto else 26)
+        con_legenda = len(self.serie) > 1 and not ridotto and self.mostra_legenda
+        mr, mt = 10, (26 if con_legenda else 14)
         mb = 10 if ridotto else 28
         area = QRectF(ml, mt, max(10.0, self.width() - ml - mr),
                       max(10.0, self.height() - mt - mb))
@@ -119,8 +129,9 @@ class GraficoLinea(BaseGrafico):
             p.drawText(QRectF(0, y - 9, ml - 10, 18),
                        Qt.AlignRight | Qt.AlignVCenter, self.formato(val))
 
-        # legenda in alto quando le serie sono più d'una
-        if len(self.serie) > 1 and not ridotto:
+        # legenda in alto quando le serie sono più d'una — a meno che non
+        # ce ne sia già una viva sotto il grafico (`mostra_legenda = False`)
+        if con_legenda:
             x = area.left()
             for nome, _, colore in self.serie:
                 p.setPen(Qt.NoPen); p.setBrush(QColor(colore))
@@ -162,7 +173,7 @@ class GraficoLinea(BaseGrafico):
             p.setPen(penna)
             p.drawPath(linea)
 
-            pallini = n <= 16
+            pallini = self.mostra_punti and n <= 16
             for i, (etic, v) in enumerate(punti):
                 pt = xy(i, v)
                 if pallini:
@@ -210,6 +221,7 @@ class GraficoBarre(BaseGrafico):
         self.evidenziata = -1
         self.crescita = 1.0        # 0..1 mentre le barre salgono
         self.riferimento: float | None = None      # linea dell'obiettivo
+        self.pallino_media = False                 # pallino per la media giornaliera
 
     def imposta_dati(self, dati, serie) -> None:
         self.dati, self.serie = dati, serie
@@ -343,9 +355,17 @@ class GraficoBarre(BaseGrafico):
                 # candele a pastiglia, come One UI: raggio pieno, mai spigoli
                 raggio = largo / 2
                 p.drawRoundedRect(rect, raggio, min(raggio, rect.height() / 2))
+                if self.pallino_media and rect.height() >= 8:
+                    cy = rect.top() + min(raggio, rect.height() / 2)
+                    cx = rect.center().x()
+                    r_dot = max(2.0, min(largo * 0.22, rect.height() * 0.35))
+                    p.setPen(Qt.NoPen)
+                    p.setBrush(QColor(self.c["pannello"]))
+                    p.drawEllipse(QPointF(cx, cy), r_dot, r_dot)
+                testo_val = f"media {self.formato(v)}" if self.pallino_media else self.formato(v)
                 self._zone.append((rect.adjusted(-2, -8, 2, 8),
                                    f"{etic}" + (f" · {nome_s}" if nome_s else "") +
-                                   f": {self.formato(v)}"))
+                                   f": {testo_val}"))
             if etichette and g % ogni == 0:
                 p.setPen(QColor(self.c["testo2"]))
                 p.drawText(QRectF(centro - largo_gruppo, area.bottom() + 4,
@@ -469,6 +489,145 @@ class GraficoIntervalli(BaseGrafico):
                        Qt.AlignCenter, etichetta)
 
 
+class GraficoSonno(BaseGrafico):
+    """Non le ore di sonno: l'orario. Una barra sospesa da quando sei andato
+    a letto a quando ti sei svegliato.
+
+    Due notti da otto ore si somigliano pochissimo se una va dalle 23 alle 7
+    e l'altra dall'1 di notte alle 9 del mattino: una barra che parte da
+    zero le farebbe sembrare identiche. Qui si vede a che ora, non solo per
+    quanto.
+
+    Una notte senza orario registrato (il sonno c'è, ma viene da un'importazione
+    che non porta l'ora di inizio e fine) resta un trattino sulla linea di
+    base, come i giorni senza dato nelle barre: non si inventa un orario.
+    """
+
+    SOTTO = 26
+
+    def __init__(self, colori: dict, colore: str = "", parent=None):
+        super().__init__(colori, parent=parent)
+        # etichetta, orario a letto ("23:40" o ""), orario sveglia, durata in minuti
+        self.dati: list[tuple[str, str, str, float]] = []
+        self.colore = colore or colori["accento"]
+        self.evidenzia_ultima = False
+        self.evidenziata = -1
+        self.formato = minuti_ore
+
+    def imposta_dati(self, dati, colore: str = "") -> None:
+        self.dati = list(dati)
+        if colore:
+            self.colore = colore
+        self.update()
+
+    @staticmethod
+    def _intervallo(a_letto: str, sveglia: str) -> tuple[int, int] | None:
+        """(minuti a letto, minuti sveglia) su un asse che comincia la sera
+        (vedi `minuti_notturni`): così 23:40 e 01:07 stanno nell'ordine
+        giusto — la seconda dopo la prima — qualunque sia l'ordine in cui
+        arrivano i dati. `None` se manca l'uno o l'altro orario.
+        """
+        if not a_letto or not sveglia:
+            return None
+        inizio = minuti_notturni(ore_minuti(a_letto))
+        fine = minuti_notturni(ore_minuti(sveglia))
+        if fine <= inizio:
+            fine += 1440
+        return inizio, fine
+
+    def paintEvent(self, _):
+        p = self._pittore()
+        self._zone = []
+        if not self.dati:
+            self._vuoto(p); return
+
+        intervalli = [self._intervallo(a, s) for _, a, s, _ in self.dati]
+        if not any(intervalli):
+            self._vuoto(p, "Nessun orario registrato per questo periodo"); return
+
+        presenti = [x for iv in intervalli if iv for x in iv]
+        minimo = (min(presenti) // 60) * 60
+        massimo = -(-max(presenti) // 60) * 60      # arrotondato all'ora, per eccesso
+        if massimo == minimo:
+            massimo += 60
+
+        f = QFont(); f.setPointSize(9); p.setFont(f)
+        fm = QFontMetrics(f)
+        # tacche su ore tonde: non una griglia arbitraria come per un numero
+        # qualunque, un orologio si legge solo se segna ore intere
+        ore_totali = (massimo - minimo) / 60
+        passo_ore = next((p_ for p_ in (1, 2, 3, 4, 6, 8, 12)
+                          if ore_totali / p_ <= 6), 12)
+        tacche = []
+        t = minimo
+        while t <= massimo + 1:
+            tacche.append(t)
+            t += passo_ore * 60
+        campo = max(60.0, massimo - minimo)
+
+        etichette = self.height() - 12 - self.SOTTO >= 36
+        mb = self.SOTTO if etichette else 10
+        mt = 12
+        sinistra = self._margine_sinistro(p, tacche)
+        area = QRectF(sinistra, mt, max(10.0, self.width() - sinistra - 10),
+                      max(10.0, self.height() - mt - mb))
+
+        def y(valore: float) -> float:
+            # capovolto: l'ora più presto (quando vai a letto) sta in
+            # fondo, quella più tarda (la sveglia) sta in cima — dormire
+            # si legge come salire, non come scendere.
+            return area.bottom() - (valore - minimo) / campo * area.height()
+
+        for t in tacche:
+            yt = y(t)
+            p.setPen(QPen(QColor(self.c["griglia"]), 1))
+            p.drawLine(QPointF(area.left(), yt), QPointF(area.right(), yt))
+            p.setPen(QColor(self.c["testo2"]))
+            p.drawText(QRectF(0, yt - 9, sinistra - 10, 18),
+                       Qt.AlignRight | Qt.AlignVCenter, self.formato(t))
+
+        n = len(self.dati)
+        passo = area.width() / n
+        largo = max(5.0, min(26.0, passo * 0.55))
+        serve = max((fm.horizontalAdvance(e) for e, *_ in self.dati), default=20) + 8
+        ogni = max(1, int(serve / max(1.0, passo) + 0.5))
+
+        for i, (etic, a_letto, sveglia, tot) in enumerate(self.dati):
+            centro = area.left() + passo * (i + 0.5)
+            iv = intervalli[i]
+            if iv is None:
+                rect = QRectF(centro - largo / 2, area.bottom() - 2.4, largo, 2.4)
+                p.setPen(Qt.NoPen); p.setBrush(QColor(self.c["griglia"]))
+                p.drawRoundedRect(rect, 1.2, 1.2)
+                self._zone.append((rect.adjusted(-4, -10, 4, 10),
+                                   f"{etic}: nessun orario registrato"))
+            else:
+                inizio, fine = iv
+                # l'asse è capovolto: l'ora più tarda (fine, la sveglia) sta
+                # più in alto sullo schermo — y più piccola — e l'ora più
+                # presto (inizio, quando vai a letto) sta più in basso.
+                cima = y(fine)
+                fondo = y(inizio)
+                rect = QRectF(centro - largo / 2, cima, largo,
+                              max(largo, fondo - cima))
+                colore = QColor(self.colore)
+                if self.evidenzia_ultima:
+                    quale = self.evidenziata if self.evidenziata >= 0 else n - 1
+                    if i != quale:
+                        colore.setAlpha(140)
+                p.setPen(Qt.NoPen); p.setBrush(colore)
+                p.drawRoundedRect(rect, largo / 2, largo / 2)
+                suggerimento = f"{etic}: {a_letto} → {sveglia}"
+                if tot:
+                    suggerimento += f" · {durata(tot)}"
+                self._zone.append((rect.adjusted(-4, -6, 4, 6), suggerimento))
+
+            if etichette and i % ogni == 0:
+                p.setPen(QColor(self.c["testo2"]))
+                p.drawText(QRectF(centro - passo, area.bottom() + 4, passo * 2, 16),
+                           Qt.AlignCenter, etic)
+
+
 class GraficoCiambella(BaseGrafico):
     """Ripartizione percentuale con legenda laterale."""
 
@@ -491,49 +650,125 @@ class GraficoCiambella(BaseGrafico):
         if totale <= 0:
             self._vuoto(p); return
 
-        lato = max(80.0, min(self.width() * 0.52, self.height()) - 14)
-        rect = QRectF(12, (self.height() - lato) / 2, lato, lato)
-        spessore = lato * 0.2
+        lato = max(90.0, min(self.width() * 0.46, self.height() - 20.0))
+        rect = QRectF(16, (self.height() - lato) / 2, lato, lato)
+        spessore = lato * 0.17
         interno = rect.adjusted(spessore, spessore, -spessore, -spessore)
+        centro_d = rect.center()
+        r_out = lato / 2
+        r_in = r_out - spessore
 
-        angolo = 90 * 16
-        for i, (nome, valore, colore) in enumerate(self.dati):
-            esteso = int(-360 * 16 * (valore / totale))
+        # Fette della ciambella
+        angolo = 90.0 * 16
+        for nome, valore, colore in self.dati:
+            if valore <= 0:
+                continue
+            esteso = -360.0 * 16 * (valore / totale)
             p.setPen(Qt.NoPen)
-            p.setBrush(QColor(colore or PALETTE_GRAFICI[i % 12]))
-            p.drawPie(rect, angolo, esteso)
+            p.setBrush(QColor(colore or PALETTE_GRAFICI[0]))
+            p.drawPie(rect, int(round(angolo)), int(round(esteso)))
             angolo += esteso
+
+        # Foro centrale: sfondo della scheda
+        p.setPen(Qt.NoPen)
         p.setBrush(QColor(self.c["pannello"]))
         p.drawEllipse(interno)
 
-        f = QFont(); f.setBold(True)
-        dim = max(7, min(15, int(interno.width() / 6.5)))
-        f.setPointSize(dim)
-        while dim > 6 and QFontMetrics(f).horizontalAdvance(
-                self.centro_testo) > interno.width() - 10:
-            dim -= 1; f.setPointSize(dim)
-        p.setFont(f); p.setPen(QColor(self.c["testo"]))
-        con_nota = interno.height() > 52 and self.centro_nota
-        p.drawText(interno.adjusted(0, -8 if con_nota else 0, 0, -8 if con_nota else 0),
-                   Qt.AlignCenter, self.centro_testo)
-        if con_nota:
-            f.setPointSize(max(6, dim - 5)); f.setBold(False); p.setFont(f)
-            p.setPen(QColor(self.c["testo2"]))
-            p.drawText(interno.adjusted(0, 15, 0, 15), Qt.AlignCenter, self.centro_nota)
+        # Spacchi radiali puliti fra le fette (stile segmenti moderni)
+        if len(self.dati) > 1:
+            pen_gap = QPen(QColor(self.c["pannello"]), 2.6)
+            pen_gap.setCapStyle(Qt.FlatCap)
+            p.setPen(pen_gap)
+            cur_ang = 90.0
+            r_mid = (r_in + r_out) / 2
+            for nome, valore, _ in self.dati:
+                if valore <= 0:
+                    continue
+                # Linea di stacco al confine della fetta
+                ang_rad = math.radians(cur_ang)
+                cos_a, sin_a = math.cos(ang_rad), -math.sin(ang_rad)
+                p.drawLine(
+                    QPointF(centro_d.x() + (r_in - 1) * cos_a, centro_d.y() + (r_in - 1) * sin_a),
+                    QPointF(centro_d.x() + (r_out + 1) * cos_a, centro_d.y() + (r_out + 1) * sin_a)
+                )
+                # Zona interattiva sul corpo della fetta per il tooltip
+                quota = valore / totale * 100
+                mid_ang = cur_ang - 180.0 * (valore / totale)
+                m_rad = math.radians(mid_ang)
+                pt_x = centro_d.x() + r_mid * math.cos(m_rad)
+                pt_y = centro_d.y() - r_mid * math.sin(m_rad)
+                self._zone.append((
+                    QRectF(pt_x - spessore, pt_y - spessore, spessore * 2, spessore * 2),
+                    f"{nome}: {self.formato(valore)} ({quota:.1f}%)"))
+                cur_ang -= 360.0 * (valore / totale)
 
-        x = rect.right() + 20
-        f.setPointSize(9); f.setBold(False); p.setFont(f)
-        righe = max(1, int((self.height() - 8) // 21))
-        for i, (nome, valore, colore) in enumerate(self.dati[:righe]):
-            y = 6 + i * 21
-            p.setPen(Qt.NoPen); p.setBrush(QColor(colore or PALETTE_GRAFICI[i % 12]))
-            p.drawRoundedRect(QRectF(x, y + 4, 10, 10), 3, 3)
+        # Scritta al centro: numero in grande e nota sotto, ben proporzionati
+        con_nota = bool(interno.height() > 46 and self.centro_nota)
+        dim_num = max(11, min(24, int(interno.width() / (4.5 if con_nota else 3.6))))
+        f_num = QFont()
+        f_num.setPointSize(dim_num)
+        f_num.setBold(True)
+        while dim_num > 8 and QFontMetrics(f_num).horizontalAdvance(self.centro_testo) > interno.width() - 8:
+            dim_num -= 1
+            f_num.setPointSize(dim_num)
+        fm_num = QFontMetrics(f_num)
+
+        if con_nota:
+            dim_sub = max(7, min(10, int(interno.width() / 9.5)))
+            f_sub = QFont()
+            f_sub.setPointSize(dim_sub)
+            f_sub.setBold(False)
+            fm_sub = QFontMetrics(f_sub)
+            tot_h = fm_num.ascent() + 3 + fm_sub.height()
+            y_base = centro_d.y() - tot_h / 2
+            p.setFont(f_num)
             p.setPen(QColor(self.c["testo"]))
+            p.drawText(QRectF(interno.left(), y_base, interno.width(), fm_num.height()),
+                       Qt.AlignCenter, self.centro_testo)
+            p.setFont(f_sub)
+            p.setPen(QColor(self.c["testo2"]))
+            p.drawText(QRectF(interno.left(), y_base + fm_num.ascent() + 3, interno.width(), fm_sub.height()),
+                       Qt.AlignCenter, self.centro_nota)
+        else:
+            p.setFont(f_num)
+            p.setPen(QColor(self.c["testo"]))
+            p.drawText(interno, Qt.AlignCenter, self.centro_testo)
+
+        # Legenda allineata a destra: pallini tondi, nomi a sinistra, percentuali a destra in colonna
+        x_leg = rect.right() + 22
+        w_leg = max(90.0, self.width() - x_leg - 14)
+        n_righe = min(len(self.dati), max(1, int((self.height() - 14) // 20)))
+        passo = min(25.0, (self.height() - 16.0) / max(1, n_righe))
+        y_start = (self.height() - (n_righe * passo)) / 2
+
+        f_nome = QFont(); f_nome.setPointSize(9); f_nome.setBold(False)
+        fm_nome = QFontMetrics(f_nome)
+        f_pct = QFont(); f_pct.setPointSize(9); f_pct.setBold(True)
+
+        for i, (nome, valore, colore) in enumerate(self.dati[:n_righe]):
+            y = y_start + i * passo
+            col = QColor(colore or PALETTE_GRAFICI[i % 12])
+            # Pastiglietta / pallino tondo della tinta
+            p.setPen(Qt.NoPen)
+            p.setBrush(col)
+            p.drawRoundedRect(QRectF(x_leg, y + (passo - 7) / 2, 7, 7), 3.5, 3.5)
+
+            # Nome emozione a sinistra
             quota = valore / totale * 100
-            p.drawText(QRectF(x + 16, y, max(40.0, self.width() - x - 20), 18),
-                       Qt.AlignLeft | Qt.AlignVCenter,
-                       f"{nome[:22]}  ·  {quota:.0f}%")
-            self._zone.append((QRectF(x, y, self.width() - x, 20),
+            largo_n = max(30.0, w_leg - 48.0)
+            nome_elided = fm_nome.elidedText(nome, Qt.ElideRight, int(largo_n))
+            p.setFont(f_nome)
+            p.setPen(QColor(self.c["testo"]))
+            p.drawText(QRectF(x_leg + 14, y, largo_n, passo),
+                       Qt.AlignLeft | Qt.AlignVCenter, nome_elided)
+
+            # Percentuale allineata a destra, in colonna pulita
+            p.setFont(f_pct)
+            p.setPen(QColor(self.c["testo2"]))
+            p.drawText(QRectF(x_leg + w_leg - 34, y, 34, passo),
+                       Qt.AlignRight | Qt.AlignVCenter, f"{quota:.0f}%")
+
+            self._zone.append((QRectF(x_leg, y, w_leg, passo),
                                f"{nome}: {self.formato(valore)} ({quota:.1f}%)"))
 
 
@@ -549,6 +784,12 @@ class Anello(QWidget):
         self._disegnata = 0.0     # quella che si vede: insegue `quota`
         self.testo = "—"
         self.nota = ""
+        # un anello senza nota sotto (vedi `con_nota`) ha solo il numero a
+        # dire qualcosa: qui si può chiedere un carattere più grande di
+        # quello che verrebbe da solo, senza toccare tutti gli altri
+        # anelli dell'app — il ciclo qui sotto, che restringe finché il
+        # testo non ci sta, resta comunque l'ultima parola: non taglia mai
+        self.scala_testo = 1.0
         self.setMinimumSize(92, 92)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._moto = QVariantAnimation(self)
@@ -608,7 +849,7 @@ class Anello(QWidget):
                           90 * 16, -int(360 * 16 * min(1.0, quota - 1)))
 
         f = QFont(); f.setBold(True)
-        dim = max(9, int(lato * 0.2))
+        dim = max(9, int(lato * 0.2 * self.scala_testo))
         f.setPixelSize(dim); p.setFont(f)
         while dim > 8 and QFontMetrics(f).horizontalAdvance(self.testo) > rect.width() - 12:
             dim -= 1; f.setPixelSize(dim); p.setFont(f)
@@ -823,6 +1064,9 @@ class Sparkline(QWidget):
         self.c = colori
         self.valori: list[float] = []
         self.colore = colori["accento"]
+        # un pallino sull'ultimo punto: dice dove sei arrivato quando la
+        # linea è il grafico principale di un riquadro, non una miniatura
+        self.punto_finale = False
         self.setFixedHeight(32)
 
     def imposta_dati(self, valori: list[float], colore: str | None = None) -> None:
@@ -843,13 +1087,20 @@ class Sparkline(QWidget):
         vmin, vmax = min(self.valori), max(self.valori)
         if vmin == vmax:
             vmin -= 1; vmax += 1
-        w, h = self.width(), self.height() - 6
+        # col pallino in fondo la linea si tira indietro di un filo da tutti
+        # e due i lati: se no il cerchio dell'ultimo punto nasce a cavallo
+        # del bordo e si vede mezzo
+        lato = 4.0 if self.punto_finale else 0.0
+        w, h = self.width() - lato * 2, self.height() - 6
         percorso = QPainterPath()
         for i, v in enumerate(self.valori):
-            x = w * i / (len(self.valori) - 1)
+            x = lato + w * i / (len(self.valori) - 1)
             y = 3 + h - (v - vmin) / (vmax - vmin) * h
             percorso.moveTo(x, y) if i == 0 else percorso.lineTo(x, y)
         penna = QPen(QColor(self.colore), 1.8)
         penna.setCapStyle(Qt.RoundCap); penna.setJoinStyle(Qt.RoundJoin)
         p.setPen(penna)
         p.drawPath(percorso)
+        if self.punto_finale:
+            p.setPen(Qt.NoPen); p.setBrush(QColor(self.colore))
+            p.drawEllipse(percorso.currentPosition(), 3.2, 3.2)

@@ -6,6 +6,7 @@ senza cambiare una riga.
 """
 from __future__ import annotations
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QVBoxLayout
 
 from ..componenti import Interruttore
@@ -18,6 +19,10 @@ class VistaTess(VistaBase):
     sottotitolo = "La tua AI locale, con i dati della Dashboard in mano"
     nome_nuovo = ""
     chiave_vista = "tess"
+    # la dimensione del testo della chat è cambiata: la finestra principale
+    # ascolta questo segnale su ogni pagina (vedi `finestra.py`) e rifà il
+    # foglio di stile — qui si passa solo quello del riquadro più su
+    aspetto_cambiato = Signal()
 
     def costruisci(self) -> None:
         lay = QVBoxLayout(self)
@@ -25,6 +30,7 @@ class VistaTess(VistaBase):
         lay.setSpacing(10)
         self.riquadro = RiquadroTess(self.db, self.c, self.fonte)
         self.riquadro.stato_cambiato.connect(self._stato)
+        self.riquadro.aspetto_cambiato.connect(self.aspetto_cambiato)
         lay.addWidget(self.riquadro, 1)
 
         # l'interruttore in testata: lo stesso comando del cruscotto

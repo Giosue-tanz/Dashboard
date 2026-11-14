@@ -92,7 +92,7 @@ class VistaFinanza(VistaSezioni):
         self.aggiungi("andamento", self.g_saldo, comando=self.nav_saldo)
 
         self.g_torta = GraficoCiambella(self.c)
-        self.g_torta.formato = lambda v: euro(v)
+        self.g_torta.formato = lambda v: euro(v).replace(",00", "")
         self.g_torta.setMinimumHeight(70)
         self.aggiungi("ripartizione", self.g_torta)
 
@@ -358,7 +358,7 @@ class VistaFinanza(VistaSezioni):
             [(etichetta_categoria(nome, icone.get(nome)), valore,
               tinte.get(nome) or PALETTE_GRAFICI[i % len(PALETTE_GRAFICI)])
              for i, (nome, valore) in enumerate(voci)],
-            euro(totale) if totale else "—", "di uscite")
+            euro(totale).replace(",00", "") if totale else "—", "di uscite")
 
     def _aggiorna_conti(self) -> None:
         self.svuota(self.lay_conti)

@@ -69,20 +69,23 @@ def minuti_ore(minuti: int) -> str:
     return f"{minuti // 60:02d}:{minuti % 60:02d}"
 
 
-def minuti_vicini(valore: int, riferimento: int) -> int:
-    """`valore` spostato di un multiplo di 24 ore finché non sta entro dodici
-    ore dal riferimento.
+def minuti_notturni(minuti: int, ancora: int = 18 * 60) -> int:
+    """Un orario (0..1439) rimesso su un asse che comincia la sera.
 
-    Serve a mediare orari che scavalcano la mezzanotte senza farli sembrare
-    lontanissimi fra loro: 23:40 (1420) e 00:10 (10) sono vicini di venti
-    minuti, non di ventitré ore e mezza, ed è così che vanno trattati quando
-    se ne fa una media.
+    Da `ancora` (le 18, di norma) in poi resta uguale; prima di mezzanotte
+    in poi diventa «il giorno dopo». Così 01:07 (67) diventa più tardi di
+    23:40 (1420) — 1507 contro 1420 — invece che più presto solo perché il
+    numero è più piccolo: sulla stessa notte, le ore piccole vengono *dopo*
+    le ore di sera, non prima.
+
+    Ancorare su un'ora fissa, e non sul primo orario che capita, è quello
+    che conta: con un riferimento preso dai dati, l'asse di un grafico
+    cambiava a seconda di quale notte finiva per prima nell'elenco — la
+    stessa settimana disegnata in un ordine diverso usciva con una scala
+    diversa. Le 18 sono fisse: nessuno va a letto prima, e il conto non
+    dipende più da cosa c'è vicino.
     """
-    while valore - riferimento > 720:
-        valore -= 1440
-    while valore - riferimento < -720:
-        valore += 1440
-    return valore
+    return minuti if minuti >= ancora else minuti + 1440
 
 
 # -------------------------------------------------------------------- date

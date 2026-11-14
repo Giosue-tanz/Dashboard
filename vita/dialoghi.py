@@ -27,7 +27,7 @@ from .componenti import (CampoData, CampoDurata, CursoreVoto,
 from .icone_categorie import etichetta_categoria, solo_nome
 from .db import (AREE, STATI_ESAME, STATI_PROGETTO, TIPI_ALLENAMENTO,
                  TIPI_PROGETTO)
-from .tema import AREE as TINTE
+from .tema import AREE as TINTE, trasparente
 from .utils import data_it
 
 
@@ -359,7 +359,7 @@ class DialogoGiorno(QDialog):
               ("hrv", "Variabilità (HRV)", self.hrv),
               ("stress", "Stress", self.stress),
               ("acqua", "Acqua", self.acqua))),
-            ("Composizione", "dalla bilancia",
+            ("Composizione", "dalla bilancia — a 0 il dato si cancella",
              (("peso", "Peso", self.peso),
               ("grasso", "Massa grassa", self.grasso),
               ("muscolo", "Massa muscolare", self.muscolo))),
@@ -749,29 +749,108 @@ class DialogoPercorso(DialogoBase):
                 "note": self.note.text().strip()}
 
 
+class SceltaStatoAttivita(QWidget):
+    """Scelta a tre opzioni ben visibili: Da fare, In corso, Completata."""
+    cambiato = Signal(str)
+
+    STATI = (
+        ("da_fare", "Da fare", "#8b949e"),
+        ("in_corso", "In corso", "#f0b429"),
+        ("completata", "Completata", "#16c47f"),
+    )
+
+    def __init__(self, valore: str = "da_fare", parent=None):
+        super().__init__(parent)
+        valori_validi = {k for k, _t, _c in self.STATI}
+        self._valore = valore if valore in valori_validi else "da_fare"
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        self._bottoni: dict[str, QPushButton] = {}
+        for chiave, testo, _colore in self.STATI:
+            b = QPushButton(testo)
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _c=False, k=chiave: self.imposta(k))
+            lay.addWidget(b)
+            self._bottoni[chiave] = b
+        self._aggiorna_stile()
+
+    def imposta(self, valore: str) -> None:
+        if valore in self._bottoni and valore != self._valore:
+            self._valore = valore
+            self._aggiorna_stile()
+            self.cambiato.emit(self._valore)
+
+    def valore(self) -> str:
+        return self._valore
+
+    def _aggiorna_stile(self) -> None:
+        for chiave, _testo, colore in self.STATI:
+            b = self._bottoni[chiave]
+            attivo = (chiave == self._valore)
+            b.setChecked(attivo)
+            if attivo:
+                b.setStyleSheet(
+                    f"QPushButton {{ background: {trasparente(colore, 0.22)}; color: {colore};"
+                    f" font-weight: 700; border: 1.5px solid {colore}; border-radius: 12px; padding: 5px 14px; }}"
+                )
+            else:
+                b.setStyleSheet(
+                    f"QPushButton {{ background: transparent; color: {trasparente(colore, 0.65)};"
+                    f" font-weight: 500; border: 1px solid {trasparente(colore, 0.25)}; border-radius: 12px; padding: 5px 14px; }}"
+                    f"QPushButton:hover {{ background: {trasparente(colore, 0.1)}; color: {colore}; }}"
+                )
+
+
 # ------------------------------------------------------- scadenze, abitudini
 class DialogoScadenza(DialogoBase):
-    def __init__(self, voce=None, area: str = "accademica", parent=None):
-        super().__init__("Modifica scadenza" if voce else "Nuova scadenza", parent,
-                         nota="Una cosa con una data: consegna, appello, pratica.")
+    def __init__(self, voce=None, area: str = "accademica", parent=None,
+                 area_fissa: bool = False):
+        """`area_fissa=True` toglie la tendina «Area»: la scadenza resta di
+        quell'area e basta, senza poterla spostare altrove. Serve a chi apre
+        questo modulo da un riquadro già scoperto per un'area sola — il
+        riquadro «Attività» di un'area in Home, per esempio — dove la
+        tendina lascerebbe scrivere una scadenza di Carriera dentro un
+        riquadro che si chiama «Emozioni», e chi la cerca poi non la trova.
+        """
+        super().__init__("Modifica evento" if voce else "Nuovo evento", parent,
+                         nota="Una cosa da fare. La data è facoltativa: senza, "
+                              "resta nell'elenco della sua area e basta.")
         v = dict(voce) if voce else {}
         self.id = v.get("id")
         self.titolo = self.campo("Cosa", QLineEdit(v.get("titolo", "")))
-        self.titolo.setPlaceholderText("es. Relazione di Laboratorio 3")
-        self.data = self.campo("Quando", _data(v.get("data", "")))
-        self.area = self.campo("Area", QComboBox())
-        for chiave, nome in AREE.items():
-            self.area.addItem(nome, chiave)
-        self.area.setCurrentIndex(max(0, self.area.findData(v.get("area", area))))
-        self.fatta = self.campo("Fatta", QPushButton("già fatta"))
-        self.fatta.setCheckable(True); self.fatta.setChecked(bool(v.get("fatta", 0)))
+        self.titolo.setPlaceholderText("es. Chiamare la terapeuta")
+        # La data si può lasciare vuota, come già si fa per l'appello di un
+        # esame e per la scadenza di un progetto: «chiamare la terapeuta» è
+        # una cosa da fare, non un appuntamento, e inventarle un giorno
+        # qualunque la farebbe comparire fra gli impegni di quel giorno —
+        # dove non c'entra niente, e dove sembra già in ritardo il giorno dopo.
+        self.data = self.campo("Quando", CampoData(v.get("data", ""), "senza data"))
+        area_iniziale = v.get("area", area)
+        if area_fissa:
+            self.area = None
+            self._area_fissa = area_iniziale
+        else:
+            self.area = self.campo("Area", QComboBox())
+            for chiave, nome in AREE.items():
+                self.area.addItem(nome, chiave)
+            self.area.setCurrentIndex(max(0, self.area.findData(area_iniziale)))
+
+        stato_iniziale = v.get("stato")
+        if not stato_iniziale:
+            stato_iniziale = "completata" if v.get("fatta") else "da_fare"
+        self.stato = self.campo("Stato", SceltaStatoAttivita(stato_iniziale))
         self.note = self.campo("Note", QLineEdit(v.get("note", "")))
 
     def dati(self) -> dict:
-        return {"id": self.id, "data": self.data.date().toString("yyyy-MM-dd"),
-                "titolo": self.titolo.text().strip() or "Scadenza",
-                "area": self.area.currentData(),
-                "fatta": 1 if self.fatta.isChecked() else 0,
+        stato = self.stato.valore()
+        return {"id": self.id, "data": self.data.valore(),
+                "titolo": self.titolo.text().strip() or "Evento",
+                "area": self._area_fissa if self.area is None
+                        else self.area.currentData(),
+                "fatta": 1 if stato == "completata" else 0,
+                "stato": stato,
                 "note": self.note.text().strip()}
 
 

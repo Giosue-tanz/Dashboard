@@ -13,11 +13,11 @@ from datetime import date, timedelta
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QDialog, QHBoxLayout, QHeaderView, QLabel,
-                               QPushButton, QTableWidget, QTableWidgetItem,
-                               QVBoxLayout, QWidget)
+                               QMessageBox, QPushButton, QTableWidget,
+                               QTableWidgetItem, QVBoxLayout, QWidget)
 
-from .componenti import (DisposizioneFluida, abilita_deselezione, binario,
-                         etichetta, stile_tabella)
+from .componenti import (AzioniRiga, DisposizioneFluida, abilita_deselezione,
+                         binario, etichetta, stile_tabella)
 from .grafici import GraficoBarre
 from .utils import data_it, durata, media, numero
 
@@ -69,6 +69,9 @@ class FinestraAndamento(QDialog):
         if self.ampiezza not in AMPIEZZE:
             self.ampiezza = "mese"
         self.indietro = 0            # quanti periodi fa
+        # se di qui dentro è stato cancellato qualcosa, chi ci ha aperto
+        # deve rifare anche le altre pagine, non solo la sua
+        self.cambiato = False
         self.setWindowTitle("Andamento")
         self.setMinimumSize(880, 620)
 
@@ -168,13 +171,14 @@ class FinestraAndamento(QDialog):
         lay = QVBoxLayout(scheda)
         lay.setContentsMargins(18, 16, 18, 16)
         lay.setSpacing(10)
-        intestazione = QLabel("GIORNO PER GIORNO")
-        intestazione.setObjectName("EtichettaScheda")
-        lay.addWidget(intestazione)
         self.tab = QTableWidget(0, 3)
         self.tab.setHorizontalHeaderLabels(["Giorno", "Valore", "Rispetto alla media"])
         self.tab.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tab.setSelectionBehavior(QTableWidget.SelectRows)
+        # più giorni insieme: una misura sbagliata di rado è sola, e
+        # ripetere conferma-chiudi-riapri per ognuna è il modo migliore per
+        # non cancellarne nessuna
+        self.tab.setSelectionMode(QTableWidget.ExtendedSelection)
         self.tab.doubleClicked.connect(self._apri_giorno)
         h = self.tab.horizontalHeader()
         h.setSectionResizeMode(0, QHeaderView.Stretch)
@@ -182,7 +186,28 @@ class FinestraAndamento(QDialog):
         h.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         abilita_deselezione(self.tab)
         stile_tabella(self.tab)
-        self.tab.setToolTip("Doppio clic su un giorno per scriverne i dati.")
+        self.tab.setToolTip(
+            "Doppio clic su un giorno per correggerne i dati.\n"
+            "Scegli uno o più giorni e usa il cestino per cancellare "
+            "questa misura (Canc).")
+
+        # matita e cestino sulla riga del titolo: è il gesto che l'app usa
+        # dappertutto, e prima qui non c'era proprio modo di buttare via
+        # una misura sbagliata — si poteva solo riscriverla a zero
+        intestazione = QLabel("GIORNO PER GIORNO")
+        intestazione.setObjectName("EtichettaScheda")
+        self.azioni = AzioniRiga(self.c, self.tab, "la misura scelta")
+        self.azioni.modifica.connect(self._apri_giorno)
+        self.azioni.elimina.connect(self.cancella_scelte)
+        riga = QHBoxLayout()
+        riga.setContentsMargins(0, 0, 0, 0)
+        riga.addWidget(intestazione, 1)
+        riga.addWidget(self.azioni)
+        lay.addLayout(riga)
+
+        scorciatoia = QShortcut(QKeySequence(Qt.Key_Delete), self.tab)
+        scorciatoia.setContext(Qt.WidgetWithChildrenShortcut)
+        scorciatoia.activated.connect(self.cancella_scelte)
         lay.addWidget(self.tab, 1)
         return scheda
 
@@ -211,6 +236,45 @@ class FinestraAndamento(QDialog):
         giorno = self.tab.item(righe[0].row(), 0).data(Qt.UserRole)
         if giorno:
             self.giorno_scelto.emit(giorno)
+
+    def _giorni_scelti(self) -> list[str]:
+        giorni = []
+        for indice in self.tab.selectionModel().selectedRows():
+            cella = self.tab.item(indice.row(), 0)
+            if cella is not None and cella.data(Qt.UserRole):
+                giorni.append(cella.data(Qt.UserRole))
+        return sorted(giorni)
+
+    def cancella_scelte(self) -> None:
+        """Toglie questa misura dai giorni scelti. Gli altri dati restano.
+
+        Cancella solo il dato che stai guardando: il peso di quel giorno se
+        stai guardando il peso. Passi, sonno e tutto il resto di quel giorno
+        non si toccano — se no si butterebbe via una giornata intera per
+        correggere un numero.
+        """
+        giorni = self._giorni_scelti()
+        if not giorni:
+            return
+        nome = MISURE[self.campo][0].lower()
+        if len(giorni) == 1:
+            riga = self.tab.selectionModel().selectedRows()[0].row()
+            quanto = self.tab.item(riga, 1).text()
+            domanda = (f"Cancello {nome} del {data_it(giorni[0])} "
+                       f"({quanto})?")
+        else:
+            domanda = (f"Cancello {nome} di {len(giorni)} giorni, "
+                       f"dal {data_it(giorni[0])} al {data_it(giorni[-1])}?")
+        if QMessageBox.question(
+                self, "Cancellare la misura?",
+                f"{domanda}\n\nSparisce dall'archivio e dai grafici. Gli "
+                f"altri dati di quei giorni — passi, sonno, tutto il resto "
+                f"— restano dove sono.",
+                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        tolte = sum(self.db.cancella_misura(g, self.campo) for g in giorni)
+        self.cambiato = self.cambiato or bool(tolte)
+        self.aggiorna()
 
     # ------------------------------------------------------------- periodo
     def _intervallo(self) -> tuple[date, date, str]:
@@ -303,6 +367,7 @@ class FinestraAndamento(QDialog):
             (lambda v: durata(int(v)) if v else "0")
             if self.campo == "sonno" else (lambda v: numero(v, decimali)))
         self.grafico.evidenzia_ultima = self.indietro == 0
+        self.grafico.pallino_media = (self.campo == "stress")
         self.grafico.riferimento = self._obiettivo()
         self.grafico.imposta_dati(dati, [(nome.lower(), colore)])
 

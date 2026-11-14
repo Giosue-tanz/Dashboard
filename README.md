@@ -20,7 +20,7 @@ per decidere lo stile.
 
 **Niente tinta unica: ogni sezione ha il suo colore.** Rosso per Emozioni, blu
 per Carriera, viola per Accademica, turchese per Salute, verde per Finanza,
-ambra per Abitudini, rosa per Tess, ardesia per Impostazioni. **Le icone
+ambra per Abitudini, rosso chiaro per Tess, ardesia per Impostazioni. **Le icone
 della barra stanno sempre nella loro tinta** — anche a barra chiusa, dove
 restano loro sole a dire dove si va — la scritta si colora sotto il mouse e la
 pastiglia si riempie quando la pagina è aperta (lì l'icona passa in negativo);
@@ -33,6 +33,47 @@ abitudini si disegna, il tocco di laurea si inclina, la linea della finanza
 sale e la punta fa un saltello, la scintilla di Tess gira, i cursori delle
 impostazioni scorrono. Sono gli stessi disegni di sempre (`vita/icone_nav.py`),
 ridisegnati fotogramma per fotogramma con una «fase» da 0 a 1.
+
+## La Home prende i riquadri dalle altre pagine
+
+Nel menu **Riquadri** della Home, in fondo, c'è «Riquadri dalle altre
+pagine…»: si spunta quello che si vuole vedere anche lì — il sonno di Salute,
+il libretto di Accademica, la griglia delle abitudini — e compare in una riga
+nuova in fondo, senza spostare quello che avevi già sistemato.
+
+**Quelli che vedi sono i riquadri veri, non delle copie.** La Home costruisce
+una volta sola la pagina di origine, senza mostrarla mai, e le prende il
+riquadro già montato: grafico, tabella, comandi, menu dei periodi. Non c'è
+niente da tenere allineato fra i due posti, perché è lo stesso oggetto: una
+cosa scritta qui compare di là, e una correzione fatta a quel riquadro vale in
+tutte e due le pagine. Toglierlo dalla Home non lo toglie dalla sua pagina —
+la pagina vera ha la sua copia, e non se ne accorge.
+
+Le chiavi sono separate (`salute·sonno`, non `sonno`) perché «salute» in Home
+esiste già come riquadro suo: senza il prefisso uno prenderebbe il posto
+dell'altro. La scelta si salva e si ritrova riaprendo l'applicazione.
+
+Una prova in `strumenti/prova_viste.py` li prende **tutti**, uno per uno, da
+tutte e sei le pagine: se una pagina non regge a essere costruita fuori dalla
+finestra principale, o se prestare un riquadro lo toglie alla sua pagina, si
+rompe lì.
+
+## Una tabella sola per le attività
+
+Le attività dell'area Emozioni avevano **due scritture della stessa cosa**:
+una tabella in `views/cruscotto.py` e una quasi identica in
+`views/emozioni.py`, centotrenta righe l'una. Due copie divergono sempre —
+si corregge una colonna stretta di qua e resta stretta di là — quindi ora è
+un riquadro solo, `RiquadroAttivita` in `vita/riquadri.py`, e vive **in
+Home**: la pagina Emozioni non ha più una sua tabella delle attività, visto
+che con lo stesso riquadro preso in prestito (vedi sopra) sarebbe stata
+un'altra copia di nuovo.
+
+Non è «Impegni» in piccolo, ed è il motivo per cui ha tre colonne invece di
+quattro: Impegni mescola scadenze, esami e consegne di progetti, e quella
+colonna «Area» lì serve; qui l'area è una sola. In un riquadro stretto tre
+colonne invece di quattro sono la differenza fra leggere «Chiamare la
+terapeuta» e vedere «Chiamar…».
 
 ## Tess, se la accendi tu
 
@@ -173,6 +214,19 @@ mouse compare «Copia», e il posto è già suo anche quando non si vede: la
 chat non salta su e giù.
 
 Sotto ogni messaggio, al passaggio del mouse, compaiono le azioni come **icone disegnate** — matita, fogli, cestino — invece di tre parole in fila: la figura la fa il pennello su una griglia di cento per cento, quindi è nitida a ogni dimensione del testo e prende da sé il colore del tema. Copiando, i due fogli diventano un segno di spunta.
+
+**Il LaTeX si legge come una formula, non come dollari e backslash.** Qwen
+scrive la fisica come l'ha imparata — `$E_k = \frac{1}{2}mv^2$` — e in una
+casella di solo testo quello resta tale e quale. `vita/formule.py` traduce
+il sottoinsieme che si scrive davvero (frazioni, apici, pedici, radici,
+lettere greche, gli operatori più comuni) nel sottoinsieme di HTML che Qt
+sa già disegnare da solo — niente MathJax, niente libreria esterna, niente
+rete: resta un'app che gira sul PC di chi la usa. Un comando che non
+riconosce non manda in errore, perde solo il backslash e resta leggibile;
+una formula rimasta a metà, perché la risposta sta ancora arrivando, resta
+testo finché non si chiude da sola. Quello che si copia, o che si riapre
+con «Modifica», è sempre il LaTeX vero — `$...$`, non l'HTML mandato a
+schermo — perché è quello che va a finire nell'archivio.
 
 **La conversazione sta in una colonna larga al massimo novecento pixel**, in
 mezzo alla pagina, con la barra in fondo allineata sotto: una riga di testo

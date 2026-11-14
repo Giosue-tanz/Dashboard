@@ -32,9 +32,10 @@ from PySide6.QtWidgets import (QApplication, QFrame, QGraphicsDropShadowEffect,
                                QSizePolicy, QVBoxLayout, QWidget)
 
 from . import punteggi as calcolo
+from .formule import formatta as formatta_latex
 from .componenti import (BarraAttesa, BottoneIcona, BottonePannello,
                          Interruttore)
-from .tema import colore_area, luminosita
+from .tema import SCALE, colore_area, luminosita
 from .utils import (GIORNI, MESI, data_it, data_lunga, durata, euro, media,
                     numero, relativa, settimana_corrente, ultimi_giorni)
 
@@ -696,6 +697,33 @@ def blocco_giorni_chiesti(db, aree: set[str], quando: list[date]) -> list[str]:
     return righe
 
 
+def memoria_chat(db, chat_corrente: str) -> str:
+    """Riassunto delle conversazioni recenti, per la memoria trasversale.
+
+    Tess riceve gli ultimi scambi delle chat passate così può rispondere
+    a domande come «in quella chat di ieri ti avevo detto che…» senza
+    inventare. Il blocco è breve: titolo + pochi messaggi per chat.
+    """
+    riassunti = db.riassunto_chat_tess(escludi=chat_corrente)
+    if not riassunti:
+        return ""
+    righe = ["CONVERSAZIONI PRECEDENTI (memoria trasversale):",
+             "Queste sono le ultime chat che Giosuè ha fatto con te. "
+             "Se ti chiede qualcosa che riguarda una di queste, "
+             "rispondi con quello che c'è scritto qui.", ""]
+    for r in riassunti:
+        data_chat = r["conversazione"][:10]
+        righe.append(f"▸ [{data_chat}] {r['nome']}")
+        for s in r["scambi"]:
+            chi = "Giosuè" if s["ruolo"] == "user" else "Tu"
+            testo = s["testo"].replace("\n", " ").strip()
+            if len(testo) > 200:
+                testo = testo[:197] + "…"
+            righe.append(f"  {chi}: {testo}")
+        righe.append("")
+    return "\n".join(righe)
+
+
 def contesto(db, fonte, aree: set[str] | None = None,
              domanda: str = "") -> str:
     """Il riassunto della Dashboard che Tess riceve insieme alla domanda.
@@ -929,6 +957,16 @@ RIGA_ONESTA = (
     "rispondi solo se quel giorno è nei dati che hai sott'occhio: niente "
     "stime, e il giorno della settimana prendilo da lì invece di ricavarlo."
 )
+RIGA_LATEX = (
+    "Quando scrivi una formula matematica usa sempre il LaTeX vero fra "
+    "dollari — $E=mc^2$ per una formula dentro la frase, $$...$$ per una "
+    "formula sulla sua riga — con i comandi giusti: \\frac{}{} per le "
+    "frazioni, ^ per gli apici, _ per i pedici, \\cdot per il punto, \\nabla "
+    "\\partial \\int \\oint \\times \\alpha eccetera per i simboli, mai il "
+    "carattere Unicode diretto (∫ ∂ ∇ · α) e mai un asterisco per il "
+    "grassetto o il corsivo dentro la formula. Fuori da una formula, scrivi "
+    "come scriveresti normalmente — lì il grassetto con ** va bene."
+)
 
 
 def solo_istruzioni_tue(db) -> bool:
@@ -951,12 +989,19 @@ def componi_istruzioni(nome: str, sue: str, tono: str, lunghezza: str,
         # le due righe di prudenza. Prima restavano dentro, e chi se le era
         # già scritte nelle sue istruzioni — come è naturale fare — se le
         # ritrovava due volte di fila nello stesso prompt.
-        return sue
+        #
+        # RIGA_LATEX no, però: non è una questione di personalità come il
+        # tono o lo stile, è un contratto con la pagina — che sa disegnare
+        # solo $...$ scritto con i comandi giusti, non ∫ ∂ ∇ scritti a mano
+        # e asterischi sparsi. Lasciarla fuori voleva dire che qualunque
+        # personaggio tu scrivessi si ritrovava le formule illeggibili,
+        # sempre, a prescindere da cosa gli avevi chiesto di essere.
+        return sue + " " + RIGA_LATEX
     pezzi = [f"Ti chiami {nome} e stai rispondendo dentro la Dashboard di "
              "Giosuè.", RIGA_DATI,
              TONI.get(tono, TONI[TONO_PREDEFINITO]),
              LUNGHEZZE.get(lunghezza, LUNGHEZZE[LUNGHEZZA_PREDEFINITA]),
-             RIGA_ONESTA]
+             RIGA_ONESTA, RIGA_LATEX]
     if sue:
         # quello che scrive lui conta più di tutto il resto
         pezzi.append("Istruzioni sue, che valgono sopra le altre: " + sue)
@@ -1003,11 +1048,13 @@ class Messaggio(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        self.testo = QLabel(testo)
+        self.testo = QLabel()
         self.testo.setWordWrap(True)
         self.testo.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.testo.setObjectName("BollaTu" if chi == "tu" else "TestoTess")
         self.testo.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        self.testo.setTextFormat(Qt.RichText)
+        self._imposta_testo(testo)
 
         self.riga = QHBoxLayout()
         self.riga.setContentsMargins(0, 0, 0, 0)
@@ -1057,8 +1104,30 @@ class Messaggio(QWidget):
         self.azioni.setContentsMargins(0 if self.chi == "tu" else 13, 0, 0, 0)
 
     # ------------------------------------------------------------ azioni
+    def _imposta_testo(self, testo: str) -> None:
+        """Il testo vero (da copiare, modificare, misurare) e quello mostrato.
+
+        `self.testo.text()` tornerebbe l'HTML che si manda a schermo, non
+        quello che ha scritto Tess: chi vuole copiare la risposta, o
+        riaprirla per correggerla, deve ritrovare `$v=at$` e non
+        `v = <i>a</i>t`. Il testo vero sta qui, su un attributo python
+        qualunque — Qt lo lascia fare, essendo anche un oggetto Python.
+        """
+        self.testo.grezzo = testo
+        # Colore e misura veri, non indovinati: `c['testo']` è la stessa
+        # tinta che il foglio di stile mette su questa etichetta, e la
+        # misura si legge da lei dopo che lo stile l'ha già vestita —
+        # altrimenti la frazione disegnata (vedi formule.py) avrebbe un
+        # colore che non è quello vero intorno. Il carattere della
+        # matematica invece non dipende dal tema: è sempre quello da libro
+        # (`FAMIGLIA_MATEMATICA`), deciso dentro formule.py.
+        self.testo.ensurePolished()
+        punti = self.testo.fontInfo().pixelSize()
+        self.testo.setText(formatta_latex(
+            testo, colore=self.c["testo"], punti=punti if punti > 0 else 13))
+
     def _copia(self) -> None:
-        QApplication.clipboard().setText(self.testo.text())
+        QApplication.clipboard().setText(self.testo.grezzo)
         # il segno di spunta al posto dei fogli: «fatto», senza parole
         self.b_copia.imposta_figura("fatto")
         self.b_copia.setToolTip("Copiato")
@@ -1075,7 +1144,7 @@ class Messaggio(QWidget):
         """Il testo diventa una casella, lì dov'è: niente finestre."""
         if self.editor is not None:
             return
-        self.editor = QPlainTextEdit(self.testo.text())
+        self.editor = QPlainTextEdit(self.testo.grezzo)
         self.editor.setObjectName("ModificaMessaggio")
         self.editor.setTabChangesFocus(True)
         self.editor.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -1147,15 +1216,15 @@ class Messaggio(QWidget):
             return
         nuovo = self.editor.toPlainText().strip()
         self.chiudi_modifica()
-        if nuovo and nuovo != self.testo.text():
-            self.testo.setText(nuovo)
+        if nuovo and nuovo != self.testo.grezzo:
+            self._imposta_testo(nuovo)
             self.modificato.emit(self.id_messaggio, nuovo)
 
     # ------------------------------------------------------------ aspetto
     def enterEvent(self, ev):
         super().enterEvent(ev)
         if self.editor is None:
-            vero = bool(self.testo.text().strip()) and self.id_messaggio > 0
+            vero = bool(self.testo.grezzo.strip()) and self.id_messaggio > 0
             for b in self.bottoni:
                 b.setVisible(vero)
 
@@ -1182,12 +1251,14 @@ class Messaggio(QWidget):
 
 
 class BottoneTendina(QPushButton):
-    """Il nome del livello con accanto una freccina **disegnata**, non scritta.
+    """Il nome del livello, senza altro intorno.
 
-    Il «▾» di prima era un carattere: col testo grande cresceva storto, e a
-    volte il carattere della macchina non ce l'aveva nemmeno. Qui la punta la
-    fa il pennello, nella misura del testo, e si tinge di rosa al passaggio
-    come il resto della pagina di Tess.
+    Aveva una freccina disegnata accanto al nome — la punta che su un menu
+    a tendina dice «c'è altro sotto». Qui, accanto al modello e alla
+    dimensione del testo, erano due frecce uguali ripetute una di fianco
+    all'altra: non aggiungevano niente che il nome stesso e il cursore a
+    manina non dicessero già. Resta solo il testo, tinto di rosa al
+    passaggio come il resto della pagina di Tess.
     """
 
     def __init__(self, colori: dict, parent=None):
@@ -1205,7 +1276,7 @@ class BottoneTendina(QPushButton):
 
     def sizeHint(self) -> QSize:
         fm = QFontMetrics(self.font())
-        return QSize(fm.horizontalAdvance(self._testo) + fm.height() + 18,
+        return QSize(fm.horizontalAdvance(self._testo) + 18,
                      fm.height() + 8)
 
     def minimumSizeHint(self) -> QSize:
@@ -1217,29 +1288,16 @@ class BottoneTendina(QPushButton):
 
     def paintEvent(self, ev):
         super().paintEvent(ev)            # il fondo lo mette il foglio di stile
-        from PySide6.QtGui import QPainter, QPen
+        from PySide6.QtGui import QPainter
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
-        fm = QFontMetrics(self.font())
         sotto = self.underMouse()
         colore = QColor(colore_area("tess", luminosita(self.c["fondo"]) > 0.5)
                         if sotto else self.c["testo2"])
         p.setPen(colore)
         p.setFont(self.font())
-        alto = self.height()
-        p.drawText(QRect(9, 0, self.width(), alto), Qt.AlignVCenter, self._testo)
-        # la punta: larga due terzi dell'altezza del carattere, a destra
-        lato = fm.height() * 0.42
-        x0 = 9 + fm.horizontalAdvance(self._testo) + 7
-        cy = alto / 2 - lato * 0.15
-        penna = QPen(colore, max(1.5, fm.height() * 0.11))
-        penna.setCapStyle(Qt.RoundCap)
-        penna.setJoinStyle(Qt.RoundJoin)
-        p.setPen(penna)
-        from PySide6.QtCore import QPointF
-        p.drawPolyline([QPointF(x0, cy - lato * 0.3),
-                        QPointF(x0 + lato / 2, cy + lato * 0.3),
-                        QPointF(x0 + lato, cy - lato * 0.3)])
+        p.drawText(QRect(9, 0, self.width() - 9, self.height()),
+                   Qt.AlignVCenter, self._testo)
 
 
 class RigaModello(QWidget):
@@ -1339,18 +1397,23 @@ class VoceChat(QWidget):
     rinominata = Signal(str, str)
 
     def __init__(self, chat_id: str, nome: str, quando: str, colori: dict,
-                 parent=None):
+                 preferita: bool = False, parent=None):
         super().__init__(parent)
         self.chat_id = chat_id
         self.nome = nome
         self.c = colori
         self.aperta = False
+        self.preferita = preferita
         self.setObjectName("VoceChat")
         # un QWidget nostro il fondo del foglio di stile non lo disegna da sé
         self.setAttribute(Qt.WA_StyledBackground, True)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(12, 9, 8, 9)
         lay.setSpacing(8)
+        # l'icona «📌» si vede solo sulle preferite
+        self.et_pin = QLabel("📌")
+        self.et_pin.setObjectName("PinChat")
+        self.et_pin.setVisible(preferita)
         self.et_nome = QLabel(nome)
         self.et_nome.setObjectName("NomeChat")
         # in larghezza si lascia accorciare coi puntini; in altezza no: deve
@@ -1371,6 +1434,7 @@ class VoceChat(QWidget):
                 self.chat_id, self.b_menu.mapToGlobal(
                     QPoint(0, self.b_menu.height()))))
         self.b_menu.setVisible(False)
+        lay.addWidget(self.et_pin)
         lay.addWidget(self.et_nome, 1)
         lay.addWidget(self.et_quando)
         lay.addWidget(self.b_menu)
@@ -1449,6 +1513,10 @@ class RiquadroTess(QWidget):
     """
 
     stato_cambiato = Signal(bool)          # attiva / non attiva
+    # la dimensione del testo della chat è cambiata: va rifatto tutto il
+    # foglio di stile dell'applicazione, non solo questo riquadro — lo sa
+    # fare solo la finestra, e `VistaTess` rilancia il segnale fin lassù
+    aspetto_cambiato = Signal()
 
     def __init__(self, db, colori: dict, fonte=None, parent=None):
         super().__init__(parent)
@@ -1598,7 +1666,14 @@ class RiquadroTess(QWidget):
         self.linguetta.clicked.connect(
             lambda: self.piega_colonna(not self.colonna_aperta))
 
-        # la testa della conversazione aperta: nome e «⋯», come nell'app
+        # la testa della conversazione aperta: nome, e un comando solo per
+        # aprire o chiudere il pannello. Prima qui c'erano anche tre
+        # pallini («⋯») per rinominare o eliminare la conversazione — ma
+        # quella aperta ce li ha già, sempre visibili, sulla sua riga
+        # nell'elenco (vedi `ConversazioneRiga.accendi`): due bottoni che
+        # fanno la stessa cosa, uno dei due di troppo. Il tasto destro sul
+        # titolo apre lo stesso menu, per chi preferisce non aprire il
+        # pannello solo per rinominare.
         self.testa_chat = QWidget()
         self.testa_chat.setObjectName("TestataChat")
         self.testa_chat.setAttribute(Qt.WA_StyledBackground, True)
@@ -1607,18 +1682,21 @@ class RiquadroTess(QWidget):
         testa.setSpacing(10)
         self.et_chat = QLabel("")
         self.et_chat.setObjectName("TitoloChat")
-        self.b_chat = QPushButton("⋯")
-        self.b_chat.setObjectName("MenuChat")
-        self.b_chat.setFixedSize(26, 26)
-        self.b_chat.setCursor(Qt.PointingHandCursor)
-        self.b_chat.setFocusPolicy(Qt.NoFocus)
-        self.b_chat.setToolTip("Rinomina o elimina questa conversazione")
-        self.b_chat.clicked.connect(self._menu_questa_chat)
+        self.et_chat.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.et_chat.customContextMenuRequested.connect(self._menu_questa_chat)
         testa.addWidget(self.et_chat, 1)
         # la pastiglia del modello e dei dati si aggiunge qui sotto, appena
         # l'interruttore esiste
         self.testa_layout = testa
-        testa.addWidget(self.b_chat)          # «⋯» della conversazione
+        # «Aa»: quanto grande scrivere la chat. Un cursore suo, perché la
+        # conversazione si legge a lungo e diversamente da menu e pulsanti —
+        # ingrandire tutta l'interfaccia per leggere meglio solo la chat
+        # sarebbe stato un compromesso che non serviva a nessuno.
+        self.b_testo = BottoneTendina(colori)
+        self.b_testo.imposta("Aa")
+        self.b_testo.clicked.connect(self._menu_dimensione_testo)
+        self._aggiorna_suggerimento_testo()
+        testa.addWidget(self.b_testo)
         testa.addWidget(self.linguetta)       # apre e chiude il pannello
 
         # -------------------------------------------------- barra in fondo
@@ -1633,7 +1711,7 @@ class RiquadroTess(QWidget):
         self.b_invia.setToolTip("Manda la domanda  (Invio)")
         self.b_invia.clicked.connect(self.invia)
         self.b_attiva = QPushButton("Attiva Tess")
-        self.b_attiva.setObjectName("Primario")
+        self.b_attiva.setObjectName("PrimarioTess")
         self.b_attiva.setMinimumHeight(40)
         self.b_attiva.setMinimumWidth(200)
         self.b_attiva.clicked.connect(self.attiva)
@@ -1812,7 +1890,7 @@ class RiquadroTess(QWidget):
         self.db.imposta("tess_modello", "")
         self._scrivi_modello()
         self.b_attiva.setEnabled(False)
-        self.et_stato.setText("Accendo Tess…")
+        self.et_stato.setText("Accendo…")
         self._adatta_benvenuto()
         self._attesa(True)
         # il nome si risolve **qui**, dove l'archivio si può leggere:
@@ -1850,14 +1928,9 @@ class RiquadroTess(QWidget):
         if quale == "motore":
             self.et_stato.setText("Accendo il motore…")
         elif quale == "contesto":
-            self.et_stato.setText(
-                "Le faccio leggere il riassunto dei tuoi dati: sono duemila "
-                "parole, e leggerle costa una quindicina di secondi. Li "
-                "paghiamo adesso così la prima domanda risponde subito.")
+            self.et_stato.setText("Leggo il riassunto dei tuoi dati…")
         else:
-            self.et_stato.setText(
-                "Carico il modello nella scheda video: qualche secondo, una "
-                "volta sola. Poi risponde subito.")
+            self.et_stato.setText("Carico il modello nella scheda video…")
         self._adatta_benvenuto()
 
     def _accesa(self, riuscita: bool, errore: str) -> None:
@@ -1994,6 +2067,7 @@ class RiquadroTess(QWidget):
 
         Raggruppate per quando sono state fatte, e ognuna col suo «⋯»: il
         menu sul tasto destro c'era già, ma non lo trovava nessuno.
+        Le chat fissate (📌) stanno in cima, in un gruppo a parte.
         """
         self.elenco.blockSignals(True)
         self.elenco.clear()
@@ -2001,7 +2075,12 @@ class RiquadroTess(QWidget):
         gruppo_corrente = ""
         for r in self.db.conversazioni_tess():
             chat_id = r["conversazione"]
-            gruppo = self._gruppo(chat_id[:10])
+            preferita = bool(r["preferita"])
+            # le preferite hanno il loro titoletto; le altre si raggruppano per data
+            if preferita:
+                gruppo = "📌 PREFERITE"
+            else:
+                gruppo = self._gruppo(chat_id[:10])
             if gruppo != gruppo_corrente:
                 gruppo_corrente = gruppo
                 titoletto = QListWidgetItem(gruppo)
@@ -2015,7 +2094,8 @@ class RiquadroTess(QWidget):
             voce.setData(Qt.UserRole, chat_id)
             voce.setData(RUOLO_NOME, nome)
             self.elenco.addItem(voce)
-            riga = VoceChat(chat_id, nome, chat_id[11:16], self.c)
+            riga = VoceChat(chat_id, nome, chat_id[11:16], self.c,
+                            preferita=preferita)
             riga.setToolTip(f"{r['messaggi']} messaggi · "
                             f"{relativa(chat_id[:10])} alle {chat_id[11:16]}\n"
                             f"{apertura[:160]}")
@@ -2033,7 +2113,6 @@ class RiquadroTess(QWidget):
         self._misura_voci()
         self._sistema_colonna()
         self.et_chat.setText(self._nome_chat_aperta())
-        self.b_chat.setVisible(bool(self.chat_id))
 
     # lo spazio fra una conversazione e l'altra, che il foglio di stile mette
     # come «margin-bottom» sulla voce: va tolto dall'altezza che si chiede,
@@ -2138,6 +2217,15 @@ class RiquadroTess(QWidget):
             return
         menu = QMenu(self)
         menu.addAction("Riapri", lambda: self.carica_chat(chat_id))
+        # fissa / sgancia: se è già preferita si può togliere, altrimenti fissare
+        voce = self.voci.get(chat_id)
+        gia_fissata = voce.preferita if voce else False
+        if gia_fissata:
+            menu.addAction("Togli dai preferiti",
+                           lambda: self._pinna_chat(chat_id, False))
+        else:
+            menu.addAction("📌 Fissa in alto",
+                           lambda: self._pinna_chat(chat_id, True))
         menu.addAction("Rinomina…", lambda: self.rinomina_chat(chat_id))
         menu.addSeparator()
         menu.addAction("Elimina", lambda: self._chiedi_elimina(chat_id))
@@ -2150,12 +2238,46 @@ class RiquadroTess(QWidget):
         self._menu_chat(voce.data(Qt.UserRole),
                         self.elenco.viewport().mapToGlobal(punto))
 
-    def _menu_questa_chat(self) -> None:
-        """Il «⋯» in cima: agisce sulla conversazione che hai davanti."""
+    def _pinna_chat(self, chat_id: str, preferita: bool) -> None:
+        """Fissa o sgancia una conversazione dalla sezione preferiti."""
+        self.db.pinna_conversazione_tess(chat_id, preferita)
+        self.aggiorna_elenco()
+
+    def _menu_questa_chat(self, punto) -> None:
+        """Tasto destro sul titolo: gli stessi comandi del «⋯» di riga."""
         if not self.chat_id:
             return
-        self._menu_chat(self.chat_id, self.b_chat.mapToGlobal(
-            QPoint(0, self.b_chat.height())))
+        self._menu_chat(self.chat_id, self.et_chat.mapToGlobal(punto))
+
+    # -------------------------------------------------------- testo della chat
+    def _dimensione_testo(self) -> str:
+        scelta = self.db.leggi("tess_dimensione_testo", "normale")
+        return scelta if scelta in SCALE else "normale"
+
+    def _aggiorna_suggerimento_testo(self) -> None:
+        self.b_testo.setToolTip(
+            f"Dimensione del testo della chat: {self._dimensione_testo()}.\n"
+            "Non tocca il resto dell'applicazione.")
+
+    def _menu_dimensione_testo(self) -> None:
+        corrente = self._dimensione_testo()
+        menu = QMenu(self)
+        for nome in SCALE:
+            azione = menu.addAction(nome.capitalize())
+            azione.setCheckable(True)
+            azione.setChecked(nome == corrente)
+            azione.triggered.connect(
+                lambda _=False, n=nome: self._imposta_dimensione_testo(n))
+        menu.exec(self.b_testo.mapToGlobal(QPoint(0, self.b_testo.height())))
+
+    def _imposta_dimensione_testo(self, nome: str) -> None:
+        if nome == self._dimensione_testo():
+            return
+        self.db.imposta("tess_dimensione_testo", nome)
+        self._aggiorna_suggerimento_testo()
+        # rifare il foglio di stile è un lavoro della finestra, non suo:
+        # il segnale sale fino a `VistaTess`, che lo rilancia più su ancora
+        self.aspetto_cambiato.emit()
 
     def _nome_chat_aperta(self) -> str:
         riga = self.voci.get(self.chat_id)
@@ -2266,6 +2388,11 @@ class RiquadroTess(QWidget):
         Torna (blocco, guaio): il guaio è il nome dell'errore, da far vedere.
         """
         sistema = [{"role": "system", "content": istruzioni(self.db)}]
+        # memoria trasversale: un riassunto delle chat precedenti, così Tess
+        # può rispondere a domande su cose dette in altre conversazioni
+        mem = memoria_chat(self.db, self.chat_id)
+        if mem:
+            sistema.append({"role": "system", "content": mem})
         if not self.b_dati.acceso():
             return sistema, ""
         try:
@@ -2303,18 +2430,29 @@ class RiquadroTess(QWidget):
     def _inizia_risposta(self) -> None:
         self.b_invia.setEnabled(False)
         self._in_corso = ""
-        self._bolla_corrente = self._scrivi("tess", "…")
+        self._bolla_corrente = self._scrivi("tess", "…")   # il Messaggio, non la QLabel
 
     def _aggiungi_pezzo(self, testo: str) -> None:
         self._in_corso += testo
-        self._bolla_corrente.setText(self._in_corso)
+        self._bolla_corrente._imposta_testo(self._in_corso)
         self._larghezza_bolle()
+        # Da qui in poi comanda la coda. Tenere la domanda in cima mentre il
+        # testo cresce vorrebbe dire scrivere sotto il bordo: è il difetto
+        # da cui è partito tutto. La domanda sta in alto nell'attimo fra
+        # l'invio e la prima parola, che è quando serve vederla.
+        self._in_cima = None
         # Rinviato al giro dopo. La QLabel ha appena cambiato testo e non ha
         # ancora ricalcolato la sua altezza: `maximum` vale ancora quanto
         # valeva prima. Leggendolo subito si scorreva a un fondo vecchio e
         # il testo nuovo restava sotto il bordo — la risposta si scriveva
         # fuori dallo schermo, che è il difetto da cui è partito tutto.
-        QTimer.singleShot(0, self._assesta)
+        # Due passate, come fa `_scrivi`. La prima insegue subito il testo
+        # nuovo; la seconda arriva quando la QLabel ha finito di decidere
+        # quanto è alta — dipende dalla larghezza, e si assesta un giro
+        # dopo. Con la sola prima passata si restava indietro di un pezzo,
+        # e la coda sporgeva sotto il bordo per tutta la generazione.
+        for ritardo in (0, 40):
+            QTimer.singleShot(ritardo, self._assesta)
 
     def _chiudi_risposta(self) -> None:
         self.b_invia.setEnabled(True)
@@ -2330,11 +2468,11 @@ class RiquadroTess(QWidget):
     def _errore(self, messaggio: str) -> None:
         self._in_cima = None        # anche se è andata male, si riparte
         self.b_invia.setEnabled(True)
-        self._bolla_corrente.setText(f"({messaggio})")
+        self._bolla_corrente._imposta_testo(f"({messaggio})")
         self._mostra_stato(self.motore.attiva())
 
     # ------------------------------------------------- disegno della chat
-    def _scrivi(self, chi: str, testo: str, id_messaggio: int = 0) -> QLabel:
+    def _scrivi(self, chi: str, testo: str, id_messaggio: int = 0) -> "Messaggio":
         """Aggiunge un messaggio: il tuo in una bolla a destra, quello di Tess
         col suo filo a sinistra.
 
@@ -2354,7 +2492,7 @@ class RiquadroTess(QWidget):
         # stessa barra, e vinceva quello che scattava per ultimo.
         for ritardo in (0, 60):          # dopo che il riquadro si è assestato
             QTimer.singleShot(ritardo, self._assesta)
-        return messaggio.testo
+        return messaggio
 
     def _assesta(self) -> None:
         """Dove deve stare la vista adesso. **Unico punto che muove la barra.**
@@ -2362,29 +2500,38 @@ class RiquadroTess(QWidget):
         Tre casi, in ordine:
 
         1. hai scorso tu da qualche parte → non si tocca niente;
-        2. c'è una domanda appena mandata e la risposta ci sta ancora nello
-           schermo → la domanda resta in cima e il testo riempie il vuoto
-           sotto, che è il momento in cui si guarda scrivere;
-        3. la risposta ha sfondato il bordo → si segue la coda.
+        2. hai appena mandato una domanda e la risposta non è ancora
+           cominciata → la domanda sale più in alto che può, così si vede
+           cosa hai chiesto e resta spazio sotto per la risposta;
+        3. il resto del tempo → si segue la coda, che è l'unico modo di
+           vedere scrivere.
         """
         if not self._segue:
             return
-        if self._in_cima is not None and not self._risposta_sfonda():
+        # Prima di misurare qualunque cosa, si obbliga la colonna a
+        # ridisporsi adesso. La bolla che cresce allunga il riquadro, e
+        # finché Qt non ha rifatto i conti la barra di scorrimento ha
+        # ancora la corsa di prima: si scorreva al massimo vecchio e la
+        # coda del testo restava sotto il bordo mentre si scriveva.
+        dentro = self.chat.widget()
+        disposizione = dentro.layout()
+        if disposizione is not None:
+            disposizione.activate()
+        # E non basta: con `setWidgetResizable(True)` è la scroll area a
+        # dare l'altezza al riquadro interno, e lo rifà solo quando riceve
+        # una richiesta di disposizione. Senza questa, il riquadro resta
+        # più corto del testo che contiene, la corsa della barra è quella
+        # di prima, e la coda della risposta finisce sotto il bordo mentre
+        # si scrive — il difetto da cui è partito tutto.
+        QApplication.sendEvent(dentro, QEvent(QEvent.LayoutRequest))
+        # e alla scroll area stessa, che è quella che ricalcola la corsa
+        # della barra: senza, `maximum` resta quello del pezzo precedente e
+        # si scorre sempre con un giro di ritardo
+        QApplication.sendEvent(self.chat, QEvent(QEvent.LayoutRequest))
+        if self._in_cima is not None:
             self._mostra_domanda()
             return
         self._in_fondo()
-
-    def _risposta_sfonda(self) -> bool:
-        """La risposta è cresciuta oltre il fondo della vista?
-
-        Finché non sfonda, tenere la domanda in cima e andare in coda sono
-        la stessa posizione, e si può restare fermi. Dopo, sono due posti
-        diversi: tenerla in cima vorrebbe dire scrivere fuori dallo schermo.
-        """
-        if self._in_cima is None:
-            return True
-        cima = self._in_cima.mapTo(self.chat.widget(), QPoint(0, 0)).y()
-        return self._fondo_vero() > (cima - 12) + self.chat.viewport().height()
 
     def _larghezza_bolle(self) -> None:
         """La bolla veste il testo; quella di Tess invece non c'è.
@@ -2410,8 +2557,11 @@ class RiquadroTess(QWidget):
                 bolla.setMaximumWidth(16777215)
                 continue
             metriche = QFontMetrics(bolla.font())
+            # `bolla.grezzo`, non `bolla.text()`: quest'ultima torna l'HTML
+            # mandato a schermo, non il testo vero — misurando i tag come
+            # fossero lettere la bolla si vestiva sulla lunghezza sbagliata.
             naturale = max((metriche.horizontalAdvance(r)
-                            for r in bolla.text().split("\n")), default=0) + 36
+                            for r in bolla.grezzo.split("\n")), default=0) + 36
             # QLabel con a capo automatico sceglie da sé una larghezza quadrata:
             # qui gliela si impone, così la bolla veste il testo
             largo = max(70, min(naturale, massimo))

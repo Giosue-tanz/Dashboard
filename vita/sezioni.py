@@ -449,6 +449,23 @@ class ContenitoreSezioni(QWidget):
                 self.sezioni[k].show()
         self._pulisci()
 
+    def aggiungi_in_fondo(self, chiavi: list[str]) -> None:
+        """Mette dei riquadri nuovi su una riga in fondo, senza toccare il resto.
+
+        Serve per i riquadri presi da un'altra pagina: arrivano dopo che la
+        griglia è già stata disposta e salvata, e rifarla da capo
+        sparpaglierebbe tutto quello che avevi sistemato a mano.
+        """
+        presenti = [k for k in chiavi if k in self.sezioni]
+        if not presenti:
+            return
+        riga = self._nuova_riga()
+        for k in presenti:
+            riga.addWidget(self.sezioni[k])
+            self.sezioni[k].show()
+        self._pulisci()
+        self.disposizione_cambiata.emit()
+
     def disposizione(self) -> list[list[str]]:
         righe = []
         for i in range(self.verticale.count()):

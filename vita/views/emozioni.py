@@ -7,21 +7,24 @@ scritto.
 """
 from __future__ import annotations
 
+import statistics
 from datetime import date
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QFontMetrics
+from PySide6.QtGui import QColor, QFontMetrics
 from PySide6.QtWidgets import (QHBoxLayout, QHeaderView, QLabel, QMenu,
                                QProgressBar, QPushButton, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ..componenti import (DisposizioneFluida, EtichettaACapo, EtichettaAlta,
-                          NavigatorePeriodo, abilita_deselezione, etichetta,
-                          faccia, pillola, stile_tabella)
+                          LegendaMisure, NavigatorePeriodo,
+                          abilita_deselezione, etichetta, faccia, pillola,
+                          stile_tabella)
 from ..dialoghi import DialogoVoce
+from ..riquadri import RiquadroAttivita
 from ..grafici import GraficoCiambella, GraficoLinea, MappaCalore
 from ..utils import (PERIODI, data_it, data_lunga, giorni, intervallo, media,
-                     numero, relativa, voto)
+                     minuti_notturni, numero, ore_minuti, relativa, voto)
 from . import VistaSezioni
 
 # Le quattro misure di una voce, con la tinta che le accompagna in tutta
@@ -74,9 +77,9 @@ def _barra_voto(colori: dict, nome: str, valore: float, colore: str) -> QWidget:
         f" border-radius: 3px; }}"
         f"QProgressBar::chunk {{ background: {colore}; border-radius: 3px; }}")
     valore_et = etichetta(voto(valore))
-    valore_et.setStyleSheet(f"color: {colore}; font-weight: 700;")
+    valore_et.setStyleSheet(f"color: {colore}; font-weight: 700; padding-right: 4px;")
     valore_et.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-    valore_et.setFixedWidth(30)
+    valore_et.setFixedWidth(34)
     lay.addWidget(nome_et)
     lay.addWidget(barra, 1)
     lay.addWidget(valore_et)
@@ -88,7 +91,7 @@ class VistaEmozioni(VistaSezioni):
     sottotitolo = "Il diario e il controllo di come stai"
     nome_nuovo = "+  Scrivi voce"
     chiave_vista = "emozioni"
-    versione_layout = 2
+    versione_layout = 5
 
     SEZIONI = {
         "oggi": "Voce di oggi",
@@ -97,9 +100,13 @@ class VistaEmozioni(VistaSezioni):
         "frequenze": "Emozioni più frequenti",
         "correlazioni": "Cosa ti muove l'umore",
         "elenco": "Le tue voci",
+        "attivita": "Attività",
     }
+    # Lo stesso riquadro di Home — stessa classe, stessa tabella
+    # `scadenze` filtrata sull'area — non una copia: scritta qui o di là è
+    # la stessa voce, perché è lo stesso oggetto che la legge e la salva.
     DISPOSIZIONE = [["oggi", "calendario"], ["andamento", "frequenze"],
-                    ["correlazioni", "elenco"]]
+                    ["correlazioni", "elenco", "attivita"]]
     ALTEZZE_PREDEFINITE = (0.34, 0.31, 0.35)
     PERIODI_SEZIONE = {
         "calendario": ({"trenta": "Ultimi 30 giorni", "tre_mesi": "Ultimi 3 mesi",
@@ -118,6 +125,7 @@ class VistaEmozioni(VistaSezioni):
 
     def crea_sezioni(self) -> None:
         self.cont_oggi, self.lay_oggi = self.colonna(10)
+        self.lay_oggi.setContentsMargins(0, 0, 8, 0)
         self.aggiungi("oggi", self.scorrevole(self.cont_oggi))
 
         self.mappa = MappaCalore(self.c)
@@ -125,15 +133,32 @@ class VistaEmozioni(VistaSezioni):
         self.mappa.setToolTip("Clicca un giorno per scrivere o rileggere la sua voce.")
         self.aggiungi("calendario", self.mappa)
 
+        # Lo stesso grafico fatto per la Home: la legenda sopra, viva — ci
+        # clicchi sopra una misura e sparisce dalla linea, ricicchi e torna
+        # — e una curva morbida senza un pallino su ogni giorno, che con
+        # quattro serie incrociate si accavallavano proprio dove si
+        # toccano. Prima qui c'erano solo umore, energia e stress: la
+        # lucidità, che la pagina misura lo stesso, non si vedeva mai.
         self.nav_andamento = NavigatorePeriodo(self.c, "giorni", tutto=True)
         self.nav_andamento.cambiato.connect(self._aggiorna_andamento)
         self.g_andamento = GraficoLinea(self.c)
         self.g_andamento.formato = lambda v: numero(v, 1)
         self.g_andamento.minimo_forzato = 0
         self.g_andamento.massimo_forzato = 10
+        self.g_andamento.mostra_legenda = False
+        self.g_andamento.mostra_punti = False
         self.nav_andamento.scorri_con_rotella(self.g_andamento)
-        self.aggiungi("andamento", self.g_andamento,
-                      comando=self.nav_andamento)
+        contenuto, lay = self.colonna(6)
+        salvate = self.db.leggi("emozioni_andamento_misure", "")
+        chiavi_valide = {m[0] for m in MISURE}
+        attive = ({k for k in salvate.split(",") if k in chiavi_valide}
+                 if salvate else chiavi_valide) or chiavi_valide
+        self.legenda_andamento = LegendaMisure(
+            self.c, [(k, n, col) for k, n, col in MISURE], attive)
+        self.legenda_andamento.cambiata.connect(self._cambia_misure_andamento)
+        lay.addWidget(self.legenda_andamento)
+        lay.addWidget(self.g_andamento, 1)
+        self.aggiungi("andamento", contenuto, comando=self.nav_andamento)
 
         self.g_frequenze = GraficoCiambella(self.c)
         self.g_frequenze.formato = lambda v: f"{v:.0f} volte"
@@ -161,7 +186,14 @@ class VistaEmozioni(VistaSezioni):
         stile_tabella(self.tab)
         self.aggiungi("elenco", self.tab)
 
-        self.grafici = [self.g_andamento, self.g_frequenze, self.mappa]
+        # -------------------------------------------------------- attività
+        self.riq_attivita = RiquadroAttivita(self.db, self.c, "emozioni")
+        self.riq_attivita.cambiato.connect(self._dopo_salvataggio)
+        self.aggiungi("attivita", self.riq_attivita,
+                      comando=self.riq_attivita.azioni)
+
+        self.grafici = [self.g_andamento, self.g_frequenze, self.mappa,
+                        self.legenda_andamento]
 
     # ------------------------------------------------------------- comandi
     def nuovo(self) -> None:
@@ -213,6 +245,8 @@ class VistaEmozioni(VistaSezioni):
         self._aggiorna_frequenze()
         self._aggiorna_correlazioni()
         self._aggiorna_elenco()
+        self.contenitore.sezioni["attivita"].imposta_nota(
+            self.riq_attivita.nota())
 
     def _aggiorna_oggi(self) -> None:
         """Come è andata oggi, in breve, e il pulsante per scrivere."""
@@ -333,16 +367,23 @@ class VistaEmozioni(VistaSezioni):
                                     f"{faccia(u)}   ({r['n']} voci)")
         self.mappa.imposta_dati(elenco, dati, suggerimenti)
 
+    def _cambia_misure_andamento(self) -> None:
+        self.db.imposta("emozioni_andamento_misure",
+                        ",".join(sorted(self.legenda_andamento.attive())))
+        self._aggiorna_andamento()
+
     def _aggiorna_andamento(self) -> None:
-        """Come sono andati umore, energia e stress.
+        """Come sono andati umore, energia, stress e lucidità.
 
         Di norma un punto per giorno, con la media delle voci di quel giorno.
         Ma quando in tutta la finestra c'è **un giorno solo** con delle voci,
         una linea di un punto non dice niente: allora si scende dentro la
         giornata e si disegnano le voci una per una, **all'ora in cui le hai
         scritte** — se la mattina è andata diversa dalla sera, è lì che si
-        vede.
+        vede. In tutti e due i casi si disegnano solo le misure accese
+        nella legenda.
         """
+        attive = self.legenda_andamento.attive()
         dal, al = self.nav_andamento.esteso()
         righe = self.db.medie_giorno(dal, al)
         sezione = self.contenitore.sezioni["andamento"]
@@ -353,10 +394,8 @@ class VistaEmozioni(VistaSezioni):
                 def a_ore(campo):
                     return [(v["ora"][:5], float(v[campo])) for v in voci]
                 self.g_andamento.imposta_serie([
-                    ("umore", a_ore("umore"), self.c["accento"]),
-                    ("energia", a_ore("energia"), "#35c4d7"),
-                    ("stress", a_ore("stress"), "#f7913a"),
-                ])
+                    (nome, a_ore(chiave), colore or self.c["accento"])
+                    for chiave, nome, colore in MISURE if chiave in attive])
                 sezione.imposta_nota(
                     f"{data_it(giorno)[:5]}, ora per ora · {len(voci)} voci")
                 return
@@ -375,10 +414,8 @@ class VistaEmozioni(VistaSezioni):
         def punti(campo):
             return [(data_it(r["data"])[:5], float(r[campo])) for r in righe]
         self.g_andamento.imposta_serie([
-            ("umore", punti("umore"), self.c["accento"]),
-            ("energia", punti("energia"), "#35c4d7"),
-            ("stress", punti("stress"), "#f7913a"),
-        ])
+            (nome, punti(chiave), colore or self.c["accento"])
+            for chiave, nome, colore in MISURE if chiave in attive])
 
     def _aggiorna_frequenze(self) -> None:
         dal, al = intervallo(self.periodo("frequenze"))
@@ -411,6 +448,12 @@ class VistaEmozioni(VistaSezioni):
         studio: dict[str, int] = {}
         for r in self.db.studio(dal, al):
             studio[r["data"]] = studio.get(r["data"], 0) + r["minuti"]
+        # quante abitudini hai fatto, giorno per giorno: serve a confrontare
+        # i giorni in cui ne hai fatte la metà o più con quelli in cui no
+        totale_abitudini = len(self.db.abitudini())
+        fatte_giorno: dict[str, int] = {}
+        for g, _id in self.db.registro(dal, al):
+            fatte_giorno[g] = fatte_giorno.get(g, 0) + 1
 
         def confronta(nome: str, campo: str, condizione):
             """Due medie a confronto; i giorni senza quel dato restano fuori.
@@ -418,6 +461,19 @@ class VistaEmozioni(VistaSezioni):
             La condizione può rispondere `None`: vuol dire «di quel giorno non
             so niente», e un giorno senza dato non è un giorno in cui la cosa
             non è successa.
+
+            Non basta più uno scostamento grande: deve esserlo **rispetto a
+            quanto quella misura va già su e giù da sola**. Un salto di 1,5
+            punti non dice niente se l'umore in quei giorni oscillava già di
+            3 punti per conto suo — è dentro il rumore normale. Lo stesso
+            salto, con un umore che di solito si muove di mezzo punto, è un
+            segnale vero. Quel rapporto è lo scarto quadratico medio messo
+            in comune fra i due gruppi (la stessa idea della «d di Cohen»,
+            una misura classica per confrontare due gruppi che tenga conto
+            di quanto variano): si richiede che sia di almeno 0,5 — una
+            differenza di mezza deviazione standard, soglia comune per dire
+            «non è solo rumore» senza pretendere la certezza di un test
+            statistico vero, che con poche decine di giorni non si può fare.
             """
             dentro, fuori = [], []
             for g, r in medie.items():
@@ -427,8 +483,13 @@ class VistaEmozioni(VistaSezioni):
                 (dentro if esito else fuori).append(float(r[campo]))
             if len(dentro) < 3 or len(fuori) < 3:
                 return None
-            return (nome, campo, media(dentro) - media(fuori),
-                    len(dentro), len(dentro) + len(fuori))
+            scostamento = media(dentro) - media(fuori)
+            insieme = dentro + fuori
+            spargimento = statistics.pstdev(insieme) if len(set(insieme)) > 1 else 0.0
+            effetto = abs(scostamento) / spargimento if spargimento else (
+                999.0 if abs(scostamento) >= 0.2 else 0.0)
+            return (nome, campo, scostamento, len(dentro),
+                    len(dentro) + len(fuori), effetto)
 
         def misura(campo: str):
             """Valore di salute del giorno, oppure None se non è stato registrato."""
@@ -437,10 +498,31 @@ class VistaEmozioni(VistaSezioni):
                 return valore or None
             return leggi
 
+        def orario(campo: str):
+            """Minuti dalle 18 in poi (vedi `minuti_notturni`), o None se manca."""
+            def leggi(g):
+                testo = salute[g][campo] if g in salute else ""
+                return minuti_notturni(ore_minuti(testo)) if testo else None
+            return leggi
+
         sonno, passi = misura("sonno"), misura("passi")
+        battito = misura("battito")
+        acqua = misura("acqua")
+        profondo = misura("sonno_profondo")
+        a_letto = orario("a_letto")
+        riposo_medio = media([battito(g) for g in medie if battito(g)])
 
         def soglia(leggi, prova):
             return lambda g: None if leggi(g) is None else prova(leggi(g))
+
+        def weekend(g: str) -> bool:
+            return date.fromisoformat(g).weekday() >= 5
+
+        def sonno_profondo_alto(g: str) -> bool | None:
+            tot, prof = sonno(g), profondo(g)
+            if not tot or prof is None:
+                return None
+            return (prof / tot) >= 0.22
 
         prove = [
             confronta("Quando dormi meno di 6 ore", "umore",
@@ -455,12 +537,27 @@ class VistaEmozioni(VistaSezioni):
                       lambda g: lavoro.get(g, 0) > 240),
             confronta("Quando studi più di 3 ore", "stress",
                       lambda g: studio.get(g, 0) > 180),
+            confronta("Quando il battito a riposo è più alto del solito",
+                      "stress",
+                      soglia(battito, lambda v: v > riposo_medio)
+                      if riposo_medio else lambda g: None),
+            confronta("Quando bevi almeno due litri d'acqua", "energia",
+                      soglia(acqua, lambda v: v >= 2.0)),
+            confronta("Quando vai a letto dopo mezzanotte", "umore",
+                      soglia(a_letto, lambda v: v >= 1440)),
+            confronta("Nel weekend", "umore", lambda g: weekend(g)),
+            confronta("Quando fai almeno metà delle tue abitudini", "umore",
+                      lambda g: fatte_giorno.get(g, 0) >= totale_abitudini / 2
+                      if totale_abitudini else None),
+            confronta("Quando il sonno profondo è più di un quinto del totale",
+                      "energia", sonno_profondo_alto),
         ]
         # «tentate» sono i confronti che si potevano fare davvero; fra quelli
-        # si tengono solo gli scostamenti abbastanza netti
+        # si tengono solo quelli che passano la soglia dell'effetto — vedi
+        # `confronta` per perché non basta più un numero assoluto
         tentate = [p for p in prove if p]
-        prove = [p for p in tentate if abs(p[2]) >= 0.25]
-        prove.sort(key=lambda p: -abs(p[2]))
+        prove = [p for p in tentate if p[5] >= 0.5]
+        prove.sort(key=lambda p: -p[5])
         if not prove:
             if not tentate:
                 spiegazione = (
@@ -469,32 +566,39 @@ class VistaEmozioni(VistaSezioni):
                     "giorni da una parte e tre dall'altra (per esempio tre "
                     "notti corte e tre normali). Prova con un periodo più lungo.")
             else:
-                massimo = max(abs(p[2]) for p in tentate)
+                massimo = max(p[5] for p in tentate)
                 spiegazione = (
-                    f"Niente di netto: su {len(medie)} giorni la differenza "
-                    f"più grande è di {numero(massimo, 1)} punti su dieci, "
-                    "troppo poca per darle un peso.")
+                    f"Niente di netto: su {len(medie)} giorni, anche la "
+                    "differenza più marcata resta dentro quanto quella misura "
+                    f"oscilla già da sola ({numero(massimo, 1)} volte il suo "
+                    "scarto, contro la 0,5 che serve per contare qualcosa).")
             nota_vuota = etichetta(spiegazione, "NotaScheda")
             nota_vuota.setWordWrap(True)
             self.lay_corr.addWidget(nota_vuota)
             self.lay_corr.addStretch(1)
             return
 
-        for nome, chiave, scostamento, quanti, su_quanti in prove:
+        for nome, chiave, scostamento, quanti, su_quanti, effetto in prove:
             buono = scostamento > 0 if chiave != "stress" else scostamento < 0
             colore = self.c["entrata"] if buono else self.c["uscita"]
             segno = "+" if scostamento > 0 else "−"
+            # «nettamente» da 0,8 in su (effetto grande), altrimenti solo
+            # «si vede»: anche superata la soglia, la forza del segnale varia
+            quanto = "nettamente" if effetto >= 0.8 else "si vede che"
             testo = QLabel(
                 f"{nome}  <span style='color:{colore}; font-weight:700'>"
                 f"{chiave} {segno}{numero(abs(scostamento), 1)}</span>"
-                f" <span style='color:{self.c['testo2']}'>· {quanti} giorni "
-                f"su {su_quanti}</span>")
+                f" <span style='color:{self.c['testo2']}'>· {quanto} cambia · "
+                f"{quanti} giorni su {su_quanti}</span>")
             testo.setTextFormat(Qt.RichText)
             testo.setWordWrap(True)
             self.lay_corr.addWidget(testo)
         nota = etichetta("Sono confronti fra medie, non cause: dicono dove "
-                         "guardare. Più corto è il periodo, meno giorni stanno "
-                         "dietro a ogni riga.", "NotaScheda")
+                         "guardare. Restano solo quelli abbastanza netti da "
+                         "distinguersi da come quella misura oscilla di suo, "
+                         "non ogni scostamento che capita. Più corto è il "
+                         "periodo, meno giorni stanno dietro a ogni riga.",
+                         "NotaScheda")
         nota.setWordWrap(True)
         self.lay_corr.addWidget(nota)
         self.lay_corr.addStretch(1)

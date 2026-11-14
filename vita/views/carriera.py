@@ -157,7 +157,7 @@ class VistaCarriera(VistaSezioni):
 
         # ------------------------------------------------------------ soldi
         self.g_soldi = GraficoCiambella(self.c)
-        self.g_soldi.formato = lambda v: euro(v)
+        self.g_soldi.formato = lambda v: euro(v).replace(",00", "")
         self.aggiungi("soldi", self.g_soldi)
 
         # --------------------------------------------------------- registro
@@ -387,6 +387,15 @@ class VistaCarriera(VistaSezioni):
                 pezzi.append(durata(minuti))
             if p["scadenza"]:
                 pezzi.append(f"entro {data_it(p['scadenza'])}")
+            # Un progetto «fatto» perde cliente e scadenza: quello che resta
+            # da dire è nella nota, se c'è. Prima restava «nessun dettaglio»
+            # anche con una nota scritta per intero — il cartellino diceva
+            # il contrario di quello che c'era nell'archivio.
+            if not pezzi and p["note"]:
+                nota_breve = p["note"].strip()
+                if len(nota_breve) > 80:
+                    nota_breve = nota_breve[:79].rstrip() + "…"
+                pezzi.append(nota_breve)
             scheda = SchedaProgetto(p, self.c, " · ".join(pezzi) or "nessun dettaglio")
             scheda.scelto.connect(self._modifica_progetto)
             scheda.menu.connect(self._menu_progetto)
@@ -447,7 +456,7 @@ class VistaCarriera(VistaSezioni):
         voci = self.db.incassi_per_progetto(dal, al)
         totale = sum(v for _, v, _ in voci)
         self.g_soldi.imposta_dati([(nome, valore, colore) for nome, valore, colore in voci],
-                                  euro(totale) if totale else "—", "incassati")
+                                  euro(totale).replace(",00", "") if totale else "—", "incassati")
         self.contenitore.sezioni["soldi"].imposta_nota(
             f"{euro(totale)} in totale" if totale else "nessun incasso registrato")
 
@@ -493,13 +502,17 @@ class VistaCarriera(VistaSezioni):
             euro(sum(v["importo"] for v in voci)) + f" in {giorni_inc} giorni")
 
         scadenze = self.db.query(
-            "SELECT * FROM scadenze WHERE area='carriera' ORDER BY fatta, data LIMIT 60")
+            "SELECT * FROM scadenze WHERE area='carriera' ORDER BY fatta, (data IS NULL OR data=''), data LIMIT 60")
         self.tab_scadenze.setRowCount(len(scadenze))
         for i, s in enumerate(scadenze):
-            cella = QTableWidgetItem(relativa(s["data"]))
+            # senza data non è in ritardo (vedi la stessa riga in Accademica):
+            # una stringa vuota viene prima di qualunque giorno, e senza
+            # questo controllo la riga resterebbe rossa per sempre
+            giorno = s["data"] or ""
+            cella = QTableWidgetItem(relativa(giorno) if giorno else "senza data")
             cella.setData(Qt.UserRole, s["id"])
-            cella.setToolTip(data_it(s["data"]))
-            if not s["fatta"] and s["data"] <= date.today().isoformat():
+            cella.setToolTip(data_it(giorno) if giorno else "Nessuna data fissata")
+            if giorno and not s["fatta"] and giorno <= date.today().isoformat():
                 cella.setForeground(Qt.red)
             self.tab_scadenze.setItem(i, 0, cella)
             self.tab_scadenze.setItem(i, 1, QTableWidgetItem(s["titolo"]))
